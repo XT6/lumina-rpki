@@ -25,4 +25,6 @@ We create unit tests for anything that can be unit tested.
 
 Each issue has tests it has to pass. No issue can be closed without tests passing unless explicitly acknowledged by me.
 
+Each issue gets it's own PR.
+
 No milestone can be closed without all tests passing as well. 
