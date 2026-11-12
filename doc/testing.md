@@ -138,6 +138,19 @@ Barry generates fresh keys on every run, so regenerating changes every file byte
 - Barry picks each certificate's key from the folder by hashing the file name. With a small pool, unrelated certificates, even a CA and its child, can end up sharing a key.
 - Key order depends on the order the folder is read in, which can differ between macOS and Linux.
 
+### Using a fixture in a test
+
+```elixir
+fixture = Lumina.Test.Fixture.load!("m0-minimal-valid")
+fixture.tal_path     # case.tal
+fixture.rsync_root   # the rsync tree, laid out by publication point
+fixture.expected     # :valid, or {:invalid, rejects}
+```
+
+`load!/1` raises if the fixture doesn't exist or fails its metadata check. Shared test helpers live in `test/support/`, which is compiled only in the test environment.
+
+`m0-minimal-valid` (TA → CA → ROA) is the positive baseline. New invalid fixtures should usually be this tree with one field overridden, so a rejection can be traced to that one change.
+
 ### Catalog
 
 [`doc/tests/CATALOG.md`](tests/CATALOG.md) lists every fixture by milestone, with its rationale, RFC references and expected outcome. It is generated from the metadata, so never edit it by hand:

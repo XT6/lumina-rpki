@@ -4,6 +4,23 @@
 
 Every Barry fixture: what it checks, why it exists, and what a correct validator must conclude. See [testing.md](../testing.md#barry-fixtures) for the format.
 
-0 fixtures: 0 valid, 0 invalid.
+1 fixture: 1 valid, 0 invalid.
 
-No fixtures yet.
+## M0
+
+### `m0-minimal-valid`: Minimal valid repository: TA, one CA, one ROA
+
+The smallest repository that exercises a full chain: a trust anchor that
+certifies one CA, which issues one ROA. Each publication point has the CRL
+and manifest Barry generates. Nothing is overridden, so every object is
+correct.
+
+In M0 it proves the fixture pipeline works end to end: descriptor,
+generation, metadata check, catalog and test helper. In later milestones
+it is the positive baseline: every stage of the validator must accept it
+and produce exactly one VRP. Invalid fixtures should differ from it in
+one field, so a rejection can be traced to that one change.
+
+- **Expected:** valid
+- **RFC:** [6481 §2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2)), [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)), [6487 §4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4)), [9286 §4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4)), [9582 §4](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4))
+- **Files:** [descriptor](../../test/fixtures/barry/m0-minimal-valid/case.repo) · [metadata](../../test/fixtures/barry/m0-minimal-valid/case.exs) · [rsync tree](../../test/fixtures/barry/m0-minimal-valid/rsync)

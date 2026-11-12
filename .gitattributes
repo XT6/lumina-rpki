@@ -1,2 +1,12 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# RPKI objects are DER-encoded binaries; never normalize line endings.
+*.cer binary
+*.crl binary
+*.mft binary
+*.roa binary
+*.gbr binary
+*.asa binary
+*.sig binary
+*.tak binary
