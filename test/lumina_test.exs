@@ -1,4 +1,8 @@
 defmodule LuminaTest do
+  @moduledoc """
+  Smoke test for the application module: the project builds and reports
+  its version.
+  """
   use ExUnit.Case, async: true
   doctest Lumina
 

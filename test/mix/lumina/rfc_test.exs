@@ -1,4 +1,9 @@
 defmodule Mix.Lumina.RFCTest do
+  @moduledoc """
+  Tests RFC reference parsing and the section index built from doc/rfc.
+  These decide whether a test or fixture's RFC citation is accepted, so a
+  bug here would let wrong citations through or reject correct ones.
+  """
   use ExUnit.Case, async: true
   doctest Mix.Lumina.RFC
 

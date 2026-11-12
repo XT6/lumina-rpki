@@ -1,5 +1,38 @@
 # Testing conventions
 
+Every test is documented, and every requirement it checks is traced to an RFC section. Both rules are enforced by the test suite, and [`doc/tests/CATALOG.md`](tests/CATALOG.md) lists every test with its documentation.
+
+## Documenting unit tests
+
+- **Every test module has a `@moduledoc`.** It says what the module covers and why those tests exist: what would go wrong without them. `@moduledoc false` is not allowed.
+- **Every test name is a sentence stating the behaviour checked,** such as `"rejects a ROA whose version is not 0"`, not `"version test"`.
+- **`@tag doc: "..."`** adds a reason that doesn't fit in the name: an edge case, a past bug, or why the setup looks odd. It applies to the next test only.
+- **Write tests as literal `test "..." do` blocks.** Tests generated in a loop, or with interpolated names, can't be read from source. Put the loop inside one test instead.
+
+```elixir
+defmodule Lumina.Example.RoaTest do
+  @moduledoc """
+  ROA eContent checks from RFC 9582 §4. A validator that accepts a malformed
+  ROA would publish VRPs nobody authorized.
+  """
+  use ExUnit.Case, async: true
+
+  describe "version" do
+    @tag rfc: "9582#4.1",
+         doc: "Barry writes version 0 by default, so the fixture overrides it explicitly."
+    test "rejects a ROA whose version is not 0" do
+      # ...
+    end
+  end
+end
+```
+
+`test/test_docs_test.exs` enforces this:
+
+- The suite fails if a test module has no `@moduledoc` (or `@moduledoc false`), if a test name is blank, or if a `doc` tag isn't a literal string.
+- It also checks that the tests read from source match exactly the tests ExUnit runs, so the catalog can't silently miss one. When a single file is run, only the modules loaded for that run are compared.
+- Doctests are left out of the catalog: they are documented by the function docs they come from.
+
 ## Linking tests to RFC sections
 
 Lumina is built only from the RFC texts in [`doc/rfc/`](rfc/README.md). Every test that checks a requirement says which RFC section the requirement comes from. That makes it possible to see which parts of each RFC are covered, and to trace a failing test back to the text it enforces.
@@ -19,6 +52,7 @@ The value is a single reference or a list of them. Use the most specific section
 
 ```elixir
 defmodule Lumina.Example.CertificateTest do
+  @moduledoc "Resource certificate profile checks (RFC 6487 §4)."
   use ExUnit.Case, async: true
 
   # Applies to every test in the module.
@@ -151,15 +185,22 @@ fixture.expected     # :valid, or {:invalid, rejects}
 
 `m0-minimal-valid` (TA → CA → ROA) is the positive baseline. New invalid fixtures should usually be this tree with one field overridden, so a rejection can be traced to that one change.
 
-### Catalog
-
-[`doc/tests/CATALOG.md`](tests/CATALOG.md) lists every fixture by milestone, with its rationale, RFC references and expected outcome. It is generated from the metadata, so never edit it by hand:
-
-```sh
-mix lumina.test_catalog           # regenerate after adding or changing a fixture
-mix lumina.test_catalog --check   # what CI and `mix check` run: fail if the catalog is out of date
-```
-
 ### Tests that run Barry
 
 Tests tagged `:barry` run the real Barry binary. They're excluded automatically when `_tools/bin/barry` doesn't exist. CI runs them in the `barry` job with `mix test --only barry`.
+
+## Catalog
+
+[`doc/tests/CATALOG.md`](tests/CATALOG.md) has two parts:
+
+- **Barry fixtures:** grouped by milestone, with each fixture's rationale, RFC references and expected outcome.
+- **Unit tests:** grouped by module, with the module's `@moduledoc`, then each test's name, `describe` block, RFC references and `doc` tag.
+
+It is generated from the fixture metadata and the test sources, so never edit it by hand:
+
+```sh
+mix lumina.test_catalog           # regenerate after adding or changing a fixture or test
+mix lumina.test_catalog --check   # what CI and `mix check` run: fail if the catalog is out of date
+```
+
+The catalog doesn't record line numbers, so editing a test's body doesn't make it stale. Adding, removing or renaming a test, or changing its documentation or RFC references, does.

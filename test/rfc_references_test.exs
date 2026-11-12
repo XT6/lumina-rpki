@@ -1,13 +1,19 @@
 defmodule Lumina.RFCReferencesTest do
-  # Every :rfc tag in the test suite must point to an RFC and section that
-  # exist in doc/rfc. See doc/testing.md.
+  @moduledoc """
+  Enforces that every :rfc tag in the test suite points to an RFC and
+  section that exist in doc/rfc, so the coverage report and the catalog
+  never cite text we don't have. See doc/testing.md.
+  """
   use ExUnit.Case, async: true
 
-  alias Mix.Lumina.{RFC, RFCTags}
+  alias Mix.Lumina.{RFC, TestScanner}
 
   test "every RFC reference in the test suite is valid" do
-    {tests, problems} = RFCTags.scan_dir("test")
-    problems = problems ++ RFCTags.validate(tests, RFC.load_library("doc/rfc"))
+    {modules, problems} = TestScanner.scan_dir("test")
+
+    problems =
+      problems ++
+        TestScanner.validate_refs(TestScanner.tests(modules), RFC.load_library("doc/rfc"))
 
     assert problems == [],
            "invalid RFC references:\n" <>

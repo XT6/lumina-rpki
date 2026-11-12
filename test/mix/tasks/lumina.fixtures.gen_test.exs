@@ -1,6 +1,10 @@
 defmodule Mix.Tasks.Lumina.Fixtures.GenTest do
-  # Runs the real Barry binary. Excluded unless Barry is installed; CI runs
-  # it in the barry job.
+  @moduledoc """
+  Tests fixture generation with the real Barry binary: output layout,
+  removal of stale files, the fixed validity period, and that regenerating
+  gives the same file list and check result. Tagged :barry, so it is
+  excluded unless Barry is installed; CI runs it in the barry job.
+  """
   use ExUnit.Case, async: true
 
   alias Mix.Lumina.Fixtures

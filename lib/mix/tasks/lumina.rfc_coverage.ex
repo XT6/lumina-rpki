@@ -26,7 +26,7 @@ defmodule Mix.Tasks.Lumina.RfcCoverage do
 
   use Mix.Task
 
-  alias Mix.Lumina.{Fixtures, RFC, RFCTags}
+  alias Mix.Lumina.{Fixtures, RFC, TestScanner}
 
   @switches [rfc: :integer, tests: :string, rfc_dir: :string, fixtures: :string]
 
@@ -34,12 +34,13 @@ defmodule Mix.Tasks.Lumina.RfcCoverage do
   def run(args) do
     {opts, _rest} = OptionParser.parse!(args, strict: @switches)
     library = RFC.load_library(Keyword.get(opts, :rfc_dir, "doc/rfc"))
-    {tests, problems} = RFCTags.scan_dir(Keyword.get(opts, :tests, "test"))
+    {modules, problems} = TestScanner.scan_dir(Keyword.get(opts, :tests, "test"))
+    tests = modules |> TestScanner.tests() |> Enum.filter(&(&1.refs != []))
 
     {fixtures, fixture_problems} =
       Fixtures.load_all(Keyword.get(opts, :fixtures, Fixtures.dir()), library)
 
-    case problems ++ RFCTags.validate(tests, library) ++ fixture_problems do
+    case problems ++ TestScanner.validate_refs(tests, library) ++ fixture_problems do
       [] ->
         (tests ++ Enum.map(fixtures, &fixture_entry/1))
         |> report(library, opts[:rfc])
@@ -67,7 +68,7 @@ defmodule Mix.Tasks.Lumina.RfcCoverage do
   Builds the coverage report. With `only_rfc`, every section of that RFC is
   listed; otherwise only covered sections are.
   """
-  @spec report([RFCTags.tagged_test()], RFC.library(), pos_integer() | nil) :: String.t()
+  @spec report([map()], RFC.library(), pos_integer() | nil) :: String.t()
   def report(tests, library, only_rfc \\ nil) do
     coverage =
       for test <- tests, string <- test.refs, reduce: %{} do
