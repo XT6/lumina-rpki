@@ -27,3 +27,6 @@ lumina-*.tar
 
 # macOS Finder metadata.
 .DS_Store
+
+# Erlang generated from asn1/build/ at compile time.
+/gen/
