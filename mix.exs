@@ -6,6 +6,7 @@ defmodule Lumina.MixProject do
       app: :lumina,
       version: "0.1.0",
       elixir: "~> 1.20",
+      elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
@@ -25,6 +26,10 @@ defmodule Lumina.MixProject do
   end
 
   # Run "mix help deps" to learn about dependencies.
+  # test/support holds helpers shared by tests; compiled in the test env only.
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_env), do: ["lib"]
+
   # Only development tools go here; Lumina has no runtime dependencies.
   defp deps do
     [
