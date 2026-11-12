@@ -15,8 +15,12 @@ mix compile --warnings-as-errors   # build; warnings fail the build
 mix test                           # full test suite (includes doctests)
 mix test test/lumina_test.exs      # one test file
 mix test test/lumina_test.exs:5    # one test, by line number
-mix format                         # format code (mix format --check-formatted in CI)
+mix format                         # format code
+mix dialyzer                       # type analysis; PLTs are cached in priv/plts/ (git-ignored)
+mix check                          # everything CI runs: compile (warnings as errors), format check, tests, Dialyzer
 ```
+
+Lumina has no runtime dependencies. Third-party packages are for development only (`only: [:dev, :test], runtime: false`), pinned to exact versions in `mix.exs`.
 
 Mix's default `.gitignore` ignores `/doc/`. This repo removes that line because `doc/` holds the RFC library. Keep it that way, and send any generated ExDoc output somewhere else.
 
