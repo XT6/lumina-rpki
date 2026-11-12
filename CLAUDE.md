@@ -17,11 +17,12 @@ mix test test/lumina_test.exs      # one test file
 mix test test/lumina_test.exs:5    # one test, by line number
 mix format                         # format code
 mix dialyzer                       # type analysis; PLTs are cached in priv/plts/ (git-ignored)
-mix check                          # everything CI runs: compile (warnings as errors), format check, tests, catalog check, Dialyzer
+mix check                          # everything CI runs: compile (warnings as errors), format check, tests, catalog and ASN.1 extraction checks, Dialyzer
 mix lumina.rfc_coverage [--rfc N]  # which RFC sections the tests and fixtures cover
 mix lumina.fixtures.gen [ID...]    # regenerate Barry fixtures (needs scripts/install-barry.sh)
 mix test --only barry              # tests that run the real Barry binary (excluded when it isn't installed)
 mix lumina.test_catalog            # regenerate doc/tests/CATALOG.md after adding or changing a test or fixture
+mix lumina.asn1.extract            # regenerate asn1/rfc/ (ASN.1 modules extracted verbatim from doc/rfc)
 ```
 
 ## Tests
@@ -39,7 +40,7 @@ Mix's default `.gitignore` ignores `/doc/`. This repo removes that line because 
 ## Source of truth
 
 - The implementation is derived **only** from the RFC text documents, kept in `doc/rfc/`. Don't rely on other RPKI implementations' behavior or code; cite the RFC and section when making a validation decision.
-- ASN.1 modules may be extracted from the RFC texts themselves to generate parsers/decoders.
+- ASN.1 modules are extracted verbatim from the RFC texts into `asn1/rfc/` (never edit them; see `asn1/README.md`). Compiler workarounds go in documented patches, not in the extracted files.
 - Test cases are developed together with Barry (an RPKI test-case tool; URL still to be filled in `GOAL.md`).
 
 ## Planned feature scope
