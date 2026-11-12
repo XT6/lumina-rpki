@@ -1,6 +1,9 @@
 defmodule Lumina.FixturesMetadataTest do
-  # Every Barry fixture must document why it exists, which RFC sections it
-  # checks and what a validator must conclude from it. See doc/testing.md.
+  @moduledoc """
+  Enforces that every Barry fixture documents why it exists, which RFC
+  sections it checks and what a validator must conclude from it, and that
+  its generated output is present. See doc/testing.md.
+  """
   use ExUnit.Case, async: true
 
   alias Mix.Lumina.Fixtures

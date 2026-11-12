@@ -21,10 +21,12 @@ mix check                          # everything CI runs: compile (warnings as er
 mix lumina.rfc_coverage [--rfc N]  # which RFC sections the tests and fixtures cover
 mix lumina.fixtures.gen [ID...]    # regenerate Barry fixtures (needs scripts/install-barry.sh)
 mix test --only barry              # tests that run the real Barry binary (excluded when it isn't installed)
-mix lumina.test_catalog            # regenerate doc/tests/CATALOG.md after adding or changing a fixture
+mix lumina.test_catalog            # regenerate doc/tests/CATALOG.md after adding or changing a test or fixture
 ```
 
 ## Tests
+
+Every test module needs a `@moduledoc` saying what it covers and why. Every test name states the behaviour checked, and `@tag doc: "..."` adds detail. Write literal `test "..."` blocks, not tests generated in loops. The suite fails on an undocumented module. After adding, renaming or re-documenting tests or fixtures, run `mix lumina.test_catalog`, or CI fails.
 
 Tag every test that checks an RFC requirement with the section it comes from, for example `@tag rfc: "6487#4.8.9"`. Use literal strings, not attributes. References are checked against the section headings in `doc/rfc/`, and an invalid one fails the suite. Full convention: `doc/testing.md`.
 

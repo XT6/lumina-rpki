@@ -1,4 +1,9 @@
 defmodule Mix.Lumina.FixturesTest do
+  @moduledoc """
+  Tests the fixture metadata check: every way a fixture can be incomplete
+  or wrong must be reported, and case.exs must be read as data without
+  running any code in it. Fixtures are built in temporary directories.
+  """
   use ExUnit.Case, async: true
 
   alias Mix.Lumina.{Fixtures, RFC}

@@ -1,4 +1,8 @@
 defmodule Mix.Tasks.Lumina.RfcCoverageTest do
+  @moduledoc """
+  Tests the RFC coverage report: covered sections in document order, and
+  the full per-RFC view used as the RFC 8897 requirements checklist.
+  """
   use ExUnit.Case, async: true
 
   alias Mix.Lumina.RFC
