@@ -42,6 +42,14 @@ Mix's default `.gitignore` ignores `/doc/`. This repo removes that line because 
 - ASN.1 modules may be extracted from the RFC texts themselves to generate parsers/decoders.
 - Test cases are developed together with Barry (an RPKI test-case tool; URL still to be filled in `GOAL.md`).
 
+## RFC findings log
+
+Record every RFC erratum, ambiguity, missing or obsolete reference, and tooling incompatibility you run into in `doc/rfc-findings.md`, as you find it. It's talk material for the maintainer.
+- Before relying on an RFC's ASN.1 module, worked example or test vector, check its errata at <https://www.rfc-editor.org/errata.json> and record anything relevant.
+- Each entry quotes the text, gives the official errata status (ID, or "none found" with the date) and links the issue that resolves it.
+- Never submit errata to the RFC Editor yourself. Mark new ones "not reported" and tell the maintainer.
+- Our own mistakes don't belong in the entries. If they say something about the process, add them to "Process notes".
+
 ## Planned feature scope
 
 1. TAL parsing
