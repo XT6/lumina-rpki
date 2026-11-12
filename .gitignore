@@ -21,3 +21,9 @@ lumina-*.tar
 
 # Dialyzer PLTs.
 /priv/plts/
+
+# Locally built tools (scripts/install-barry.sh).
+/_tools/
+
+# macOS Finder metadata.
+.DS_Store
