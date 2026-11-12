@@ -17,10 +17,11 @@ mix test test/lumina_test.exs      # one test file
 mix test test/lumina_test.exs:5    # one test, by line number
 mix format                         # format code
 mix dialyzer                       # type analysis; PLTs are cached in priv/plts/ (git-ignored)
-mix check                          # everything CI runs: compile (warnings as errors), format check, tests, Dialyzer
+mix check                          # everything CI runs: compile (warnings as errors), format check, tests, catalog check, Dialyzer
 mix lumina.rfc_coverage [--rfc N]  # which RFC sections the tests and fixtures cover
 mix lumina.fixtures.gen [ID...]    # regenerate Barry fixtures (needs scripts/install-barry.sh)
 mix test --only barry              # tests that run the real Barry binary (excluded when it isn't installed)
+mix lumina.test_catalog            # regenerate doc/tests/CATALOG.md after adding or changing a fixture
 ```
 
 ## Tests

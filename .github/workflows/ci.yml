@@ -46,6 +46,7 @@ jobs:
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted
       - run: mix test
+      - run: mix lumina.test_catalog --check
       - run: mix dialyzer --format github
 
   barry:

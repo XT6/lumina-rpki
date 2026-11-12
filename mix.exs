@@ -38,6 +38,7 @@ defmodule Lumina.MixProject do
         "compile --warnings-as-errors",
         "format --check-formatted",
         "test",
+        "lumina.test_catalog --check",
         "dialyzer"
       ]
     ]
