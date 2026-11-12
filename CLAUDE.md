@@ -18,7 +18,12 @@ mix test test/lumina_test.exs:5    # one test, by line number
 mix format                         # format code
 mix dialyzer                       # type analysis; PLTs are cached in priv/plts/ (git-ignored)
 mix check                          # everything CI runs: compile (warnings as errors), format check, tests, Dialyzer
+mix lumina.rfc_coverage [--rfc N]  # which RFC sections the tests cover
 ```
+
+## Tests
+
+Tag every test that checks an RFC requirement with the section it comes from, for example `@tag rfc: "6487#4.8.9"`. Use literal strings, not attributes. References are checked against the section headings in `doc/rfc/`, and an invalid one fails the suite. Full convention: `doc/testing.md`.
 
 Lumina has no runtime dependencies. Third-party packages are for development only (`only: [:dev, :test], runtime: false`), pinned to exact versions in `mix.exs`.
 
