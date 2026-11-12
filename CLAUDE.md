@@ -22,7 +22,7 @@ mix lumina.rfc_coverage [--rfc N]  # which RFC sections the tests and fixtures c
 mix lumina.fixtures.gen [ID...]    # regenerate Barry fixtures (needs scripts/install-barry.sh)
 mix test --only barry              # tests that run the real Barry binary (excluded when it isn't installed)
 mix lumina.test_catalog            # regenerate doc/tests/CATALOG.md after adding or changing a test or fixture
-mix lumina.asn1.extract            # regenerate asn1/rfc/ (ASN.1 modules extracted verbatim from doc/rfc)
+mix lumina.asn1.extract            # regenerate asn1/rfc/ (verbatim from doc/rfc) and asn1/build/ (with asn1/patches/ applied)
 ```
 
 ## Tests
@@ -40,7 +40,7 @@ Mix's default `.gitignore` ignores `/doc/`. This repo removes that line because 
 ## Source of truth
 
 - The implementation is derived **only** from the RFC text documents, kept in `doc/rfc/`. Don't rely on other RPKI implementations' behavior or code; cite the RFC and section when making a validation decision.
-- ASN.1 modules are extracted verbatim from the RFC texts into `asn1/rfc/` (never edit them; see `asn1/README.md`). Compiler workarounds go in documented patches, not in the extracted files.
+- ASN.1 modules are extracted verbatim from the RFC texts into `asn1/rfc/`. Compiler workarounds live in `asn1/patches/` (strict unified diffs; each hunk has a `-- LUMINA PATCH (<kind>): <reason>` comment, and its kind limits what it may change), and `asn1/build/` holds the result. Never edit `rfc/` or `build/`, and never apply RFC errata by patching; enforce them in validation. See `asn1/README.md`.
 - Test cases are developed together with Barry (an RPKI test-case tool; URL still to be filled in `GOAL.md`).
 
 ## RFC findings log

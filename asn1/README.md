@@ -5,8 +5,10 @@ Lumina decodes RPKI objects with ASN.1 modules taken **verbatim from the RFC tex
 | Folder | Contents | Produced by |
 | --- | --- | --- |
 | `rfc/` | Each module exactly as its RFC defines it | `mix lumina.asn1.extract` |
+| `patches/` | Unified diffs that make `rfc/` compile with OTP's `asn1ct` | Written by hand and reviewed |
+| `build/` | `rfc/` with the patches applied: the compiler input | `mix lumina.asn1.extract` |
 
-The patches that make these modules compile with OTP's `asn1ct` (#23) and the compile step (#24) build on `rfc/`.
+The compile step (#24) compiles `build/`.
 
 ## Modules
 
@@ -15,7 +17,6 @@ The patches that make these modules compile with OTP's `asn1ct` (#23) and the co
 | `PKIX1Explicit88` | [5280](../doc/rfc/rfc5280.txt) | A.1 | Certificates, CRLs, names, extensions (explicitly tagged) |
 | `PKIX1Implicit88` | [5280](../doc/rfc/rfc5280.txt) | A.2 | Standard certificate extensions (implicitly tagged) |
 | `CryptographicMessageSyntax2004` | [5652](../doc/rfc/rfc5652.txt) | 12.1 | CMS: `ContentInfo`, `SignedData`, `SignerInfo` |
-| `AttributeCertificateVersion1` | [5652](../doc/rfc/rfc5652.txt) | 12.2 | Imported by the CMS module |
 | `IPAddrAndASCertExtn` | [3779](../doc/rfc/rfc3779.txt) | Appendix A | IP address and AS identifier extensions |
 | `RPKI-ROA-2023` | [9582](../doc/rfc/rfc9582.txt) | 4 | ROA eContent |
 | `RPKIManifest` | [9286](../doc/rfc/rfc9286.txt) | Appendix A | Manifest eContent |
@@ -25,8 +26,8 @@ The list lives in `Mix.Lumina.ASN1` (`lib/mix/lumina/asn1.ex`). Add a module the
 ## Extraction
 
 ```sh
-mix lumina.asn1.extract           # regenerate asn1/rfc/
-mix lumina.asn1.extract --check   # what CI and `mix check` run: fail if asn1/rfc/ differs
+mix lumina.asn1.extract           # regenerate asn1/rfc/ and asn1/build/
+mix lumina.asn1.extract --check   # what CI and `mix check` run: fail if either differs
 ```
 
 For each module, the task:
@@ -39,13 +40,31 @@ For each module, the task:
 
 ASN.1 ignores whitespace, so steps 4 and 5 don't change the module. Anything else in an extracted file is RFC text. Where an RFC indents some lines less than the rest (for example `DEFINITIONS` in RFC 9286), that layout is kept.
 
-Never edit files in `rfc/`. `--check` fails on any difference, and changes needed for the compiler go in patches (#23).
+Never edit files in `rfc/` or `build/`. `--check` fails on any difference, and changes needed for the compiler go in patches.
 
-## Known compiler issues
+## Patches
 
-Compiling the pristine modules with `asn1ct` (OTP 29) currently fails. #23 handles this with documented, encoding-neutral patches:
+The modules as published don't compile with `asn1ct` (OTP 29). Each patch in `patches/` is a unified diff against `rfc/`. Every hunk carries a comment saying why it exists:
 
-- **`PKIX1Explicit88`, `PKIX1Implicit88`:** redefine `UniversalString`, `BMPString` and `UTF8String`, which `asn1ct` treats as built-in.
-- **`IPAddrAndASCertExtn`:** an imported OID error, probably a consequence of the above.
-- **`RPKI-ROA-2023`, `RPKIManifest`:** import `CONTENT-TYPE` from RFC 6268, which isn't in the library. The decision is to patch it out; see #23.
-- **`CryptographicMessageSyntax2004`:** imports `AttributeCertificate` from RFC 3281, which isn't in the library either. RPKI signed objects don't use attribute certificates (RFC 6488 §2.1.4), so #23 decides how to handle it.
+```asn1
+-- LUMINA PATCH (<kind>): <reason>
+```
+
+| Module | Kind | Change | Why | Effect on decoding |
+| --- | --- | --- | --- | --- |
+| `PKIX1Explicit88` | builtin-type | Removes the definitions of `UniversalString`, `BMPString`, `UTF8String` | 1988-syntax workaround; `asn1ct` treats them as built-in ([F-007](../doc/rfc-findings.md#f-007-rfc-5280-modules-redefine-built-in-string-types)) | None: same universal tags |
+| `PKIX1Implicit88` | builtin-type | Deletes the `BMPString, UTF8String` import line | The RFC's own comment says to delete it once "new" types are supported (F-007) | None |
+| `CryptographicMessageSyntax2004` | attribute-certificate | Replaces the imports of `AttributeCertificate` (RFC 3281) and `AttributeCertificateV1` (§12.2) with `SEQUENCE OF ANY` | RFC 3281 is obsolete and not in the library; its successor's module imports from CMS in turn ([F-006](../doc/rfc-findings.md#f-006-cms-module-imports-from-an-obsoleted-rfc), [F-009](../doc/rfc-findings.md#f-009-cms-and-attribute-certificate-modules-import-from-each-other)) | Attribute certificates decode as a list of undecoded elements instead of full structures. RPKI never carries them (RFC 6488 §2.1.4), and M5 rejects any certificate choice other than one EE certificate. |
+| `RPKI-ROA-2023` | content-type | Removes the `CONTENT-TYPE` import and the `ct-routeOriginAttestation` information object | RFC 6268 isn't in the library ([F-005](../doc/rfc-findings.md#f-005-rpki-content-modules-depend-on-a-different-cms-module-generation)) | None: the information object only binds the eContent type to its OID; the CMS decoder (#29) does that instead |
+| `RPKIManifest` | content-type | Same, for `ct-rpkiManifest` | Same, and RFC 9286 doesn't even cite RFC 6268 ([F-004](../doc/rfc-findings.md#f-004-rfc-9286-imports-from-rfc-6268-without-referencing-it)) | None |
+
+`IPAddrAndASCertExtn` (RFC 3779) compiles as published. Its earlier error was a side effect of the RFC 5280 problem.
+
+### Rules
+
+- **Strict application:** a hunk must match the extracted text exactly at the line it names, with no offset or fuzz. If the extraction changes, the patch fails instead of landing somewhere else.
+- **Allowed changes only:** each kind may remove and add only specific kinds of lines, besides comments and blank lines (`Mix.Lumina.ASN1.Patch`). A patch can't delete a field, change a constraint or add a type. The one exception is the two opaque placeholders of the attribute-certificate kind.
+- **Errata are not applied by patches.** For example, erratum 7118 (`fileList SIZE (1..MAX)`) is enforced during validation in M5 (#37), not in the module. The modules stay as published, plus compiler workarounds.
+- **Patches stay necessary:** a test compiles each patched module as published and expects it to fail. If a future OTP accepts one, that test says the patch can go.
+
+To change a patch, edit `patches/<Module>.patch`, run `mix lumina.asn1.extract`, and commit both the patch and `build/`. To create one, edit a copy of `rfc/<Module>.asn1` and run `diff -u --label a/<Module>.asn1 --label b/<Module>.asn1 rfc/<Module>.asn1 <copy>`.

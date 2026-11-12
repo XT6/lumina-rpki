@@ -5,7 +5,7 @@
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
 - 1 Barry fixture: 1 valid, 0 invalid.
-- 99 unit tests in 14 modules.
+- 119 unit tests in 16 modules.
 
 ## Barry fixtures
 
@@ -68,6 +68,47 @@ Smoke test for the application module: the project builds and reports
 its version.
 
 - version/0 matches the version in mix.exs
+
+### `Mix.Lumina.ASN1.CompileTest`
+
+[test/mix/lumina/asn1/compile_test.exs](../../test/mix/lumina/asn1/compile_test.exs)
+
+Checks that the patched modules in asn1/build/ compile with OTP's asn1ct
+using DER encoding rules, and that the published modules in asn1/rfc/
+don't. The second part shows each patch is still needed: if a future OTP
+accepts a published module, the test fails, so the patch can be dropped.
+
+- every patched module compiles with asn1ct (DER) (RFC [5280 §A.1](../rfc/rfc5280.txt), [5280 §A.2](../rfc/rfc5280.txt), [5652 §12.1](../rfc/rfc5652.txt) ([html](https://www.rfc-editor.org/rfc/rfc5652.html#section-12.1)), [3779 §A](../rfc/rfc3779.txt), [9582 §4](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4)), [9286 §A](../rfc/rfc9286.txt))
+- each published module that has a patch fails to compile as is
+  Documents F-005, F-006 and F-007 in doc/rfc-findings.md as observed compiler behaviour.
+- modules without a patch compile as published
+
+### `Mix.Lumina.ASN1.PatchTest`
+
+[test/mix/lumina/asn1/patch_test.exs](../../test/mix/lumina/asn1/patch_test.exs)
+
+Tests the ASN.1 patch applier and the allowed-change check. Patches exist
+only to get the RFC modules past OTP's asn1ct, so the check must refuse
+any patch that could change how a type encodes, such as deleting a field
+or adding a constraint, and the applier must refuse to patch text that
+doesn't match exactly.
+
+- *parse/1:* reads hunks with their start line and operations
+- *parse/1:* rejects a malformed hunk header, text before the first hunk and an empty patch
+- *apply_hunks/2:* applies a hunk at exactly the line it names
+- *apply_hunks/2:* refuses a hunk whose text doesn't match at that line, even if it matches elsewhere
+  Strictness is the point: a patch that drifted must fail, not land on the wrong lines.
+- *apply_hunks/2:* applies several hunks in order and refuses overlapping ones
+- *check_allowed/1:* accepts a patch that only does what its kind allows
+- *check_allowed/1:* requires every hunk to state its kind and reason
+- *check_allowed/1:* rejects unknown and mixed kinds
+- *check_allowed/1:* refuses a patch that deletes a field (RFC [9286 §A](../rfc/rfc9286.txt))
+  A field deletion disguised as a compatibility patch would change what decodes.
+- *check_allowed/1:* refuses a patch that changes a constraint (RFC [9286 §A](../rfc/rfc9286.txt))
+  Applying erratum 7118 here (SIZE 1..MAX) was explicitly decided against
+  (#37): errata are enforced in validation, never by patching modules.
+- *check_allowed/1:* attribute-certificate patches may only add the opaque placeholders
+- every committed patch passes the allowed-change check
 
 ### `Mix.Lumina.ASN1Test`
 
@@ -193,13 +234,19 @@ Sample test files are given as source strings and parsed, never compiled.
 [test/mix/tasks/lumina.asn1.extract_test.exs](../../test/mix/tasks/lumina.asn1.extract_test.exs)
 
 Tests the extraction task, especially --check, which makes CI fail when an
-extracted module is edited by hand instead of being regenerated from the
-RFC text.
+extracted or built module is edited by hand instead of being regenerated
+from the RFC text and the patches. Also checks that broken or stray
+patches stop the task.
 
-- writes every module, then --check passes
+- writes every extracted and built module, then --check passes
+- the output matches what is committed
 - --check fails when an extracted module was edited by hand
+- --check fails when a built module was edited by hand
 - --check fails on a file for a module that is no longer listed
 - writing removes files for modules that are no longer listed
+- fails when a patch no longer applies to the extracted text
+- fails when a patch makes a change its kind doesn't allow
+- fails on a patch for a module that isn't listed
 
 ### `Mix.Tasks.Lumina.Fixtures.GenTest`
 
