@@ -47,6 +47,7 @@ defmodule Lumina.MixProject do
     [
       plt_core_path: "priv/plts",
       plt_local_path: "priv/plts",
+      plt_add_apps: [:mix],
       flags: [:error_handling, :extra_return, :missing_return, :unmatched_returns]
     ]
   end
