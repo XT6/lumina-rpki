@@ -31,6 +31,8 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-010](#f-010-no-rule-for-data-after-the-encoded-object) | 6481 §2.2, 6488 §3 | ambiguity | none found (not reported) | Trailing bytes rejected (#24, #25) |
 | [F-011](#f-011-asn1ct-error-reasons-carry-stack-traces) | (OTP `asn1ct`) | tooling | n/a | Wrapper shortens reasons (#24) |
 | [F-012](#f-012-the-roa-module-enforces-the-afi-rule-at-decode-time) | 9582 §4, §4.3.1 | tooling | none | Accepted; decode error (#24) |
+| [F-013](#f-013-the-address-sort-key-has-a-part-that-never-matters) | 3779 §2.2.3.6 | ambiguity | none found (not reported) | Sort by lowest address (#26) |
+| [F-014](#f-014-two-rfc-3779-errata-change-what-a-decoder-must-accept) | 3779 §2.2.3.9, §3.2.3.8 | erratum | [2537](https://www.rfc-editor.org/errata/eid2537) verified, [7653](https://www.rfc-editor.org/errata/eid7653) held | Both followed (#26) |
 
 ## Entries
 
@@ -59,7 +61,10 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Kind:** erratum (technical).
 - **Official errata:** [6792](https://www.rfc-editor.org/errata/eid6792), **verified** (2021). The example encodes `b010` where `172.16/12` needs `ac10` (172 is `0xac`), and it encodes one IPv6 prefix as `/47` where the text before the example says `/48`.
 - **Impact:** #26 planned to test the RFC 3779 decoder against "the values the RFC states" in Appendices B and C. Using the bytes as printed would make a correct decoder fail, or "prove" an incorrect one.
-- **Resolution:** #26 uses the erratum-corrected values, and the test cites erratum 6792.
+- **Resolution (#26):**
+  - The test uses the erratum-corrected bytes and cites erratum 6792.
+  - A second test decodes the bytes **as printed**, and shows they mean `176.16/12`.
+- **Detail:** the two errors are different in kind. For IPv4 the **bytes** are wrong (`b010`). For IPv6 the bytes are right (`03 07 00 200100000002` is 48 bits, so `/48`), and only the **annotation** next to them says `/47`.
 - **Talk note:** the worked example in a 2004 RFC was wrong for 17 years before the erratum was verified. Test vectors copied from RFCs need to be checked against the errata too.
 
 ### F-003: CMS module points to a non-existent "Appendix B"
@@ -227,6 +232,38 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Impact:** a compiler that honours table constraints, as `asn1ct` does, makes the **decoder** reject any other AFI: the generated code exits. In Lumina this is the one RFC 9582 rule that fails at decode time rather than in validation (M7), so its error is a generic decode error instead of "AFI must be IPv4 or IPv6 (RFC 9582 §4.3.1)". Dialyzer flags the generated lookup functions, because they only ever exit (ignored in `.dialyzer_ignore.exs`).
 - **Resolution:** accepted. The rule is unambiguous, and patching the constraint out would break the rule that patches never change what is accepted. The decoder turns the exit into an error, and a test covers AFI 3 (#24). M7 should map this decode error to a message that cites §4.3.1.
 - **Talk note:** information object sets put validation rules inside the ASN.1, so the same rule can fail in the decoder or in validation, depending on the toolchain.
+
+### F-013: the address sort key has a part that never matters
+
+- **Where:** RFC 3779 §2.2.3.6:
+
+  > The addressPrefix and addressRange elements MUST be sorted using the binary representation of:
+  >
+  >    <lowest IP address in range> | <prefix length>
+- **Kind:** ambiguity.
+- **Official errata:** none found (checked 2026-11-12). **Not reported.**
+- **The problem:**
+  1. An `addressRange` has no prefix length, so for half of the element types the second part of the key is undefined.
+  2. It never matters. The same section says entries "MUST NOT overlap", and two entries with the same lowest address always overlap. In a valid extension, the lowest address alone already gives a strict order, and the `| <prefix length>` part never breaks a tie.
+- **Impact:** none for decoding. A checker that tries to build the key literally has to invent a "length" for ranges.
+- **Resolution in Lumina:** `Lumina.Resources.ip_issues/1` sorts by `{lowest, highest}` address. That is equivalent for valid input and well-defined for ranges. Overlaps are reported separately (#26).
+- **Suggested text:** *"…MUST be sorted by ascending lowest IP address in the prefix or range."* Optionally add: *"Since elements MUST NOT overlap, no two elements share a lowest address."*
+- **Talk note:** the example in §2.2.3.6 exists to warn against sorting by the DER bytes. The key it introduces for that purpose carries a component that can never decide anything.
+
+### F-014: two RFC 3779 errata change what a decoder must accept
+
+- **Where:**
+  - RFC 3779 §2.2.3.9 said a range's maximum address "MUST contain at least one bit whose value is 1, i.e., the subsequent octets may not be omitted nor all zero".
+  - RFC 3779 §3.2.3.8 doesn't require an `ASRange`'s ends to differ.
+- **Kind:** erratum (technical), two of them.
+- **Official errata:**
+  - [2537](https://www.rfc-editor.org/errata/eid2537), **verified**: the §2.2.3.9 sentence should be **deleted**. It contradicts the encoding rule. For example, the maximum `0.0.0.255` encodes as 24 zero bits (`03 04 00 00 00 00`).
+  - [7653](https://www.rfc-editor.org/errata/eid7653), held for document update: an `ASRange`'s min and max "MUST specify two distinct AS identifiers", in line with RFC 3779 §1's goal of a unique, canonical encoding.
+- **Impact:** a decoder that follows the published §2.2.3.9 text rejects valid range maximums. A canonical-form check that ignores 7653 accepts a range written where a single id belongs.
+- **Resolution (#26):**
+  - Lumina doesn't check the deleted rule. A test decodes `0.0.0.1-0.0.0.255`, whose maximum has no one bits, with no issue reported.
+  - `as_issues/1` reports equal range ends as `:range_single`, citing 7653.
+- **Talk note:** a verified erratum that **deletes** a MUST is easy to miss. Reading only the RFC, you would implement a rule that rejects valid encodings.
 
 ## Process notes
 
