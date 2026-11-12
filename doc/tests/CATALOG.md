@@ -5,7 +5,7 @@
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
 - 1 Barry fixture: 1 valid, 0 invalid.
-- 87 unit tests in 12 modules.
+- 99 unit tests in 14 modules.
 
 ## Barry fixtures
 
@@ -68,6 +68,27 @@ Smoke test for the application module: the project builds and reports
 its version.
 
 - version/0 matches the version in mix.exs
+
+### `Mix.Lumina.ASN1Test`
+
+[test/mix/lumina/asn1_test.exs](../../test/mix/lumina/asn1_test.exs)
+
+Tests extraction of ASN.1 modules from RFC text. Every ASN.1 type Lumina
+compiles comes from these files, so extraction must keep the module
+exactly as the RFC defines it and drop only page furniture and
+whitespace. Synthetic RFC text covers the edge cases; the real modules
+are checked too.
+
+- *extract/2:* returns the module from its header to END, without page furniture
+- *extract/2:* doesn't mistake a mention of the module name for its header
+  Prose and IMPORTS lines mention module names too; only a header followed by DEFINITIONS counts.
+- *extract/2:* fails when the module isn't there
+- *extract/2:* fails when the module has no END line
+- *extract/2:* fails when the module is not in the section the spec names
+  Catches a wrong entry in the module list, which would cite the wrong RFC section.
+- *whitespace handling:* collapses each run of blank lines into one
+- *whitespace handling:* strips the common indentation and trailing whitespace only
+- every configured module extracts from its RFC with its header, BEGIN and END (RFC [5280 §A.1](../rfc/rfc5280.txt), [5280 §A.2](../rfc/rfc5280.txt), [5652 §12.1](../rfc/rfc5652.txt) ([html](https://www.rfc-editor.org/rfc/rfc5652.html#section-12.1)), [5652 §12.2](../rfc/rfc5652.txt) ([html](https://www.rfc-editor.org/rfc/rfc5652.html#section-12.2)), [3779 §A](../rfc/rfc3779.txt), [9582 §4](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4)), [9286 §A](../rfc/rfc9286.txt))
 
 ### `Mix.Lumina.CatalogTest`
 
@@ -166,6 +187,19 @@ Sample test files are given as source strings and parsed, never compiled.
 - *check_docs/1:* fails a blank @moduledoc
 - *check_docs/1:* fails a blank test name
 - *check_docs/1:* ignores helper modules that don't use ExUnit.Case
+
+### `Mix.Tasks.Lumina.Asn1.ExtractTest`
+
+[test/mix/tasks/lumina.asn1.extract_test.exs](../../test/mix/tasks/lumina.asn1.extract_test.exs)
+
+Tests the extraction task, especially --check, which makes CI fail when an
+extracted module is edited by hand instead of being regenerated from the
+RFC text.
+
+- writes every module, then --check passes
+- --check fails when an extracted module was edited by hand
+- --check fails on a file for a module that is no longer listed
+- writing removes files for modules that are no longer listed
 
 ### `Mix.Tasks.Lumina.Fixtures.GenTest`
 

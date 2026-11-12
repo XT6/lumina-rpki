@@ -78,6 +78,31 @@ defmodule Mix.Lumina.RFC do
   end
 
   @doc """
+  Returns the section number if `line` is a section heading, else `nil`.
+
+  ## Examples
+
+      iex> Mix.Lumina.RFC.heading("4.8.9.  Certificate Policies")
+      "4.8.9"
+
+      iex> Mix.Lumina.RFC.heading("Appendix A -- ASN.1 Module")
+      "A"
+
+      iex> Mix.Lumina.RFC.heading("   indented body text")
+      nil
+
+  """
+  @spec heading(String.t()) :: String.t() | nil
+  def heading(line) do
+    Enum.find_value([@numbered_heading, @appendix_heading], fn regex ->
+      case Regex.run(regex, line, capture: :all_but_first) do
+        [section] -> section
+        nil -> nil
+      end
+    end)
+  end
+
+  @doc """
   Checks that a reference is well formed and points to an RFC and section
   that exist in `library`.
   """

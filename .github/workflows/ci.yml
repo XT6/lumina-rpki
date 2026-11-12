@@ -47,6 +47,7 @@ jobs:
       - run: mix format --check-formatted
       - run: mix test
       - run: mix lumina.test_catalog --check
+      - run: mix lumina.asn1.extract --check
       - run: mix dialyzer --format github
 
   barry:
