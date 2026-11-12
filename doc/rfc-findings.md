@@ -24,9 +24,10 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-003](#f-003-cms-module-points-to-a-non-existent-appendix-b) | 5652 §12.1 | erratum | [6546](https://www.rfc-editor.org/errata/eid6546), verified | No effect (comment only) |
 | [F-004](#f-004-rfc-9286-imports-from-rfc-6268-without-referencing-it) | 9286 App. A | reference | none (not reported) | Patched out (#23) |
 | [F-005](#f-005-rpki-content-modules-depend-on-a-different-cms-module-generation) | 9582 §4, 9286 App. A, 9323 | reference | none | Patched out (#23) |
-| [F-006](#f-006-cms-module-imports-from-an-obsoleted-rfc) | 5652 §12.1, §12.2 | reference | none | Open: #23 |
-| [F-007](#f-007-rfc-5280-modules-redefine-built-in-string-types) | 5280 A.1, A.2 | tooling | none | Patch (#23) |
+| [F-006](#f-006-cms-module-imports-from-an-obsoleted-rfc) | 5652 §12.1, §12.2 | reference | none | Opaque placeholders (#23) |
+| [F-007](#f-007-rfc-5280-modules-redefine-built-in-string-types) | 5280 A.1, A.2 | tooling | none | Patched (#23) |
 | [F-008](#f-008-certificate-signature-field-has-two-names) | 5280 §4.1 vs A.1 | ambiguity | [7634](https://www.rfc-editor.org/errata/eid7634), held for document update | Decide in #27 |
+| [F-009](#f-009-cms-and-attribute-certificate-modules-import-from-each-other) | 5652 §12.1, 5755 App. B | reference | none found | Avoided by F-006 placeholders (#23) |
 
 ## Entries
 
@@ -114,7 +115,11 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Kind:** reference.
 - **Official errata:** none (this isn't an error in RFC 5652 as published).
 - **Impact:** the CMS module doesn't compile without a module from an obsolete RFC that isn't in our library. RPKI signed objects never carry attribute certificates: the `certificates` field contains exactly one EE certificate (RFC 6488 §2.1.4).
-- **Resolution:** open, in #23.
+- **Resolution (#23):** the CMS module's imports of `AttributeCertificate` (RFC 3281) and `AttributeCertificateV1` (§12.2, which itself imports from RFC 3281) are replaced by local opaque types, `SEQUENCE OF ANY`.
+  - Attribute certificates still decode, as a list of undecoded elements, so nothing that was decodable becomes undecodable.
+  - M5 rejects any certificate choice other than the single EE certificate anyway.
+  - The §12.2 module is no longer extracted.
+  - Using RFC 5755 instead was considered and rejected (F-009).
 
 ### F-007: RFC 5280 modules redefine built-in string types
 
@@ -135,7 +140,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Kind:** tooling. The modules use 1988 ASN.1 syntax, and these lines supply types that 1988 compilers didn't know.
 - **Official errata:** none, since this is intentional.
 - **Impact:** OTP's `asn1ct` (OTP 29) treats these types as built-in and fails: A.1 with `syntax error before: 'UniversalString'`, and A.2 with `syntax error before: 'BMPString'`, on the import. The modules don't compile as published.
-- **Resolution:** documented patches (#23) remove the A.1 definitions and delete the A.2 import line, exactly as A.2's comment instructs. The encoding is identical, because the built-in types have the same universal tags.
+- **Resolution:** documented patches (#23) remove the A.1 definitions and delete the A.2 import line, exactly as A.2's comment instructs. RFC 3779's module, which failed with `illegal_oid` on an import from A.1, compiles unpatched once A.1 does. The encoding is identical, because the built-in types have the same universal tags.
 - **Talk note:** a 2008 RFC carries workarounds for 1988 compilers, plus instructions for removing them once compilers caught up. Eighteen years later, removing them is required.
 
 ### F-008: certificate signature field has two names
@@ -145,6 +150,25 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Official errata:** [7634](https://www.rfc-editor.org/errata/eid7634), held for document update. The same inconsistency goes back to RFC 2459 and RFC 3280.
 - **Impact:** the name used in Lumina's certificate struct and in `lumina --print` output.
 - **Resolution:** decide in #27. The ASN.1 compiler will use the module's name (`signature`).
+
+### F-009: CMS and attribute certificate modules import from each other
+
+- **Where:** RFC 5652 §12.1 (`CryptographicMessageSyntax2004`) imports `AttributeCertificate` from `PKIXAttributeCertificate`, the RFC 3281 module. RFC 5755, which obsoletes RFC 3281, defines its module in Appendix B under a **new name**, `PKIXAttributeCertificate-2008`, and that module **imports `ContentInfo` from `CryptographicMessageSyntax2004`**:
+
+  ```asn1
+  ContentInfo
+    FROM CryptographicMessageSyntax2004
+  ```
+- **Kind:** reference.
+- **Official errata:** none found (checked 2026-11-12). RFC 5755 has a verified erratum on its Appendix B imports ([6567](https://www.rfc-editor.org/errata/eid6567), an unused `CRLDistributionPoint` import), but nothing about this.
+- **Impact:** to satisfy the CMS import with the current RFC, you would have to:
+  - add RFC 5755 to the library,
+  - rename the import in the CMS module (the name no longer matches), and
+  - compile two modules that import from each other.
+
+  Compilers that work one module at a time, such as `asn1ct`, can't compile such a cycle directly.
+- **Resolution:** not attempted. The CMS module gets opaque attribute certificate types instead (F-006, #23).
+- **Talk note:** obsoleting an RFC doesn't update the modules that import from it. Module names change, and dependencies can turn into cycles.
 
 ## Process notes
 

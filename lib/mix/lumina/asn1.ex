@@ -6,12 +6,15 @@ defmodule Mix.Lumina.ASN1 do
   removed (form feeds, page footers, running headers), runs of blank lines
   collapsed and the common indentation stripped. ASN.1 ignores whitespace,
   so the result is the module exactly as the RFC defines it. See
-  `asn1/README.md` and `mix lumina.asn1.extract`.
+  `asn1/README.md` and `mix lumina.asn1.extract`. Patches that make the
+  modules compile with OTP's `asn1ct` are applied by `build/3`.
   """
 
   alias Mix.Lumina.RFC
 
   @output_dir "asn1/rfc"
+  @build_dir "asn1/build"
+  @patches_dir "asn1/patches"
 
   # The modules Lumina compiles: name, source RFC and the section that holds
   # the module. Add a module here when a milestone needs it.
@@ -19,7 +22,6 @@ defmodule Mix.Lumina.ASN1 do
     %{name: "PKIX1Explicit88", rfc: 5280, section: "A.1"},
     %{name: "PKIX1Implicit88", rfc: 5280, section: "A.2"},
     %{name: "CryptographicMessageSyntax2004", rfc: 5652, section: "12.1"},
-    %{name: "AttributeCertificateVersion1", rfc: 5652, section: "12.2"},
     %{name: "IPAddrAndASCertExtn", rfc: 3779, section: "A"},
     %{name: "RPKI-ROA-2023", rfc: 9582, section: "4"},
     %{name: "RPKIManifest", rfc: 9286, section: "A"}
@@ -34,6 +36,38 @@ defmodule Mix.Lumina.ASN1 do
   @doc "Directory the extracted modules are written to."
   @spec output_dir() :: Path.t()
   def output_dir, do: @output_dir
+
+  @doc "Directory the compiler inputs (patched modules) are written to."
+  @spec build_dir() :: Path.t()
+  def build_dir, do: @build_dir
+
+  @doc "Directory holding the patches, one `<Module>.patch` per module."
+  @spec patches_dir() :: Path.t()
+  def patches_dir, do: @patches_dir
+
+  @doc """
+  Builds the compiler input for a module from its extracted text: applies
+  `patch` (the contents of its `.patch` file, or `nil`) after checking that
+  the patch is allowed. See `Mix.Lumina.ASN1.Patch`.
+  """
+  @spec build(spec(), String.t(), String.t() | nil) :: {:ok, String.t()} | {:error, String.t()}
+  def build(_spec, extracted, nil), do: {:ok, extracted}
+
+  def build(spec, extracted, patch) do
+    alias Mix.Lumina.ASN1.Patch
+
+    with {:ok, hunks} <- Patch.parse(patch),
+         [] <- Patch.check_allowed(hunks),
+         {:ok, patched} <- Patch.apply_hunks(extracted, hunks) do
+      {:ok, "-- Patched with asn1/patches/#{spec.name}.patch; see asn1/README.md.\n" <> patched}
+    else
+      {:error, message} ->
+        {:error, "#{spec.name}.patch: #{message}"}
+
+      problems when is_list(problems) ->
+        {:error, "#{spec.name}.patch: " <> Enum.join(problems, "; ")}
+    end
+  end
 
   @doc "File name of an extracted module."
   @spec file_name(spec()) :: String.t()

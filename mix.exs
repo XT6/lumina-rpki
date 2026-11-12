@@ -21,7 +21,9 @@ defmodule Lumina.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger]
+      # :asn1 provides asn1ct (compiler) and the runtime the generated
+      # decoders use; see asn1/README.md.
+      extra_applications: [:logger, :asn1]
     ]
   end
 

@@ -1,0 +1,12 @@
+--- a/PKIX1Implicit88.asn1
++++ b/PKIX1Implicit88.asn1
+@@ -14,7 +14,8 @@
+ IMPORTS
+       id-pe, id-kp, id-qt-unotice, id-qt-cps,
+       -- delete following line if "new" types are supported --
+-      BMPString, UTF8String,  -- end "new" types --
++      -- LUMINA PATCH (builtin-type): deleted the line, as the comment above says;
++      -- OTP asn1ct supports these types. See F-007 in doc/rfc-findings.md.
+       ORAddress, Name, RelativeDistinguishedName,
+       CertificateSerialNumber, Attribute, DirectoryString
+       FROM PKIX1Explicit88 { iso(1) identified-organization(3)

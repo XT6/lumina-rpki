@@ -1,0 +1,64 @@
+-- Patched with asn1/patches/RPKI-ROA-2023.patch; see asn1/README.md.
+-- RPKI-ROA-2023: extracted from RFC 9582, section 4,
+-- by `mix lumina.asn1.extract`. Do not edit; regenerate instead.
+-- Only page furniture, extra blank lines and indentation were removed.
+
+RPKI-ROA-2023
+  { iso(1) member-body(2) us(840) rsadsi(113549)
+  pkcs(1) pkcs9(9) smime(16) mod(0)
+  id-mod-rpkiROA-2023(75) }
+
+DEFINITIONS EXPLICIT TAGS ::=
+BEGIN
+
+-- LUMINA PATCH (content-type): removed the CONTENT-TYPE import from RFC 6268, which
+-- is not in the library. It only binds the eContent type to its OID and
+-- does not affect encoding; the CMS decoder makes that binding instead.
+-- See F-005 in doc/rfc-findings.md.
+
+-- LUMINA PATCH (content-type): removed the ct-routeOriginAttestation information
+-- object (RouteOriginAttestation identified by id-ct-routeOriginAuthz).
+
+id-ct-routeOriginAuthz OBJECT IDENTIFIER ::=
+  { iso(1) member-body(2) us(840) rsadsi(113549) pkcs(1)
+    pkcs-9(9) id-smime(16) id-ct(1) routeOriginAuthz(24) }
+
+RouteOriginAttestation ::= SEQUENCE {
+  version [0]   INTEGER DEFAULT 0,
+  asID          ASID,
+  ipAddrBlocks  SEQUENCE (SIZE(1..2)) OF ROAIPAddressFamily }
+
+ASID ::= INTEGER (0..4294967295)
+
+ROAIPAddressFamily ::= SEQUENCE {
+  addressFamily ADDRESS-FAMILY.&afi ({AddressFamilySet}),
+  addresses     ADDRESS-FAMILY.&Addresses
+                               ({AddressFamilySet}{@addressFamily}) }
+
+ADDRESS-FAMILY ::= CLASS {
+  &afi          OCTET STRING (SIZE(2)) UNIQUE,
+  &Addresses
+} WITH SYNTAX { AFI &afi ADDRESSES &Addresses }
+
+AddressFamilySet ADDRESS-FAMILY ::=
+  { addressFamilyIPv4 | addressFamilyIPv6 }
+
+addressFamilyIPv4 ADDRESS-FAMILY ::=
+  { AFI afi-IPv4 ADDRESSES ROAAddressesIPv4 }
+addressFamilyIPv6 ADDRESS-FAMILY ::=
+  { AFI afi-IPv6 ADDRESSES ROAAddressesIPv6 }
+
+afi-IPv4 OCTET STRING ::= '0001'H
+afi-IPv6 OCTET STRING ::= '0002'H
+
+ROAAddressesIPv4 ::= SEQUENCE (SIZE(1..MAX)) OF ROAIPAddress{ub-IPv4}
+ROAAddressesIPv6 ::= SEQUENCE (SIZE(1..MAX)) OF ROAIPAddress{ub-IPv6}
+
+ub-IPv4 INTEGER ::= 32
+ub-IPv6 INTEGER ::= 128
+
+ROAIPAddress {INTEGER: ub} ::= SEQUENCE {
+  address       BIT STRING (SIZE(0..ub)),
+  maxLength     INTEGER (0..ub) OPTIONAL }
+
+END

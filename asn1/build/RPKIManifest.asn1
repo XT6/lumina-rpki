@@ -1,0 +1,45 @@
+-- Patched with asn1/patches/RPKIManifest.patch; see asn1/README.md.
+-- RPKIManifest: extracted from RFC 9286, section A,
+-- by `mix lumina.asn1.extract`. Do not edit; regenerate instead.
+-- Only page furniture, extra blank lines and indentation were removed.
+
+    RPKIManifest { iso(1) member-body(2) us(840) rsadsi(113549)
+                   pkcs(1) pkcs9(9) smime(16) mod(0) 60 }
+
+DEFINITIONS EXPLICIT TAGS ::=
+   BEGIN
+
+   -- EXPORTS ALL --
+
+   -- LUMINA PATCH (content-type): removed the CONTENT-TYPE import from RFC 6268,
+   -- which is not in the library and not cited by RFC 9286 (F-004). It
+   -- only binds the eContent type to its OID and does not affect
+   -- encoding. See F-005 in doc/rfc-findings.md.
+
+   -- Manifest Content Type
+
+   -- LUMINA PATCH (content-type): removed the ct-rpkiManifest information object
+   -- (Manifest identified by id-ct-rpkiManifest).
+
+   id-smime OBJECT IDENTIFIER ::= { iso(1) member-body(2)
+       us(840) rsadsi(113549) pkcs(1) pkcs9(9) 16 }
+
+   id-ct OBJECT IDENTIFIER ::= { id-smime 1 }
+
+   id-ct-rpkiManifest OBJECT IDENTIFIER ::= { id-ct 26 }
+
+   Manifest ::= SEQUENCE {
+      version        [0] INTEGER DEFAULT 0,
+      manifestNumber     INTEGER (0..MAX),
+      thisUpdate         GeneralizedTime,
+      nextUpdate         GeneralizedTime,
+      fileHashAlg        OBJECT IDENTIFIER,
+      fileList           SEQUENCE SIZE (0..MAX) OF FileAndHash
+      }
+
+   FileAndHash ::= SEQUENCE {
+      file  IA5String,
+      hash  BIT STRING
+      }
+
+   END
