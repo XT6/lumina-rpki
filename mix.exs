@@ -44,6 +44,7 @@ defmodule Lumina.MixProject do
         "format --check-formatted",
         "test",
         "lumina.test_catalog --check",
+        "lumina.asn1.extract --check",
         "dialyzer"
       ]
     ]
