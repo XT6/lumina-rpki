@@ -5,7 +5,7 @@
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
 - 1 Barry fixture: 1 valid, 0 invalid.
-- 129 unit tests in 17 modules.
+- 154 unit tests in 18 modules.
 
 ## Barry fixtures
 
@@ -73,6 +73,67 @@ untrusted repositories.
 - *malformed input:* reports an unknown module, an unknown type and non-binary input
 - *malformed input:* encoding an invalid value returns an error
 - every module key names a loaded, compiled ASN.1 module
+
+### `Lumina.DERTest`
+
+[test/lumina/der_test.exs](../../test/lumina/der_test.exs)
+
+Tests strict DER checking. RPKI requires DER (RFC 6488 §3 (l), RFC 6481
+§2.2), but OTP's decoders accept BER, so every DER rule is checked here:
+for each one, a minimal hand-built violation must be rejected with the
+right rule and X.690 clause, and its valid counterpart accepted. X.690
+isn't in doc/rfc, so its clauses are cited in each test's doc tag.
+
+- *length octets:* rejects indefinite length
+  X.690 10.1: DER uses the definite form only.
+- *length octets:* rejects the long form for a short length
+  X.690 10.1: lengths below 128 must use the one-octet short form.
+- *length octets:* rejects a long-form length with a leading zero octet
+  X.690 10.1: minimum number of octets, so no leading zero length octet.
+- *length octets:* rejects the reserved length octet
+  X.690 8.1.3.5: the first length octet 0xFF is reserved.
+- *length octets:* rejects truncated input at every layer
+- *identifier octets:* rejects the high-tag-number form for a low tag number
+  X.690 8.1.2.2: tag numbers 0-30 use the single-octet form.
+- *identifier octets:* rejects a high tag number with a leading 0x80 octet
+  X.690 8.1.2.4.2: the first subsequent tag octet must not be 0x80.
+- *identifier octets:* rejects end-of-contents octets
+  X.690 8.1.5: end-of-contents octets only close indefinite lengths, which DER forbids.
+- *primitive and constructed forms:* rejects a constructed OCTET STRING
+  X.690 10.2: BIT STRING, OCTET STRING and character strings must be primitive.
+- *primitive and constructed forms:* rejects a primitive SEQUENCE
+  X.690 8.9.1 and 8.11.1: SEQUENCE and SET encodings are constructed.
+- *universal types:* BOOLEAN
+  X.690 11.1: TRUE is 0xFF; X.690 8.2.1: exactly one contents octet.
+- *universal types:* INTEGER
+  X.690 8.3.1 and 8.3.2: at least one octet, minimal two's complement.
+- *universal types:* BIT STRING
+  X.690 8.6.2.2-8.6.2.3: unused-bits octet 0-7, and 0 when empty; X.690 11.2.1: unused bits are zero.
+- *universal types:* NULL
+  X.690 8.8.2: NULL has no contents.
+- *universal types:* OBJECT IDENTIFIER
+  X.690 8.19.2: subidentifiers are minimal (no leading 0x80) and the last one terminates.
+- *universal types:* UTCTime
+  X.690 11.8: UTCTime is YYMMDDHHMMSSZ, seconds present, Z, no offset.
+- *universal types:* GeneralizedTime
+  X.690 11.7: GeneralizedTime ends in Z with seconds; fractional seconds don't end in 0.
+- *universal types:* SET OF must be sorted
+  X.690 11.6: SET OF elements in ascending order of their encodings.
+- *structure:* rejects trailing bytes after the encoding
+  X.690 8.1.1: an encoding is one TLV. RFC 6481 §2.2 and RFC 6488 §3 don't
+  say what follows it; Lumina rejects anything (F-010 in doc/rfc-findings.md).
+- *structure:* checks inside constructed values of any class, and reports the inner offset
+- never raises on random bytes or random mutations of a real object
+  Seeded, so the inputs are the same every run. Repository content is
+  untrusted, so the checker must return an error, never raise. This
+  test found a crash on an empty BIT STRING.
+- *fixtures:* every object in m0-minimal-valid is DER (RFC [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [6481 §2.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2.2)))
+- *fixtures:* certificates and CRLs re-encode to identical bytes (RFC [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [6481 §2.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2.2)))
+- *check_canonical/3:* rejects an encoded DEFAULT value that a TLV walk can't see (RFC [9286 §A](../rfc/rfc9286.txt))
+  X.690 11.5: a component equal to its DEFAULT is not encoded. A manifest
+  with an explicit `version [0] INTEGER 0` passes the TLV walk, since every
+  TLV is well formed, but isn't DER. Only re-encoding catches it.
+- *check_canonical/3:* passes on decoding errors from the ASN.1 layer
 
 ### `Lumina.Fixtures.M0MinimalValidTest`
 

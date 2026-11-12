@@ -56,7 +56,7 @@ Lumina.ASN1.decode(:pkix, :Certificate, der)   # {:ok, %{tbsCertificate: ..., ..
 Lumina.ASN1.encode(:pkix, :Certificate, value) # {:ok, der} | {:error, reason}
 ```
 
-The wrapper never raises, rejects trailing bytes, and shortens `asn1ct`'s error reasons, which include stack traces ([F-011](../doc/rfc-findings.md#f-011-asn1ct-error-reasons-carry-stack-traces)). It doesn't check that input is strict DER; that's `Lumina.DER` (#25).
+The wrapper never raises, rejects trailing bytes, and shortens `asn1ct`'s error reasons, which include stack traces ([F-011](../doc/rfc-findings.md#f-011-asn1ct-error-reasons-carry-stack-traces)). It doesn't check that input is strict DER; use `Lumina.DER.check/1` and `Lumina.DER.check_canonical/3` for that.
 
 ## Patches
 
