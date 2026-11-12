@@ -4,6 +4,8 @@ These are the plain-text RFCs the validator is built from, grouped by the featur
 
 Only published RFCs are kept here. Drafts are not stored, and obsoleted RFCs are listed at the end so nobody implements them by mistake.
 
+Errata, ambiguities and other problems found in these texts while implementing them are logged in [`../rfc-findings.md`](../rfc-findings.md). Check an RFC's errata before relying on its ASN.1 or examples. Some verified errata change the modules and test vectors.
+
 ## Feature map
 
 | Feature (from `GOAL.md`) | Sections |
