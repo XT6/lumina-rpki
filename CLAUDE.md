@@ -6,7 +6,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Lumina is an RPKI relying party (validator) written from scratch in **Elixir on the Erlang VM**. `GOAL.md` is the project charter; read it before starting larger work.
 
-Status: pre-code. There is no Mix project, build, or test setup yet. When one is scaffolded, add the build, test, and single-test commands here.
+## Commands
+
+Toolchain versions are pinned in `.tool-versions` (Erlang/OTP 29.1.2, Elixir 1.20.5).
+
+```sh
+mix compile --warnings-as-errors   # build; warnings fail the build
+mix test                           # full test suite (includes doctests)
+mix test test/lumina_test.exs      # one test file
+mix test test/lumina_test.exs:5    # one test, by line number
+mix format                         # format code (mix format --check-formatted in CI)
+```
+
+Mix's default `.gitignore` ignores `/doc/`. This repo removes that line because `doc/` holds the RFC library. Keep it that way, and send any generated ExDoc output somewhere else.
 
 ## Source of truth
 
