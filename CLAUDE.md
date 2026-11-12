@@ -18,12 +18,16 @@ mix test test/lumina_test.exs:5    # one test, by line number
 mix format                         # format code
 mix dialyzer                       # type analysis; PLTs are cached in priv/plts/ (git-ignored)
 mix check                          # everything CI runs: compile (warnings as errors), format check, tests, Dialyzer
-mix lumina.rfc_coverage [--rfc N]  # which RFC sections the tests cover
+mix lumina.rfc_coverage [--rfc N]  # which RFC sections the tests and fixtures cover
+mix lumina.fixtures.gen [ID...]    # regenerate Barry fixtures (needs scripts/install-barry.sh)
+mix test --only barry              # tests that run the real Barry binary (excluded when it isn't installed)
 ```
 
 ## Tests
 
 Tag every test that checks an RFC requirement with the section it comes from, for example `@tag rfc: "6487#4.8.9"`. Use literal strings, not attributes. References are checked against the section headings in `doc/rfc/`, and an invalid one fails the suite. Full convention: `doc/testing.md`.
+
+Repository fixtures live in `test/fixtures/barry/<id>/`: a hand-written `case.repo` (Barry descriptor) and `case.exs` (metadata), plus generated output that is committed. Every fixture must state its rationale, RFC references and expected outcome, or the suite fails. Fixture objects are valid from 2026-01-01 to 2036-01-01 unless a fixture overrides this, so validate fixtures at a fixed time, never "now".
 
 Lumina has no runtime dependencies. Third-party packages are for development only (`only: [:dev, :test], runtime: false`), pinned to exact versions in `mix.exs`.
 

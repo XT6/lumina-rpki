@@ -2,7 +2,7 @@
 
 [Barry](https://github.com/LACNIC/barry) ("BAd Rpki RepositorY") is LACNIC's generator of RPKI repositories for testing relying parties. You describe a certificate tree in a small text file, a *Repository Descriptor* (RD), and override any field of any object. Barry writes out a TAL, an rsync tree and RRDP files, with keys, signatures, serial numbers and dates filled in automatically.
 
-Lumina uses Barry to generate test fixtures, especially repositories that should be **rejected**. The fixture layout and required metadata are defined in #7.
+Lumina uses Barry to generate test fixtures, especially repositories that should be **rejected**. The fixture layout, required metadata and `mix lumina.fixtures.gen` are described in [testing.md](testing.md#barry-fixtures).
 
 ## Installing
 
@@ -55,7 +55,7 @@ Things to know when writing fixtures:
 - **Output location.** Barry writes `<name>.tal`, `rsync/` and `rrdp/` into the current directory.
 - **Default URIs.** TALs point to `rsync://localhost:8873/rpki/` and `https://localhost:8443/rrdp/`. Override them with `--rsync-uri` and `--rrdp-uri`.
 - **Dates.** They default to the current time. Use `--now` and `--later`, or per-object overrides, to get reproducible validity periods. #7 relies on this so committed fixtures don't expire.
-- **Keys.** These are freshly generated on every run unless `--keys` points to stored keys, so regenerated fixtures differ byte for byte. That is why fixtures are committed together with their generated output (decision recorded in #7).
+- **Keys.** These are freshly generated on every run, so regenerated fixtures differ byte for byte. That is why fixtures are committed together with their generated output (decision recorded in #7). `--keys` makes the output reproducible, but we don't use it. See [testing.md](testing.md#generating) for why.
 - **Override keys.** These follow the ASN.1 field names from the RFC modules, prefixed with `obj.`. See Barry's README for the descriptor syntax and default resource distribution.
 
 The install also provides `barry-delta`, `barry-mtim`, `barry-ncu` and `barry-rtr`, which Lumina doesn't use yet.

@@ -3,7 +3,8 @@ defmodule Mix.Tasks.Lumina.RfcCoverage do
 
   @moduledoc """
   Lists, per RFC and section, the tests that reference it through the `:rfc`
-  tag. See `doc/testing.md`.
+  tag, and the Barry fixtures that reference it in their metadata. See
+  `doc/testing.md`.
 
       mix lumina.rfc_coverage
       mix lumina.rfc_coverage --rfc 8897
@@ -12,20 +13,22 @@ defmodule Mix.Tasks.Lumina.RfcCoverage do
   test covers. Use it with RFC 8897 to see which RP requirements are covered.
 
   The task fails if any reference is malformed or points to an RFC or
-  section missing from the RFC library.
+  section missing from the RFC library, or if a fixture fails its metadata
+  check.
 
   ## Options
 
     * `--rfc` - list every section of this RFC, covered or not
     * `--tests` - test directory to scan (default: `test`)
     * `--rfc-dir` - RFC library directory (default: `doc/rfc`)
+    * `--fixtures` - Barry fixture directory (default: `test/fixtures/barry`)
   """
 
   use Mix.Task
 
-  alias Mix.Lumina.{RFC, RFCTags}
+  alias Mix.Lumina.{Fixtures, RFC, RFCTags}
 
-  @switches [rfc: :integer, tests: :string, rfc_dir: :string]
+  @switches [rfc: :integer, tests: :string, rfc_dir: :string, fixtures: :string]
 
   @impl Mix.Task
   def run(args) do
@@ -33,15 +36,32 @@ defmodule Mix.Tasks.Lumina.RfcCoverage do
     library = RFC.load_library(Keyword.get(opts, :rfc_dir, "doc/rfc"))
     {tests, problems} = RFCTags.scan_dir(Keyword.get(opts, :tests, "test"))
 
-    case problems ++ RFCTags.validate(tests, library) do
+    {fixtures, fixture_problems} =
+      Fixtures.load_all(Keyword.get(opts, :fixtures, Fixtures.dir()), library)
+
+    case problems ++ RFCTags.validate(tests, library) ++ fixture_problems do
       [] ->
-        tests |> report(library, opts[:rfc]) |> Mix.shell().info()
+        (tests ++ Enum.map(fixtures, &fixture_entry/1))
+        |> report(library, opts[:rfc])
+        |> Mix.shell().info()
 
       problems ->
-        Enum.each(problems, &Mix.shell().error("#{&1.file}:#{&1.line}: #{&1.message}"))
+        Enum.each(problems, &Mix.shell().error(location(&1) <> ": " <> &1.message))
         Mix.raise("#{length(problems)} invalid RFC reference(s)")
     end
   end
+
+  defp fixture_entry(fixture) do
+    %{
+      file: Fixtures.meta_path(fixture.dir),
+      line: 1,
+      name: "fixture: " <> fixture.title,
+      refs: fixture.rfc
+    }
+  end
+
+  defp location(%{line: line} = problem), do: "#{problem.file}:#{line}"
+  defp location(problem), do: problem.file
 
   @doc """
   Builds the coverage report. With `only_rfc`, every section of that RFC is
