@@ -138,6 +138,15 @@ Barry generates fresh keys on every run, so regenerating changes every file byte
 - Barry picks each certificate's key from the folder by hashing the file name. With a small pool, unrelated certificates, even a CA and its child, can end up sharing a key.
 - Key order depends on the order the folder is read in, which can differ between macOS and Linux.
 
+### Catalog
+
+[`doc/tests/CATALOG.md`](tests/CATALOG.md) lists every fixture by milestone, with its rationale, RFC references and expected outcome. It is generated from the metadata, so never edit it by hand:
+
+```sh
+mix lumina.test_catalog           # regenerate after adding or changing a fixture
+mix lumina.test_catalog --check   # what CI and `mix check` run: fail if the catalog is out of date
+```
+
 ### Tests that run Barry
 
 Tests tagged `:barry` run the real Barry binary. They're excluded automatically when `_tools/bin/barry` doesn't exist. CI runs them in the `barry` job with `mix test --only barry`.
