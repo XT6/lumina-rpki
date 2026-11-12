@@ -5,7 +5,7 @@
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
 - 1 Barry fixture: 1 valid, 0 invalid.
-- 154 unit tests in 18 modules.
+- 172 unit tests in 19 modules.
 
 ## Barry fixtures
 
@@ -150,6 +150,48 @@ before any object is decoded. Decoding and validation start in M1.
 - the TAL's rsync URI points to the trust anchor certificate in the tree
 - the TAL's public key is base64 that decodes to a DER SEQUENCE
 - the RRDP files are present
+
+### `Lumina.ResourcesTest`
+
+[test/lumina/resources_test.exs](../../test/lumina/resources_test.exs)
+
+Tests decoding of the RFC 3779 IP address and AS identifier extensions,
+which resource-inclusion checks (M4/M6) depend on. Test vectors come from
+the RFC's own worked examples (§2.1, §2.2.3.8, §2.2.3.9, Appendices B
+and C), corrected where a verified erratum says the RFC is wrong
+(erratum 6792, F-002 in doc/rfc-findings.md). The canonical-form checks
+report violations without rejecting, because rejection belongs to
+validation.
+
+- *RFC 3779 Appendix B:* the first example decodes to the prefixes and range the RFC lists, in canonical form (RFC [3779 §B](../rfc/rfc3779.txt), [3779 §2.2.3.6](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.6)))
+- *RFC 3779 Appendix B:* the second example, as corrected by erratum 6792, decodes to the stated prefixes (RFC [3779 §B](../rfc/rfc3779.txt))
+  The second example as corrected by verified erratum 6792: the IPv4
+  prefix 172.16/12 is ac10, not b010 as printed, and the IPv6 prefix is
+  /48, not /47 as annotated. The family with SAFI 2 (multicast) inherits.
+- *RFC 3779 Appendix B:* the second example's bytes as printed decode to 176.16/12 (RFC [3779 §B](../rfc/rfc3779.txt))
+  Why the erratum matters: the bytes as printed in the RFC encode 176.16/12, not 172.16/12.
+- *RFC 3779 Appendix C:* the AS example decodes to AS135, AS3000-AS3999, AS5001 and inherited RDIs (RFC [3779 §C](../rfc/rfc3779.txt), [3779 §3.2.3.4](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.4)))
+- *the worked encodings in RFC 3779 §2.1 and §2.2.3:* addresses and prefixes (RFC [3779 §2.1.1](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.1.1)))
+- *the worked encodings in RFC 3779 §2.1 and §2.2.3:* the all-addresses prefix and significant trailing zeros (RFC [3779 §2.1.2](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.1.2)))
+  0/0 is a BIT STRING with no bits (03 01 00), and trailing zero bits are significant.
+- *the worked encodings in RFC 3779 §2.1 and §2.2.3:* ranges expand min with zeros and max with ones (RFC [3779 §2.1.2](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.1.2)), [3779 §2.2.3.9](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.9)))
+  Range ends: unspecified min bits are 0, unspecified max bits are 1.
+- *the worked encodings in RFC 3779 §2.1 and §2.2.3:* the §2.2.3.8 prefix 128/4 covers 128.0.0.0 to 143.255.255.255 (RFC [3779 §2.2.3.8](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.8)))
+- *edge cases:* ::/0, a single IPv6 address and the IPv4 /32 maximum
+- *edge cases:* a prefix longer than the address family is an error
+- *edge cases:* an unknown AFI keeps its bit strings undecoded
+- *edge cases:* a range maximum with no one bits is accepted (erratum 2537) (RFC [3779 §2.2.3.9](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.9)))
+  Verified erratum 2537 deleted the rule that a range maximum must contain
+  a one bit. A maximum like 0.0.0.255 encodes as 24 zero bits (03 04 00
+  00 00 00) and must be accepted.
+- *edge cases:* malformed DER is an error
+- *canonical form (reported, not enforced):* reports unsorted, overlapping and contiguous blocks (RFC [3779 §2.2.3.6](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.6)))
+- *canonical form (reported, not enforced):* reports ranges that should be prefixes, non-minimal ends and inverted ranges (RFC [3779 §2.2.3.7](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.7)), [3779 §2.2.3.9](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.9)))
+- *canonical form (reported, not enforced):* reports address families out of order or duplicated (RFC [3779 §2.2.3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.3)))
+- *canonical form (reported, not enforced):* reports AS identifiers that are unsorted, overlapping, contiguous or badly formed ranges (RFC [3779 §3.2.3.4](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.4)), [3779 §3.2.3.8](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.8)))
+  Equal range ends are reported per erratum 7653, held for document update.
+- *Barry fixture:* the m0-minimal-valid certificates carry Barry's default resources (RFC [3779 §2.2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3)), [3779 §3.2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3)))
+  Barry's README: the TA holds everything, and the first CA gets 1/8, 0100::/8 and AS 0x01000000-0x01FFFFFF.
 
 ### `LuminaTest`
 
