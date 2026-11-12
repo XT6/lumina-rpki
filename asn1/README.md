@@ -7,8 +7,7 @@ Lumina decodes RPKI objects with ASN.1 modules taken **verbatim from the RFC tex
 | `rfc/` | Each module exactly as its RFC defines it | `mix lumina.asn1.extract` |
 | `patches/` | Unified diffs that make `rfc/` compile with OTP's `asn1ct` | Written by hand and reviewed |
 | `build/` | `rfc/` with the patches applied: the compiler input | `mix lumina.asn1.extract` |
-
-The compile step (#24) compiles `build/`.
+| `../gen/asn1/` (git-ignored) | Erlang generated from `build/` | `mix compile` |
 
 ## Modules
 
@@ -41,6 +40,23 @@ For each module, the task:
 ASN.1 ignores whitespace, so steps 4 and 5 don't change the module. Anything else in an extracted file is RFC text. Where an RFC indents some lines less than the rest (for example `DEFINITIONS` in RFC 9286), that layout is kept.
 
 Never edit files in `rfc/` or `build/`. `--check` fails on any difference, and changes needed for the compiler go in patches.
+
+## Compiling
+
+`mix compile` runs the `lumina_asn1` compiler, defined in `mix.exs` because a compiler in `lib/` can't run before `lib/` is compiled. It runs OTP's `asn1ct` on every module in `build/` and writes Erlang to `gen/asn1/`, which the normal Erlang compiler then builds into the app.
+
+- **Options:** `der`, `maps` (SEQUENCE and SET values are maps keyed by field name) and `undec_rest` (decoding returns the bytes left after the value, so trailing data can be rejected; see [F-010](../doc/rfc-findings.md#f-010-no-rule-for-data-after-the-encoded-object)).
+- **Order:** modules are compiled in passes until all succeed, so imports never need ordering by hand.
+- **When it runs:** everything is recompiled if any module changes, is added or removed, or the options change. `mix clean` removes `gen/`.
+
+Use the compiled modules through `Lumina.ASN1`, never directly:
+
+```elixir
+Lumina.ASN1.decode(:pkix, :Certificate, der)   # {:ok, %{tbsCertificate: ..., ...}} | {:error, reason}
+Lumina.ASN1.encode(:pkix, :Certificate, value) # {:ok, der} | {:error, reason}
+```
+
+The wrapper never raises, rejects trailing bytes, and shortens `asn1ct`'s error reasons, which include stack traces ([F-011](../doc/rfc-findings.md#f-011-asn1ct-error-reasons-carry-stack-traces)). It doesn't check that input is strict DER; that's `Lumina.DER` (#25).
 
 ## Patches
 

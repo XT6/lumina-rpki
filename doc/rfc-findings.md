@@ -28,6 +28,9 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-007](#f-007-rfc-5280-modules-redefine-built-in-string-types) | 5280 A.1, A.2 | tooling | none | Patched (#23) |
 | [F-008](#f-008-certificate-signature-field-has-two-names) | 5280 §4.1 vs A.1 | ambiguity | [7634](https://www.rfc-editor.org/errata/eid7634), held for document update | Decide in #27 |
 | [F-009](#f-009-cms-and-attribute-certificate-modules-import-from-each-other) | 5652 §12.1, 5755 App. B | reference | none found | Avoided by F-006 placeholders (#23) |
+| [F-010](#f-010-no-rule-for-data-after-the-encoded-object) | 6481 §2.2, 6488 §3 | ambiguity | none found (not reported) | Trailing bytes rejected (#24, #25) |
+| [F-011](#f-011-asn1ct-error-reasons-carry-stack-traces) | (OTP `asn1ct`) | tooling | n/a | Wrapper shortens reasons (#24) |
+| [F-012](#f-012-the-roa-module-enforces-the-afi-rule-at-decode-time) | 9582 §4, §4.3.1 | tooling | none | Accepted; decode error (#24) |
 
 ## Entries
 
@@ -169,6 +172,61 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
   Compilers that work one module at a time, such as `asn1ct`, can't compile such a cycle directly.
 - **Resolution:** not attempted. The CMS module gets opaque attribute certificate types instead (F-006, #23).
 - **Talk note:** obsoleting an RFC doesn't update the modules that import from it. Module names change, and dependencies can turn into cycles.
+
+### F-010: no rule for data after the encoded object
+
+- **Where:** RFC 6481 §2.2 says, for two object types only:
+
+  > Each ".crl" file contains exactly one CRL encoded in DER format.
+  >
+  > Each ".cer" file contains exactly one certificate encoded in DER format.
+
+  The same section says nothing comparable for manifests or other signed objects (ROAs and others). RFC 6488 §3, the checks a relying party must make on every signed object, only requires:
+
+  > l. The signed object is DER encoded.
+
+  No RFC in the library says what a relying party must do when a file holds a valid encoding **followed by more bytes**.
+- **Kind:** ambiguity. A file of "valid DER + junk" arguably isn't "a DER-encoded object", but no RFC says so, and the CRL/certificate wording ("contains exactly one") can be read as allowing other content around the object.
+- **Official errata:** none found for RFC 6481 or RFC 6488 (checked 2026-11-12). **Not reported**; a candidate for clarifying text.
+- **Why it happens:** BER and DER decoders read one tag-length-value and stop. Anything after it is "the rest", and what happens to it is up to the library. OTP's `asn1ct` generated `decode/2` **discards it silently** unless the module is compiled with `undec_rest`. During #24, a TA certificate with two bytes appended decoded as valid.
+- **Why it matters:**
+  - **Parser differential.** If one relying party rejects such a file and another accepts it, they produce different VRP sets from the same repository.
+  - **Smuggled data.** The manifest hash covers the whole file, so appended bytes don't break integrity checks, and they can travel inside an otherwise "valid" object.
+- **Resolution in Lumina:**
+  - The ASN.1 modules are compiled with `undec_rest`, and `Lumina.ASN1.decode/3` rejects any leftover bytes with `{:trailing_bytes, n}` (#24).
+  - The strict DER checker (#25) also rejects trailing bytes, so there are two layers.
+- **Suggested improvements:**
+  - **RFC text.** In RFC 6481 §2.2, state it once for every object type instead of per type: *"Each file in a publication point MUST contain exactly one DER-encoded object and no other data."* In RFC 6488 §3, add a check: *"m. The file containing the signed object consists of exactly one DER encoding; no octets follow the end of the encoding."* The second matters most, because §3 is the checklist relying parties follow.
+  - **ASN.1 modules.** Nothing to change. ASN.1 describes values, not files, so "no data after the value" can't be expressed in a module; it has to be said in prose.
+  - **Tooling.** Decoders used for security-relevant input should treat leftover bytes as an error by default.
+- **Talk note:** the specs define the object precisely and never define the file around it. A default "decode the first value, ignore the rest" turns that gap into a disagreement between implementations.
+
+### F-011: `asn1ct` error reasons carry stack traces
+
+- **Where:** not in any RFC. This is OTP's ASN.1 compiler.
+- **Kind:** tooling. Recorded because it shaped Lumina's decoding layer.
+- **Why it happens:** the generated `decode/2` catches failures inside the generated code and returns them as `{error, {asn1, {Reason, Stacktrace}}}`, to help debug generated code. The reason that matters, for example `{invalid_value, 0}`, sits next to a list of internal stack frames.
+- **Impact:** error values are bulky, expose generated-code internals in messages, and can change between OTP versions, which makes them poor test assertions. Some malformed input also makes the generated code exit instead of returning an error (see F-012).
+- **Resolution in Lumina:** `Lumina.ASN1` keeps only the reason (`{:asn1, {:invalid_value, 0}}`), turns exits and exceptions into `{:error, ...}`, and never raises (#24). A test feeds it 2000 random inputs.
+- **Suggested improvements:** none for the RFCs or modules. An `asn1ct` option to return errors without the stack trace would remove the need for the wrapping.
+
+### F-012: the ROA module enforces the AFI rule at decode time
+
+- **Where:** RFC 9582 §4 (ASN.1 module) constrains `addressFamily` with an information object set:
+
+  ```asn1
+  addressFamily ADDRESS-FAMILY.&afi ({AddressFamilySet}),
+  ...
+  AddressFamilySet ADDRESS-FAMILY ::=
+    { addressFamilyIPv4 | addressFamilyIPv6 }
+  ```
+
+  The prose agrees (§4.3.1): "addressFamily MUST be either 0001 or 0002."
+- **Kind:** tooling. The RFC is consistent; this note is about where the rule ends up being enforced.
+- **Official errata:** none.
+- **Impact:** a compiler that honours table constraints, as `asn1ct` does, makes the **decoder** reject any other AFI: the generated code exits. In Lumina this is the one RFC 9582 rule that fails at decode time rather than in validation (M7), so its error is a generic decode error instead of "AFI must be IPv4 or IPv6 (RFC 9582 §4.3.1)". Dialyzer flags the generated lookup functions, because they only ever exit (ignored in `.dialyzer_ignore.exs`).
+- **Resolution:** accepted. The rule is unambiguous, and patching the constraint out would break the rule that patches never change what is accepted. The decoder turns the exit into an error, and a test covers AFI 3 (#24). M7 should map this decode error to a message that cites §4.3.1.
+- **Talk note:** information object sets put validation rules inside the ASN.1, so the same rule can fail in the decoder or in validation, depending on the toolchain.
 
 ## Process notes
 

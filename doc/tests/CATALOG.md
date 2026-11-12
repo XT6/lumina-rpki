@@ -5,7 +5,7 @@
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
 - 1 Barry fixture: 1 valid, 0 invalid.
-- 119 unit tests in 16 modules.
+- 129 unit tests in 17 modules.
 
 ## Barry fixtures
 
@@ -43,6 +43,36 @@ sections it checks and what a validator must conclude from it, and that
 its generated output is present. See doc/testing.md.
 
 - every fixture has complete metadata and generated output
+
+### `Lumina.ASN1Test`
+
+[test/lumina/asn1_test.exs](../../test/lumina/asn1_test.exs)
+
+Tests the wrapper around the ASN.1 modules compiled from the RFCs. Every
+RPKI object is decoded through it, so it must decode real objects
+faithfully, reject trailing data that asn1ct would silently ignore, and
+never raise on malformed input, which a validator receives from
+untrusted repositories.
+
+- *real objects:* decodes the TA certificate and re-encodes it to identical bytes (RFC [5280 §4.1](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1)), [5280 §A.1](../rfc/rfc5280.txt))
+- *real objects:* decodes and re-encodes a CRL (RFC [5280 §5.1](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1)), [5280 §A.1](../rfc/rfc5280.txt))
+- *real objects:* decodes the ROA and manifest contents through the CMS envelope (RFC [5652 §12.1](../rfc/rfc5652.txt) ([html](https://www.rfc-editor.org/rfc/rfc5652.html#section-12.1)), [9582 §4](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4)), [9286 §A](../rfc/rfc9286.txt))
+  A smoke test across modules; CMS, ROA and manifest decoding proper are #29-#31.
+- *malformed input:* rejects trailing bytes after a valid value
+  asn1ct decodes the value and silently drops anything after it. A
+  validator must not accept an object with appended data, so the
+  wrapper compiles with :undec_rest and rejects any leftover.
+- *malformed input:* rejects empty, truncated and garbage input with an error, not an exception
+- *malformed input:* never raises on random bytes
+  Seeded, so the 2000 inputs are the same on every run.
+- *malformed input:* a ROA with an address family other than IPv4 or IPv6 is an error, not a crash (RFC [9582 §4](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4)), [9582 §4.3.1](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.1)))
+  RFC 9582's module limits addressFamily to IPv4 and IPv6 with an
+  information object set, so the generated decoder exits on any other
+  AFI (F-012 in doc/rfc-findings.md). The wrapper must turn that exit
+  into an error.
+- *malformed input:* reports an unknown module, an unknown type and non-binary input
+- *malformed input:* encoding an invalid value returns an error
+- every module key names a loaded, compiled ASN.1 module
 
 ### `Lumina.Fixtures.M0MinimalValidTest`
 
