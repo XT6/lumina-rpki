@@ -49,7 +49,7 @@ jobs:
       - run: mix dialyzer --format github
 
   barry:
-    name: Barry (build and smoke test)
+    name: Barry (build, smoke test, fixture tests)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -73,3 +73,25 @@ jobs:
         run: scripts/install-barry.sh
 
       - run: scripts/check-barry.sh
+
+      - id: beam
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          version-file: .tool-versions
+          version-type: strict
+
+      - name: Cache deps and build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
+
+      # Tests tagged :barry run the real Barry binary; the check job skips them.
+      - name: Barry tests
+        env:
+          MIX_ENV: test
+        run: |
+          mix deps.get
+          mix test --only barry
