@@ -38,7 +38,10 @@ defmodule Mix.Lumina.CatalogTest do
 
   test "says so when there are no fixtures or unit tests" do
     catalog = Catalog.render([], [])
-    assert catalog =~ "- 0 Barry fixtures: 0 valid, 0 invalid.\n- 0 unit tests in 0 modules."
+
+    assert catalog =~
+             "- 0 Barry fixtures: 0 valid, 0 invalid.\n- 0 test TALs: 0 valid, 0 with warnings, 0 invalid.\n- 0 unit tests in 0 modules."
+
     assert catalog =~ "No fixtures yet."
     assert catalog =~ "No unit tests yet."
   end
@@ -61,6 +64,7 @@ defmodule Mix.Lumina.CatalogTest do
              "### M4",
              "#### `m4-ca-expired`: Expired CA certificate",
              "#### `m4-chain-ok`: Valid chain",
+             "## Test TALs",
              "## Unit tests"
            ]
   end
@@ -130,6 +134,40 @@ defmodule Mix.Lumina.CatalogTest do
     exunit?: false,
     tests: []
   }
+
+  describe "test TALs" do
+    @tal_case %{
+      id: "invalid-two-blank-lines",
+      title: "Two blank lines",
+      rationale: "Why it exists.",
+      rfc: ["8630#2.2"],
+      expected: {:invalid, %{line: 3, rule: :extra_blank_line}},
+      dir: "test/fixtures/tals/cases/invalid-two-blank-lines"
+    }
+
+    test "lists each test TAL with its expected outcome, RFC links and files" do
+      catalog = Catalog.render([], [], "doc/tests/CATALOG.md", [@tal_case])
+
+      assert catalog =~ "- 1 test TAL: 0 valid, 0 with warnings, 1 invalid."
+      assert catalog =~ "#### `invalid-two-blank-lines`: Two blank lines\n\nWhy it exists.\n"
+      assert catalog =~ "- **Expected:** invalid: `extra_blank_line` at line 3\n"
+      assert catalog =~ "[TAL](../../test/fixtures/tals/cases/invalid-two-blank-lines/case.tal)"
+    end
+
+    test "valid cases with warnings show each warning and its line" do
+      warned = %{
+        @tal_case
+        | expected: {:valid, warnings: [%{line: 2, rule: :trailing_whitespace}]}
+      }
+
+      assert Catalog.render([], [], "doc/tests/CATALOG.md", [warned]) =~
+               "valid, with warnings: `trailing_whitespace` (line 2)"
+    end
+
+    test "says so when there are no test TALs" do
+      assert Catalog.render([], []) =~ "No test TALs yet."
+    end
+  end
 
   describe "unit tests" do
     test "lists each test module with its moduledoc, file and tests, in file order" do

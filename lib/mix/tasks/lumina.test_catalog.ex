@@ -19,13 +19,14 @@ defmodule Mix.Tasks.Lumina.TestCatalog do
     * `--output` - catalog path (default: `doc/tests/CATALOG.md`)
     * `--dir` - fixture root (default: `test/fixtures/barry`)
     * `--tests` - test directory to scan (default: `test`)
+    * `--tal-cases` - test TAL corpus (default: `test/fixtures/tals/cases`)
   """
 
   use Mix.Task
 
-  alias Mix.Lumina.{Catalog, Fixtures, TestScanner}
+  alias Mix.Lumina.{Catalog, Fixtures, TALCases, TestScanner}
 
-  @switches [check: :boolean, output: :string, dir: :string, tests: :string]
+  @switches [check: :boolean, output: :string, dir: :string, tests: :string, tal_cases: :string]
 
   @impl Mix.Task
   def run(args) do
@@ -34,10 +35,11 @@ defmodule Mix.Tasks.Lumina.TestCatalog do
 
     {fixtures, fixture_problems} = Fixtures.load_all(Keyword.get(opts, :dir, Fixtures.dir()))
     {modules, scan_problems} = TestScanner.scan_dir(Keyword.get(opts, :tests, "test"))
+    {tal_cases, tal_problems} = TALCases.load_all(Keyword.get(opts, :tal_cases, TALCases.dir()))
 
-    case fixture_problems ++ scan_problems ++ TestScanner.check_docs(modules) do
+    case fixture_problems ++ tal_problems ++ scan_problems ++ TestScanner.check_docs(modules) do
       [] ->
-        catalog = Catalog.render(fixtures, modules, output)
+        catalog = Catalog.render(fixtures, modules, output, tal_cases)
         if opts[:check], do: check!(output, catalog), else: write!(output, catalog)
 
       problems ->
