@@ -14,7 +14,7 @@ defmodule Lumina.CLI do
   or flag).
   """
 
-  alias Lumina.{Object, Print, Sync, TAL}
+  alias Lumina.{Object, Print, Rsync, Sync, TAL}
 
   @usage """
   Usage: lumina <command> [flags] [arguments]
@@ -53,7 +53,7 @@ defmodule Lumina.CLI do
   rsync) and check it against the TAL, then walk the repository from it
   and mirror every publication point into the cache with rsync. A failed
   fetch keeps the last good copy. Nothing is validated yet: this only
-  fetches.
+  fetches. Needs rsync 3.1.0 or later on PATH.
 
   Flags:
     --cache DIR        the cache directory (default: the user cache
@@ -70,8 +70,11 @@ defmodule Lumina.CLI do
   and rsync fetches, and every failure with its reason.
 
   Exit codes: 0 everything fetched, 1 some fetch failed (the cache is
-  still usable) or another sync holds the cache, 2 usage error.
+  still usable), another sync holds the cache, or rsync is missing or
+  too old, 2 usage error.
   """
+
+  @rsync_hint " (on macOS, /usr/bin/rsync is openrsync: install rsync with Homebrew and put it first in PATH)"
 
   @help %{"print" => @print_usage, "sync" => @sync_usage}
 
@@ -144,7 +147,10 @@ defmodule Lumina.CLI do
         with {:ok, paths} <- tal_paths(opts, internal),
              {:ok, tals} <- read_tals(paths),
              {:ok, limits} <- limits(opts) do
-          sync(tals, opts[:cache] || default_cache(), limits ++ internal, out, err)
+          case rsync_check(internal) do
+            :ok -> sync(tals, opts[:cache] || default_cache(), limits ++ internal, out, err)
+            {:error, message} -> written(err, "lumina sync: #{message}\n", 1)
+          end
         else
           {:error, message} -> written(err, "lumina sync: #{message}\n", 2)
         end
@@ -193,6 +199,28 @@ defmodule Lumina.CLI do
 
       true ->
         {:ok, Keyword.take(opts, [:timeout, :max_depth])}
+    end
+  end
+
+  # Repositories need rsync 3.1.0 or later. Checked before anything is
+  # fetched, so an old rsync fails clearly instead of every fetch failing.
+  defp rsync_check(internal) do
+    rsync_opts = Keyword.get(internal, :rsync, [])
+    path = rsync_opts[:rsync] || System.find_executable("rsync")
+
+    case Rsync.check(rsync_opts) do
+      {:ok, _} ->
+        :ok
+
+      {:error, :rsync_not_found} ->
+        {:error, "rsync not found; Lumina needs rsync 3.1.0 or later#{@rsync_hint}"}
+
+      {:error, {:rsync_too_old, version}} ->
+        {:error, "#{path} is rsync #{version}; Lumina needs 3.1.0 or later#{@rsync_hint}"}
+
+      {:error, :rsync_version_unknown} ->
+        {:error,
+         "#{path}: can't tell which rsync version it is; Lumina needs 3.1.0 or later#{@rsync_hint}"}
     end
   end
 

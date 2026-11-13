@@ -128,6 +128,7 @@ defmodule Lumina.CLISyncTest do
       assert out =~ "1 TAL(s) with failures"
     end
 
+    @tag :rsync
     @tag rfc: "8630#3"
     test "a TAL whose TA can't be fetched exits 1, with each attempt listed", %{tmp_dir: tmp} do
       dead = dead_tal("m0-minimal-valid", Path.join(tmp, "tals"))
@@ -141,6 +142,7 @@ defmodule Lumina.CLISyncTest do
   end
 
   describe "the cache lock" do
+    @tag :rsync
     test "a cache held by a running process isn't touched, and the sync exits 1", %{
       tmp_dir: tmp
     } do
@@ -154,6 +156,7 @@ defmodule Lumina.CLISyncTest do
       assert File.read!(Path.join(cache, ".lock")) == System.pid()
     end
 
+    @tag :rsync
     @tag doc: "A lock left by a crashed run (its process is gone) is taken over and released."
     test "a lock whose process is gone is taken over", %{tmp_dir: tmp} do
       cache = Path.join(tmp, "cache")
@@ -164,6 +167,90 @@ defmodule Lumina.CLISyncTest do
       assert {1, out, ""} = run(["sync", "--cache", cache, "--tal", dead])
       assert out =~ "ta: FAILED"
       refute File.exists?(Path.join(cache, ".lock"))
+    end
+  end
+
+  describe "rsync (#89)" do
+    # A fake rsync: prints `version_text` for --version, otherwise writes
+    # `message` to stderr and exits `status`.
+    defp fake_rsync(tmp, version_text, status \\ 0, message \\ "") do
+      path = Path.join(tmp, "fake-rsync")
+
+      File.write!(path, """
+      #!/bin/sh
+      if [ "$1" = "--version" ]; then printf '%s\\n' '#{version_text}'; exit 0; fi
+      printf '%s\\n' '#{message}' >&2
+      exit #{status}
+      """)
+
+      File.chmod!(path, 0o755)
+      path
+    end
+
+    @tag doc: "The cache isn't created: nothing is fetched and no lock is taken."
+    test "an rsync older than 3.1.0 stops the sync before anything is fetched, exit 1", %{
+      tmp_dir: tmp
+    } do
+      rsync = fake_rsync(tmp, "rsync  version 2.6.9  protocol version 29")
+      dead = dead_tal("m0-minimal-valid", Path.join(tmp, "tals"))
+      cache = Path.join(tmp, "cache")
+
+      assert {1, "", err} = run(["sync", "--cache", cache, "--tal", dead], rsync: [rsync: rsync])
+      assert err =~ "lumina sync: #{rsync} is rsync 2.6.9; Lumina needs 3.1.0 or later"
+      assert err =~ "openrsync"
+      refute File.exists?(cache)
+    end
+
+    @tag doc: "macOS's /usr/bin/rsync is openrsync, which reports itself as 2.6.9 compatible."
+    test "openrsync is recognised as too old", %{tmp_dir: tmp} do
+      rsync = fake_rsync(tmp, "openrsync: protocol version 29\nrsync version 2.6.9 compatible")
+      dead = dead_tal("m0-minimal-valid", Path.join(tmp, "tals"))
+
+      assert {1, "", err} =
+               run(["sync", "--cache", Path.join(tmp, "cache"), "--tal", dead],
+                 rsync: [rsync: rsync]
+               )
+
+      assert err =~ "is rsync 2.6.9; Lumina needs 3.1.0 or later"
+    end
+
+    test "a missing rsync stops the sync before anything is fetched, exit 1", %{tmp_dir: tmp} do
+      dead = dead_tal("m0-minimal-valid", Path.join(tmp, "tals"))
+      cache = Path.join(tmp, "cache")
+
+      assert {1, "", err} =
+               run(["sync", "--cache", cache, "--tal", dead],
+                 rsync: [rsync: Path.join(tmp, "no-such-rsync")]
+               )
+
+      assert err =~ "lumina sync: rsync not found; Lumina needs rsync 3.1.0 or later"
+      refute File.exists?(cache)
+    end
+
+    @tag doc: """
+         An rsync that passes the version check but rejects an argument
+         (exit 1): the fetch fails as usage_error, and rsync's own message
+         is in the summary.
+         """
+    test "an rsync that rejects its arguments is reported with rsync's message", %{
+      tmp_dir: tmp
+    } do
+      rsync =
+        fake_rsync(
+          tmp,
+          "rsync  version 3.2.7  protocol version 31",
+          1,
+          "rsync: unrecognized option `--info=skip1`"
+        )
+
+      dead = dead_tal("m0-minimal-valid", Path.join(tmp, "tals"))
+
+      assert {1, out, ""} =
+               run(["sync", "--cache", Path.join(tmp, "cache"), "--tal", dead],
+                 rsync: [rsync: rsync]
+               )
+
+      assert out =~ "fetch_failed (usage_error: rsync: unrecognized option `--info=skip1`)"
     end
   end
 

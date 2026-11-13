@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 16 Barry fixtures: 9 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 444 unit tests in 45 modules.
+- 448 unit tests in 45 modules.
 
 ## Barry fixtures
 
@@ -664,6 +664,15 @@ repository's certificates to it (`:remap`, see `Lumina.Walk`).
 - *the cache lock:* a cache held by a running process isn't touched, and the sync exits 1
 - *the cache lock:* a lock whose process is gone is taken over
   A lock left by a crashed run (its process is gone) is taken over and released.
+- *rsync (#89):* an rsync older than 3.1.0 stops the sync before anything is fetched, exit 1
+  The cache isn't created: nothing is fetched and no lock is taken.
+- *rsync (#89):* openrsync is recognised as too old
+  macOS's /usr/bin/rsync is openrsync, which reports itself as 2.6.9 compatible.
+- *rsync (#89):* a missing rsync stops the sync before anything is fetched, exit 1
+- *rsync (#89):* an rsync that rejects its arguments is reported with rsync's message
+  An rsync that passes the version check but rejects an argument
+  (exit 1): the fetch fails as usage_error, and rsync's own message
+  is in the summary.
 - *usage:* --tal on a missing file is a usage error
 - *usage:* --tal on a file that isn't a TAL is a usage error (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
 - *usage:* an unknown flag, a stray argument or a bad number is a usage error

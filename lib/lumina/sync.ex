@@ -145,7 +145,16 @@ defmodule Lumina.Sync do
     ]
   end
 
-  # A short reason for a failure's detail.
+  # A short reason for a failure's detail. For rsync failures Lumina can't
+  # classify further, rsync's own first line says what went wrong.
+  defp reason(%{reason: reason, output: output})
+       when reason in [:usage_error, :protocol_error, :rsync_error] do
+    case output |> String.split("\n", trim: true) |> Enum.map(&String.trim/1) do
+      [line | _] -> "#{reason}: #{String.slice(line, 0, 200)}"
+      [] -> to_string(reason)
+    end
+  end
+
   defp reason(%{reason: reason}), do: to_string(reason)
   defp reason(%{certificate: name}), do: "from #{name}"
   defp reason(%{covered_by: uri}), do: "no copy; fetched with #{uri}"
