@@ -59,3 +59,14 @@ Things to know when writing fixtures:
 - **Override keys.** These follow the ASN.1 field names from the RFC modules, prefixed with `obj.`. See Barry's README for the descriptor syntax and default resource distribution.
 
 The install also provides `barry-delta`, `barry-mtim`, `barry-ncu` and `barry-rtr`, which Lumina doesn't use yet.
+
+## Limitations and wishlist
+
+Things Barry can't do yet, found while writing fixtures, and how Lumina works around them:
+
+| Missing in Barry (pinned `478ee89`) | Workaround | Tracked |
+| --- | --- | --- |
+| Revoked CRL entries (`revokedCertificates`, listed as unimplemented in its README) | Tests re-encode a Barry CRL with entries added; the signature no longer matches | #52, needed for signature-valid revocation tests in M4 |
+| Mixing a prefix list for one address family with `inherit` for the other | Fixtures use `extnValue = inherit`, which inherits both families | — |
+
+Improving Barry upstream ([LACNIC/barry](https://github.com/LACNIC/barry)) is the maintainer's call.
