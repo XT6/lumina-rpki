@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 10 Barry fixtures: 3 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 320 unit tests in 36 modules.
+- 324 unit tests in 37 modules.
 
 ## Barry fixtures
 
@@ -665,6 +665,38 @@ layer with the expected rule.
   every object it fits; certificates and CRLs have no signed attributes,
   so the signed-attribute mutation only applies to manifests and ROAs.
 - inherited resources decode as :inherit, not as empty lists (RFC [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [3779 §3.2.3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.3)))
+
+### `Lumina.M2DoneTest`
+
+[test/lumina/m2_done_test.exs](../../test/lumina/m2_done_test.exs)
+
+The end-to-end check that closes M2, TAL parsing (#60). It runs every
+TAL Lumina has against the whole M2 pipeline:
+
+  * each Barry fixture's TAL parses, and its TA certificate passes
+    `check_ta/2` unless the fixture's metadata says the TA is invalid;
+  * each RIR TAL parses, prefers an HTTPS URI (D-003) and prints;
+  * the test TAL corpus exercises every parser rule and gives its
+    expected outcome;
+  * RFC 8630 §2.2, §2.3, §2.4 and §3 are covered by tests other than
+    this one.
+
+The individual behaviours are tested in detail elsewhere (`TALTest`,
+`TALCheckTest`, `TALURIOrderTest`, `TALRIRTest`, `PrintTest`). This
+module checks that they hold together, over all the data at once.
+
+- every Barry TA passes against its TAL exactly when its metadata says it should (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)), [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)), [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)))
+  Driven by the fixture metadata: a fixture whose expected outcome names
+  ta.cer as invalid must fail the TA check with one problem; every other
+  fixture's TA must pass.
+- every RIR TAL parses, is tried HTTPS first, and prints (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)), [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)))
+  All five RIRs publish an HTTPS URI, so D-003 always starts with HTTPS on them.
+- the test TAL corpus exercises every parser rule, each with its expected outcome (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
+  Every error and warning rule the parser can report is the expected
+  outcome of at least one corpus case, and the parser gives it there.
+- RFC 8630 §2.2, §2.3, §2.4 and §3 are covered by other tests
+  The coverage `mix lumina.rfc_coverage --rfc 8630` reports, computed the
+  same way, ignoring this module's own tags.
 
 ### `Lumina.ManifestTest`
 
