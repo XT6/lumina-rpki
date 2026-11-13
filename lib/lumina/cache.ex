@@ -29,7 +29,8 @@ defmodule Lumina.Cache do
 
   The working directories live under `root` and start with a dot, which no
   scheme directory does, so they can't collide with repository content:
-  `.staging/`, `.aside/` and `.status/`.
+  `.staging/`, `.aside/` and `.status/`, and `.ta/`, where `Lumina.TA`
+  keeps accepted TA certificates.
   """
 
   alias Lumina.URI
