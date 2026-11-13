@@ -5,7 +5,7 @@ Trust Anchor Locators for testing TAL parsing (RFC 8630 §2.2).
 | Folder | Contents |
 | --- | --- |
 | `cases/` | Hand-written TALs, valid and malformed, one folder per case (#55) |
-| `rir/` | The RIRs' published TALs, committed only after the maintainer approves each source and its terms (#58) |
+| `rir/` | The RIRs' published TALs, byte-exact, with source, date, SHA-256 and terms in `rir/README.md` (#58) |
 
 ## Cases
 

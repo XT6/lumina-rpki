@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 10 Barry fixtures: 3 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 308 unit tests in 33 modules.
+- 317 unit tests in 35 modules.
 
 ## Barry fixtures
 
@@ -881,6 +881,49 @@ Signature and validity checks are M4.
 - *resources:* a TA with no resource extensions at all is rejected (RFC [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)), [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10)), [6487 §4.8.11](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.11)))
 - *resources:* a resource extension that doesn't decode is reported, not ignored
 - each problem names its rule, RFC section and reason
+
+### `Lumina.TALRealRepoTest`
+
+[test/lumina/tal_realrepo_test.exs](../../test/lumina/tal_realrepo_test.exs)
+
+Checks the LACNIC TAL against the LACNIC TA certificate in the
+maintainer's local copy of the LACNIC repository, `test/realrepos/`
+(#58). That copy is git-ignored and only current until its objects
+expire. These tests are tagged `:realrepo` and excluded when the copy
+isn't present (`test/test_helper.exs`). `check_ta/2` doesn't look at
+validity dates (M4), so the check stays meaningful after expiry.
+
+- the LACNIC TA certificate matches the LACNIC TAL (RFC [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)))
+  The real LACNIC TA certificate, fetched by rsync, matches LACNIC's published TAL.
+- the LACNIC TA certificate doesn't match the ARIN TAL (RFC [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)))
+  A real TA certificate against another RIR's TAL: the key check must catch it.
+
+### `Lumina.TALRIRTest`
+
+[test/lumina/tal_rir_test.exs](../../test/lumina/tal_rir_test.exs)
+
+Real-world TALs: the five RIRs' published TALs in
+`test/fixtures/tals/rir/` (#58), byte-exact copies approved by the
+maintainer. Each must parse under the strict grammar (D-002) with no
+warnings, list the URIs the RIR published, and carry an RSA 2048-bit key
+(RFC 7935 §3). The Subject Key Identifier pins the key itself: if an RIR
+rolls its key, refreshing the file fails here until the change is
+reviewed. The SHA-256 in the README must match each file, so the
+recorded provenance stays true.
+
+- the AFRINIC TAL parses cleanly, with its published URIs and an RSA 2048 key (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
+  AFRINIC's TAL lists rsync first; D-003 still tries HTTPS first.
+- the APNIC TAL parses cleanly, with its published URIs and an RSA 2048 key (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
+  The HTTPS-first variant from APNIC's TAL archive (maintainer's choice; the current apnic.tal is rsync only).
+- the ARIN TAL parses cleanly, with its published URIs and an RSA 2048 key (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
+  ARIN's TAL starts with an 11-line disclaimer, so it exercises the comment rules on a real file.
+- the LACNIC TAL parses cleanly, with its published URIs and an RSA 2048 key (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
+  LACNIC's TAL has no final newline, which RFC 8630 §2.2 doesn't require.
+- the RIPE NCC TAL parses cleanly, with its published URIs and an RSA 2048 key (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
+  RIPE NCC's preferred TAL file.
+- all five RIR TALs carry RSA 2048-bit keys (RFC [7935 §3](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-3)))
+- every TAL in the folder is listed in the README with its SHA-256
+  The README records each file's source and SHA-256; a changed file must update it.
 
 ### `Lumina.TALTest`
 
