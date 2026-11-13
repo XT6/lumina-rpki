@@ -4,8 +4,8 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 1 Barry fixture: 1 valid, 0 invalid.
-- 172 unit tests in 19 modules.
+- 4 Barry fixtures: 1 valid, 3 invalid.
+- 185 unit tests in 20 modules.
 
 ## Barry fixtures
 
@@ -29,6 +29,58 @@ one field, so a rejection can be traced to that one change.
 - **Expected:** valid
 - **RFC:** [6481 §2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2)), [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)), [6487 §4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4)), [9286 §4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4)), [9582 §4](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4))
 - **Files:** [descriptor](../../test/fixtures/barry/m0-minimal-valid/case.repo) · [metadata](../../test/fixtures/barry/m0-minimal-valid/case.exs) · [rsync tree](../../test/fixtures/barry/m0-minimal-valid/rsync)
+
+### M1
+
+#### `m1-cert-no-ski`: CA certificate without a Subject Key Identifier
+
+The baseline tree with one change: the CA certificate has no Subject Key
+Identifier extension. RFC 6487 section 4.8.2 says it MUST appear in all
+resource certificates; it is also how children find their issuer (AKI),
+so validation must reject the certificate.
+
+In M1 it checks that a missing mandatory extension is not a decoding
+error: the certificate decodes and simply has no SKI.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta/ca1.cer`: no Subject Key Identifier; RFC 6487 section 4.8.2 requires it
+- **RFC:** [6487 §4.8.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.2)), [6487 §4.8](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8)), [8897 §3.1](../rfc/rfc8897.txt) ([html](https://www.rfc-editor.org/rfc/rfc8897.html#section-3.1))
+- **Files:** [descriptor](../../test/fixtures/barry/m1-cert-no-ski/case.repo) · [metadata](../../test/fixtures/barry/m1-cert-no-ski/case.exs) · [rsync tree](../../test/fixtures/barry/m1-cert-no-ski/rsync)
+
+#### `m1-cert-unknown-critical-extension`: CA certificate with an unrecognized critical extension
+
+The baseline tree with one change: the CA certificate carries an extra,
+critical extension with an OID no validator knows (1.3.6.1.4.1.99999.1).
+RFC 6487 section 4.8 says a certificate-using system MUST reject a
+certificate with a critical extension it does not recognize.
+
+The extension is critical on purpose: for an unknown non-critical
+extension the RFCs allow either ignoring or rejecting it (F-015 in
+doc/rfc-findings.md), so that case is left for M4.
+
+In M1 it checks that unknown extensions are kept, with their criticality,
+instead of being dropped or failing the decode.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta/ca1.cer`: unrecognized critical extension 1.3.6.1.4.1.99999.1; RFC 6487 section 4.8
+- **RFC:** [6487 §4.8](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8)), [5280 §4.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.2))
+- **Files:** [descriptor](../../test/fixtures/barry/m1-cert-unknown-critical-extension/case.repo) · [metadata](../../test/fixtures/barry/m1-cert-unknown-critical-extension/case.exs) · [rsync tree](../../test/fixtures/barry/m1-cert-unknown-critical-extension/rsync)
+
+#### `m1-cert-version-2`: CA certificate with X.509 version 2
+
+The baseline tree with one change: the CA certificate's version field is
+1, meaning X.509 v2. RFC 6487 section 4.1 requires version 3, and RFC 8897
+section 3.1 requires relying parties to check the profile, so validation
+must reject it.
+
+In M1 it checks that decoding is structural: the certificate must still
+decode, with version 2 visible, so that M4 can reject it with a precise
+reason instead of a generic decode error.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta/ca1.cer`: version is 2; RFC 6487 section 4.1 requires version 3
+- **RFC:** [6487 §4.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.1)), [8897 §3.1](../rfc/rfc8897.txt) ([html](https://www.rfc-editor.org/rfc/rfc8897.html#section-3.1)), [5280 §4.1.2.1](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.1))
+- **Files:** [descriptor](../../test/fixtures/barry/m1-cert-version-2/case.repo) · [metadata](../../test/fixtures/barry/m1-cert-version-2/case.exs) · [rsync tree](../../test/fixtures/barry/m1-cert-version-2/rsync)
 
 ## Unit tests
 
@@ -73,6 +125,34 @@ untrusted repositories.
 - *malformed input:* reports an unknown module, an unknown type and non-binary input
 - *malformed input:* encoding an invalid value returns an error
 - every module key names a loaded, compiled ASN.1 module
+
+### `Lumina.CertificateTest`
+
+[test/lumina/certificate_test.exs](../../test/lumina/certificate_test.exs)
+
+Tests decoding of RPKI resource certificates (RFC 5280 profiled by RFC
+6487). Every later check (chain building, signatures, resources, URIs)
+reads these structs, so decoding must expose every field faithfully, keep
+the exact signed bytes, and stay structural: profile violations decode,
+and only non-DER or unparseable input fails.
+
+- *the m0-minimal-valid certificates:* the TA certificate is a self-issued v3 CA certificate valid 2026-2036 (RFC [6487 §4.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.1)), [6487 §4.4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.4)), [6487 §4.5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.5)), [6487 §4.6](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.6)), [6487 §4.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.1)), [6487 §4.8.4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.4)))
+- *the m0-minimal-valid certificates:* the Subject Key Identifier is the SHA-1 of the public key bits (RFC [6487 §4.8.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.2)), [5280 §4.2.1.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.2.1.2)))
+  The key identifier is the SHA-1 of the subjectPublicKey bit string's value.
+- *the m0-minimal-valid certificates:* the CA certificate points to the TA: AKI equals the TA's SKI and the issuer is the TA's subject (RFC [6487 §4.8.3](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.3)), [6487 §4.4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.4)))
+- *the m0-minimal-valid certificates:* the CA certificate's CRL, issuer, repository and manifest URIs and policy (RFC [6487 §4.8.6](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.6)), [6487 §4.8.7](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.7)), [6487 §4.8.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.1)), [6487 §4.8.9](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.9)))
+- *the m0-minimal-valid certificates:* resources are decoded through Lumina.Resources (RFC [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10)), [6487 §4.8.11](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.11)))
+- *the m0-minimal-valid certificates:* the ROA's EE certificate (RFC [6487 §4.8.4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.4)), [6487 §4.8.8.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.2)), [6488 §2.1.4](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.4)))
+  An EE certificate has no Basic Constraints, signs objects, and its SIA points to the signed object.
+- *the m0-minimal-valid certificates:* tbs_der is the exact tbsCertificate bytes from the input (RFC [5280 §4.1.1.1](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.1.1)))
+  Signatures are over the exact DER of tbsCertificate, so it must be the input's bytes.
+- *profile violations still decode (fixtures):* a version 2 certificate decodes with version 2 (RFC [6487 §4.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.1)))
+- *profile violations still decode (fixtures):* a certificate without a Subject Key Identifier decodes without one (RFC [6487 §4.8.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.2)))
+- *profile violations still decode (fixtures):* an unrecognized critical extension is kept, with its OID and criticality (RFC [6487 §4.8](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8)))
+- *malformed content:* a known extension whose value doesn't decode is marked malformed
+  A broken known extension is reported in place, so validation can name it, not the whole certificate.
+- *malformed content:* a validity time that isn't a real date is an error (RFC [5280 §4.1.2.5.1](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.5.1)))
+- *malformed content:* non-DER, truncated and non-certificate input are errors naming the layer (RFC [6487 §4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4)), [6481 §2.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2.2)))
 
 ### `Lumina.DERTest`
 
