@@ -102,6 +102,34 @@ defmodule Lumina.DER do
   end
 
   @doc """
+  Returns the exact encodings of the elements inside a constructed value,
+  for example the `tbsCertificate`, `signatureAlgorithm` and `signature` of
+  a certificate. Signatures are computed over such encodings, so they must
+  be taken from the input, not re-encoded.
+
+  ## Examples
+
+      iex> Lumina.DER.children(<<0x30, 0x06, 0x02, 0x01, 0x01, 0x05, 0x01, 0x00>>)
+      {:error, %{rule: :null_length, clause: "X.690 8.8.2", offset: 7, message: "NULL must have no contents"}}
+
+      iex> Lumina.DER.children(<<0x30, 0x05, 0x02, 0x01, 0x01, 0x05, 0x00>>)
+      {:ok, [<<0x02, 0x01, 0x01>>, <<0x05, 0x00>>]}
+
+  """
+  @spec children(binary()) :: {:ok, [binary()]} | {:error, error()}
+  def children(der) when is_binary(der) do
+    size = byte_size(der)
+
+    with {:ok, _tag, after_tag} <- identifier(der, 0),
+         {:ok, length, after_length} <- length(after_tag, size - byte_size(after_tag)),
+         offset = size - byte_size(after_length),
+         {:ok, contents, _rest} <- contents(after_length, length, offset),
+         {:ok, encodings} <- each_child(contents, offset, []) do
+      {:ok, Enum.map(encodings, &elem(&1, 1))}
+    end
+  end
+
+  @doc """
   Decodes `der` as `type` from `Lumina.ASN1` module `key`, re-encodes the
   value in DER and requires the same bytes. Run `check/1` first; this
   catches the DER rules a schema-less walk can't see.

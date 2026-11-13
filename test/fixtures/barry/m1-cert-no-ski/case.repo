@@ -1,0 +1,6 @@
+ta.cer
+	ca1.cer
+
+[node: ca1.cer]
+# Barry's default CA list without ski (Subject Key Identifier).
+obj.tbsCertificate.extensions = [ bc, aki, ku, cdp, aia, sia, cp, ip, as ]

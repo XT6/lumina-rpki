@@ -26,13 +26,15 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-005](#f-005-rpki-content-modules-depend-on-a-different-cms-module-generation) | 9582 §4, 9286 App. A, 9323 | reference | none | Patched out (#23) |
 | [F-006](#f-006-cms-module-imports-from-an-obsoleted-rfc) | 5652 §12.1, §12.2 | reference | none | Opaque placeholders (#23) |
 | [F-007](#f-007-rfc-5280-modules-redefine-built-in-string-types) | 5280 A.1, A.2 | tooling | none | Patched (#23) |
-| [F-008](#f-008-certificate-signature-field-has-two-names) | 5280 §4.1 vs A.1 | ambiguity | [7634](https://www.rfc-editor.org/errata/eid7634), held for document update | Decide in #27 |
+| [F-008](#f-008-certificate-signature-field-has-two-names) | 5280 §4.1 vs A.1 | ambiguity | [7634](https://www.rfc-editor.org/errata/eid7634), held for document update | Module names used (#27) |
 | [F-009](#f-009-cms-and-attribute-certificate-modules-import-from-each-other) | 5652 §12.1, 5755 App. B | reference | none found | Avoided by F-006 placeholders (#23) |
 | [F-010](#f-010-no-rule-for-data-after-the-encoded-object) | 6481 §2.2, 6488 §3 | ambiguity | none found (not reported) | Trailing bytes rejected (#24, #25) |
 | [F-011](#f-011-asn1ct-error-reasons-carry-stack-traces) | (OTP `asn1ct`) | tooling | n/a | Wrapper shortens reasons (#24) |
 | [F-012](#f-012-the-roa-module-enforces-the-afi-rule-at-decode-time) | 9582 §4, §4.3.1 | tooling | none | Accepted; decode error (#24) |
 | [F-013](#f-013-the-address-sort-key-has-a-part-that-never-matters) | 3779 §2.2.3.6 | ambiguity | none found (not reported) | Sort by lowest address (#26) |
 | [F-014](#f-014-two-rfc-3779-errata-change-what-a-decoder-must-accept) | 3779 §2.2.3.9, §3.2.3.8 | erratum | [2537](https://www.rfc-editor.org/errata/eid2537) verified, [7653](https://www.rfc-editor.org/errata/eid7653) held | Both followed (#26) |
+| [F-015](#f-015-two-conforming-validators-can-disagree-on-unknown-extensions) | 6487 §4.1, §4.8; 8897 §3.1 | ambiguity | none found (not reported) | Version settled by 8897; extensions open (#42) |
+| [F-016](#f-016-no-rfc-says-how-a-repository-directory-uri-ends) | 6487 §4.8.8.1 | ambiguity | none found (not reported) | Both forms handled in M3 (#43) |
 
 ## Entries
 
@@ -157,7 +159,10 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Kind:** ambiguity, editorial only, since field names don't affect encoding.
 - **Official errata:** [7634](https://www.rfc-editor.org/errata/eid7634), held for document update. The same inconsistency goes back to RFC 2459 and RFC 3280.
 - **Impact:** the name used in Lumina's certificate struct and in `lumina --print` output.
-- **Resolution:** decide in #27. The ASN.1 compiler will use the module's name (`signature`).
+- **Resolution (#27):** `Lumina.Certificate` follows the normative module (A.1):
+  - the value is `signature`;
+  - the outer `AlgorithmIdentifier` is `signature_algorithm`;
+  - the `AlgorithmIdentifier` inside `tbsCertificate` is `tbs_signature_algorithm`. In A.1 that field is also called `signature`, which makes the naming confusing twice over.
 
 ### F-009: CMS and attribute certificate modules import from each other
 
@@ -264,6 +269,41 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
   - Lumina doesn't check the deleted rule. A test decodes `0.0.0.1-0.0.0.255`, whose maximum has no one bits, with no issue reported.
   - `as_issues/1` reports equal range ends as `:range_single`, citing 7653.
 - **Talk note:** a verified erratum that **deletes** a MUST is easy to miss. Reading only the RFC, you would implement a rule that rejects valid encodings.
+
+### F-015: two conforming validators can disagree on unknown extensions
+
+- **Where:**
+  - RFC 6487 §4.1 says the version "MUST be 3", then for relying parties: "RPs need not process version 1 or version 2 certificates".
+  - RFC 6487 §4.8 says: "A certificate-using system MUST reject the certificate if it encounters a critical extension it does not recognize; however, a non-critical extension MAY be ignored if it is not recognized".
+  - RFC 8897 §3.1, the relying party requirements, says: "An RP is required to verify that a resource certificate adheres to the profile established by Section 4 of [RFC6487]. … any extension excluded by Section 4.8 of [RFC6487] must be omitted."
+- **Kind:** ambiguity: requirements on relying parties phrased as permissions.
+- **Official errata:** none found for RFC 6487 or RFC 8897 (checked 2026-11-12). **Not reported.**
+- **The problem:**
+  - **Version:** "need not process" isn't "MUST reject". RFC 8897 §3.1 settles it, since an RP must verify adherence to the §4 profile, so a v1 or v2 certificate is rejected.
+  - **Unknown non-critical extensions:** not settled.
+    - "MAY be ignored" lets one RP ignore the extension and another reject the certificate.
+    - RFC 8897's "any extension excluded by Section 4.8" doesn't help, because §4.8 lists mandatory extensions and never lists excluded ones. Whether "not listed" means "excluded" is exactly the question.
+- **Impact:** a CA that adds an unknown non-critical extension gets its certificate accepted by some validators and rejected by others, which means different VRP sets. This is the same parser-differential risk as F-010.
+- **Resolution:**
+  - Version: reject v1/v2 (fixture `m1-cert-version-2`).
+  - Unknown non-critical extensions: **open**, needs a maintainer decision (#42).
+  - Unknown critical extensions: reject, as §4.8 requires (fixture `m1-cert-unknown-critical-extension`).
+  - The decoder keeps every unknown extension, with its criticality, so any decision can be implemented.
+- **Suggested text:** RFC 6487 §4.8 could state the RP rule directly, for example *"A relying party MUST reject a resource certificate that contains any extension not listed in this section."* RFC 8897 §3.1 could then point to that sentence.
+- **Talk note:** "MAY" in a list of RP requirements means two compliant implementations are allowed to disagree, and in a routing security system disagreement is the failure mode.
+
+### F-016: no RFC says how a repository directory URI ends
+
+- **Where:** RFC 6487 §4.8.8.1: the SIA `id-ad-caRepository` accessLocation is an rsync URI that "points to the directory containing all published material issued by this CA". RFC 6481 describes publication points as directories. Neither says whether the URI ends in `/`.
+- **Kind:** ambiguity.
+- **Official errata:** none found (checked 2026-11-12). **Not reported.**
+- **Found:** decoding Barry's certificates (#27). Barry writes `rsync://localhost:8873/rpki/ca1` with no trailing slash, which is valid as far as the RFCs go.
+- **Impact:**
+  - **Copy semantics:** for rsync, `rsync://host/module/dir` and `rsync://host/module/dir/` behave differently, since a trailing slash copies the directory's contents rather than the directory.
+  - **Comparisons:** code that compares, joins or caches repository URIs as strings can treat the two forms as different publication points.
+  - **Divergence:** validators that insist on one form diverge on certificates that use the other.
+- **Resolution:** handled in M3 (#43). The fetcher normalizes both forms to the same directory and cache location.
+- **Suggested text:** *"The id-ad-caRepository URI identifies a directory and MUST end with '/'"*, or alternatively *"relying parties MUST treat the URI as a directory whether or not it ends in '/'"*.
 
 ## Process notes
 
