@@ -62,6 +62,12 @@ jobs:
           ./lumina print test/fixtures/barry/m0-minimal-valid/rsync/ca1/roa1.roa test/fixtures/barry/m0-minimal-valid/rsync/ca1/ca1.mft
           ./lumina print --brief test/fixtures/barry/m0-minimal-valid/rsync/ta/ca1.cer
           ./lumina print test/fixtures/barry/m0-minimal-valid/case.tal
+      # scripts/install-deps.sh (#90) must lint clean and find everything
+      # this job installed.
+      - name: install-deps.sh check
+        run: |
+          shellcheck scripts/install-deps.sh
+          scripts/install-deps.sh --check
       - run: mix dialyzer --format github
 
   barry:

@@ -11,6 +11,7 @@ Lumina is an RPKI relying party (validator) written from scratch in **Elixir on 
 Toolchain versions are pinned in `.tool-versions` (Erlang/OTP 29.1.2, Elixir 1.20.5).
 
 ```sh
+scripts/install-deps.sh [--check]  # install (or only check) Erlang/OTP, Elixir, rsync >= 3.1.0, dev deps, ./lumina
 mix compile --warnings-as-errors   # build; warnings fail the build
 mix test                           # full test suite (includes doctests)
 mix test test/lumina_test.exs      # one test file
