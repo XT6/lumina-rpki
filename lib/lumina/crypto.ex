@@ -38,7 +38,11 @@ defmodule Lumina.Crypto do
 
   @type problem :: %{rule: atom(), rfc: String.t(), message: String.t()}
   @type algorithm :: %{oid: tuple(), parameters: binary() | nil}
-  @type public_key :: %{required(:algorithm) => algorithm(), required(:key) => bitstring()}
+  @type public_key :: %{
+          required(:algorithm) => algorithm(),
+          required(:key) => bitstring(),
+          optional(atom()) => term()
+        }
   @type rsa_key :: %{modulus: pos_integer(), exponent: pos_integer(), bits: pos_integer()}
 
   @rsa_encryption {1, 2, 840, 113_549, 1, 1, 1}
@@ -69,9 +73,7 @@ defmodule Lumina.Crypto do
   @spec verify(binary(), algorithm(), bitstring(), public_key()) :: :ok | {:error, problem()}
   def verify(message, algorithm, signature, key) do
     with :ok <- signature_algorithm(algorithm),
-         {:ok, rsa} <- rsa_public_key(key),
-         :ok <- key_size(rsa),
-         :ok <- key_exponent(rsa),
+         {:ok, rsa} <- check_rsa_key(key),
          {:ok, s} <- signature_octets(signature, div(rsa.bits + 7, 8)) do
       rsassa_pkcs1_v1_5_verify(rsa, message, s)
     end
@@ -93,6 +95,25 @@ defmodule Lumina.Crypto do
       {:ok, %{modulus: modulus, exponent: exponent, bits: bit_length(modulus)}}
     end
   end
+
+  @doc """
+  Reads an RSA public key, as `rsa_public_key/1`, and checks the RPKI key
+  format: a 2048-bit modulus and exponent 65,537 (RFC 7935 §3).
+  """
+  @spec check_rsa_key(public_key()) :: {:ok, rsa_key()} | {:error, problem()}
+  def check_rsa_key(key) do
+    with {:ok, rsa} <- rsa_public_key(key),
+         :ok <- key_size(rsa),
+         :ok <- key_exponent(rsa),
+         do: {:ok, rsa}
+  end
+
+  @doc """
+  Checks a signature algorithm identifier: sha256WithRSAEncryption with
+  NULL or absent parameters (RFC 7935 §2, RFC 4055 §5).
+  """
+  @spec check_signature_algorithm(algorithm()) :: :ok | {:error, problem()}
+  def check_signature_algorithm(algorithm), do: signature_algorithm(algorithm)
 
   defp signature_algorithm(%{oid: @sha256_with_rsa, parameters: params})
        when params in [nil, @null],

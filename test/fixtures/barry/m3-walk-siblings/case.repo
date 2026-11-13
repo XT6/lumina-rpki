@@ -20,6 +20,10 @@ ta.cer
 # directories of a shared host would be under D-012 (#99). Tests serve
 # them as separate modules (rsync_modules in case.exs).
 
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
 [node: ca1.cer]
 rpp.uri = rsync://localhost:8873/s1/ca1
 rpp.path = s1/ca1

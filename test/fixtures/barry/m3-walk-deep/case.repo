@@ -4,3 +4,7 @@ ta.cer
 			ca3.cer
 				ca4.cer
 					roa4.roa
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1

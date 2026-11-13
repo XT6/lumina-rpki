@@ -4,6 +4,10 @@ ta.cer
 	ca2.cer
 		roa2.roa
 
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
 [node: ca1.cer]
 # A host that can never resolve (RFC 6761 reserves .invalid). Its files
 # are generated under rsync/unreachable/ but never served.

@@ -47,6 +47,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-026](#f-026-otps-http-client-cant-bound-a-response-body) | 8630 §4 (OTP `:httpc`) | tooling | n/a | Own HTTP/1.1 GET over `:ssl` (#73) |
 | [F-027](#f-027-rfc-7935-names-a-signature-algorithm-as-the-public-key-algorithm) | 7935 §3.1; 4055 §1.2 | erratum | [5737](https://www.rfc-editor.org/errata/eid5737) (Rejected) | Accept both for reading the key; the profile check is #109 |
 | [F-028](#f-028-rfc-7935-4-cites-the-public-key-section-for-the-signature-format) | 7935 §4 | reference | none found (not reported) | Signature format from RFC 4055 §3.2 and RFC 5280 §4.1.1.3 (#108) |
+| [F-029](#f-029-barry-gives-the-root-certificate-serial-number-0) | 6487 §4.2; 5280 §4.1.2.2 (Barry) | tooling | n/a | Every fixture sets the TA serial to 1 (#109) |
 
 ## Entries
 
@@ -500,6 +501,15 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Found:** while writing `Lumina.Crypto` (#108).
 - **Impact:** small; the format is the obvious one (the octets of the signature, first bit first), but a reader following the citation finds nothing.
 - **Resolution:** `Lumina.Crypto` cites RFC 4055 §3.2 and RFC 5280 §4.1.1.3 for the BIT STRING, and RFC 8017 §8.2.2 for its length.
+
+### F-029: Barry gives the root certificate serial number 0
+
+- **Where:** RFC 6487 §4.2 ("The serial number value is a positive integer") and RFC 5280 §4.1.2.2 ("The serial number MUST be a positive integer").
+- **Kind:** tooling: Barry (pinned `478ee89`) numbers each certificate by its position among its siblings (`rpki_tree.c`, `child->serial = HASH_CNT(...)`), and never sets the root's, so every TA it writes has serial 0.
+- **Official errata:** n/a.
+- **Found:** writing the profile check for #109; every Barry fixture's TA failed it. The LACNIC repository copy in `test/realrepos/` has no certificate with a serial of 0 or below.
+- **Impact:** an RP that checks §4.2 rejects every Barry-generated TA; one that doesn't check it passes tests that never exercise the rule.
+- **Resolution:** every fixture's `case.repo` sets `obj.tbsCertificate.serialNumber = 1` on `ta.cer`, and all fixtures were regenerated. Worth raising with the Barry maintainers.
 
 ## Process notes
 

@@ -2,5 +2,5 @@
               version="1"
               session_id="1"
               serial="1">
-  <snapshot uri="https://localhost:8443/rrdp/snapshot.xml" hash="8e29be6266273601dbd9b241fda89fd4da4fb2b664bc67e8e278d23713931d0a"/>
+  <snapshot uri="https://localhost:8443/rrdp/snapshot.xml" hash="86e828b6b3d9884064e7e2c06c6b60a8e257537bce9f73d69448bbdcde2acc35"/>
 </notification>
