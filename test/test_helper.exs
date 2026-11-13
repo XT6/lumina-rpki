@@ -23,4 +23,9 @@ exclude =
       [:rsync | exclude]
   end
 
+# Tests tagged :network reach the live RPKI (the M3 done test mirrors
+# LACNIC). They take minutes and depend on the Internet, so they never run
+# by default: mix test --only network.
+exclude = [:network | exclude]
+
 ExUnit.start(exclude: exclude)

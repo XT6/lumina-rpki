@@ -189,6 +189,10 @@ fixture.expected     # :valid, or {:invalid, rejects}
 
 Tests tagged `:barry` run the real Barry binary. They're excluded automatically when `_tools/bin/barry` doesn't exist. CI runs them in the `barry` job with `mix test --only barry`.
 
+### Tests that reach the live RPKI
+
+Tests tagged `:network` fetch from the real RPKI (the M3 done test mirrors the live LACNIC repository). They depend on the Internet and take minutes, so they never run by default, in CI or locally. Run them by hand with `mix test --only network`.
+
 ## Catalog
 
 [`doc/tests/CATALOG.md`](tests/CATALOG.md) has two parts:

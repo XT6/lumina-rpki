@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 16 Barry fixtures: 9 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 441 unit tests in 44 modules.
+- 444 unit tests in 45 modules.
 
 ## Barry fixtures
 
@@ -893,6 +893,50 @@ module checks that they hold together, over all the data at once.
 - RFC 8630 §2.2, §2.3, §2.4 and §3 are covered by other tests
   The coverage `mix lumina.rfc_coverage --rfc 8630` reports, computed the
   same way, ignoring this module's own tags.
+
+### `Lumina.M3DoneTest`
+
+[test/lumina/m3_done_test.exs](../../test/lumina/m3_done_test.exs)
+
+The end-to-end check that closes M3, rsync retrieval (#77). It runs
+`lumina sync` (`Lumina.CLI.run/4`) the way a user would, over the whole
+M3 pipeline: TAL, TA retrieval (HTTPS first), repository walk, rsync,
+cache.
+
+  * Every Barry fixture is synced from a local HTTPS server and rsync
+    daemon. The mirror must be byte-identical to the fixture's `rsync/`
+    tree, the accepted TA identical to its `ta.cer`, and every mirrored
+    object must decode (M1). Fixtures whose TA fails the TAL check
+    must mirror nothing.
+  * RFC 5781 §2, RFC 6481 §3 and §5, and RFC 8630 §3 and §4 are
+    covered by tests other than this one.
+  * Tagged `:network`, run by hand only (`mix test --only network`):
+    the live LACNIC repository is mirrored from `tals/lacnic.tal`.
+
+The individual behaviours are tested in detail elsewhere (`HTTPSTest`,
+`RsyncTest`, `TATest`, `WalkTest`, `CLISyncTest`). This module checks
+that they hold together, over all the data at once.
+
+Fixture TALs name `https://localhost:8443` and `rsync://localhost:8873`.
+Each fixture gets its own servers, a copy of its TAL pointing at them,
+and `:remap` for the repository URIs inside its certificates.
+
+- every Barry fixture syncs through lumina sync into a byte-identical mirror (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)), [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [6481 §3](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-3)), [5781 §2](../rfc/rfc5781.txt) ([html](https://www.rfc-editor.org/rfc/rfc5781.html#section-2)))
+  Driven by the fixture metadata. A fixture whose TA is invalid exits 1
+  with nothing mirrored. Every other fixture's TA arrives over HTTPS
+  (D-003) and its whole repository over rsync. The delegated fixture's
+  second host is served too; the unreachable fixture exits 1, with the
+  rest mirrored.
+- RFC 5781 §2, RFC 6481 §3 and §5, and RFC 8630 §3 and §4 are covered by other tests
+  The coverage `mix lumina.rfc_coverage` reports, computed the same way,
+  ignoring this module's own tags.
+- *the live LACNIC repository:* the live LACNIC repository mirrors from tals/lacnic.tal and every object decodes (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)), [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  Run by hand: mix test --only network. Needs the Internet; takes
+  minutes. Delegated repositories on other hosts may be down, so their
+  failures are printed but don't fail the test; LACNIC's own
+  repository and TA must arrive. In the local LACNIC copy of
+  2026-11 the repository held about 28,000 files.
+  ASPA objects (.asa) aren't decoded: ASPA isn't an RFC yet.
 
 ### `Lumina.ManifestTest`
 
