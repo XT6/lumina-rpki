@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 16 Barry fixtures: 9 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 463 unit tests in 46 modules.
+- 483 unit tests in 47 modules.
 
 ## Barry fixtures
 
@@ -741,6 +741,53 @@ exact signed bytes, and stay structural: profile violations decode.
   nextUpdate is OPTIONAL in the ASN.1; requiring it is the profile's job (M4).
 - *structural decoding:* a CRL Number that doesn't decode is marked malformed, and number/1 is nil (RFC [5280 §5.2.3](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.2.3)), [9829 §3.1](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.1)))
 - *structural decoding:* non-DER, truncated and non-CRL input are errors naming the layer
+
+### `Lumina.CryptoTest`
+
+[test/lumina/crypto_test.exs](../../test/lumina/crypto_test.exs)
+
+Tests signature verification of certificates and CRLs (`Lumina.Crypto`,
+#108): RSASSA-PKCS1-v1_5 with SHA-256 (RFC 7935 §2, RFC 8017 §8.2) over
+2048-bit RSA keys with exponent 65,537 (RFC 7935 §3).
+
+Barry signs every fixture correctly, so all its signatures must verify;
+each rejection is shown by changing one thing in a real signature, or by
+a key generated in the test. Chain validation (#112) builds on this, so
+a wrong `:ok` here would let forged objects through.
+
+- *valid signatures:* every certificate and CRL signature in every Barry fixture verifies with its issuer's key (RFC [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2)), [8017 §8.2.2](../rfc/rfc8017.txt) ([html](https://www.rfc-editor.org/rfc/rfc8017.html#section-8.2.2)), [5280 §4.1.1.3](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.1.3)), [5280 §5.1.1.3](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.1.3)))
+  Certificates (TA, CA, and the EE certificates in manifests and
+  ROAs) and CRLs, each checked with the key of the certificate whose
+  subject and key identifier its issuer and AKI name; a TA with its
+  own key.
+- *valid signatures:* a signature made by OTP's public_key verifies (RFC [8017 §8.2](../rfc/rfc8017.txt) ([html](https://www.rfc-editor.org/rfc/rfc8017.html#section-8.2)))
+  An independent check of the implementation: OTP's `:public_key`
+  signs with a fresh key, and Lumina verifies.
+- *valid signatures:* sha256WithRSAEncryption with absent parameters is accepted (RFC [4055 §5](../rfc/rfc4055.txt) ([html](https://www.rfc-editor.org/rfc/rfc4055.html#section-5)))
+- *tampering:* a flipped bit in the signature is rejected (RFC [8017 §8.2.2](../rfc/rfc8017.txt) ([html](https://www.rfc-editor.org/rfc/rfc8017.html#section-8.2.2)))
+- *tampering:* a flipped bit in the signed bytes is rejected (RFC [8017 §8.2.2](../rfc/rfc8017.txt) ([html](https://www.rfc-editor.org/rfc/rfc8017.html#section-8.2.2)), [5280 §5.1.1.3](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.1.3)))
+- *tampering:* a signature checked with a key other than the issuer's is rejected (RFC [8017 §8.2.2](../rfc/rfc8017.txt) ([html](https://www.rfc-editor.org/rfc/rfc8017.html#section-8.2.2)))
+  The TA's signature over ca1, checked with ca1's own key.
+- *tampering:* a signature not below the modulus is rejected before exponentiation (RFC [8017 §5.2.2](../rfc/rfc8017.txt) ([html](https://www.rfc-editor.org/rfc/rfc8017.html#section-5.2.2)))
+- *tampering:* a signature one octet short is rejected (RFC [8017 §8.2.2](../rfc/rfc8017.txt) ([html](https://www.rfc-editor.org/rfc/rfc8017.html#section-8.2.2)))
+  Step 1: the signature must be as long as the modulus.
+- *tampering:* a signature BIT STRING that isn't whole octets is rejected (RFC [5280 §4.1.1.3](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.1.3)))
+- *algorithms:* sha1WithRSAEncryption is rejected as unsupported (RFC [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2)))
+- *algorithms:* sha384WithRSAEncryption is rejected as unsupported (RFC [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2)))
+  A stronger hash is still not the RPKI suite: only SHA-256 is allowed.
+- *algorithms:* sha256WithRSAEncryption with parameters other than NULL is rejected (RFC [4055 §5](../rfc/rfc4055.txt) ([html](https://www.rfc-editor.org/rfc/rfc4055.html#section-5)))
+- *keys:* a 1024-bit key is rejected with the key-size reason (RFC [7935 §3](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-3)))
+  The signature is otherwise valid; only the key size is wrong.
+- *keys:* a 4096-bit key is rejected with the key-size reason (RFC [7935 §3](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-3)))
+- *keys:* a 2048-bit key with exponent 3 is rejected with the exponent reason (RFC [7935 §3](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-3)))
+- *keys:* a key whose algorithm is sha256WithRSAEncryption is read like rsaEncryption (RFC [7935 §3.1](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-3.1)), [4055 §1.2](../rfc/rfc4055.txt) ([html](https://www.rfc-editor.org/rfc/rfc4055.html#section-1.2)))
+  F-027: RFC 7935 §3.1 names sha256WithRSAEncryption as the
+  subjectPublicKeyInfo algorithm, RFC 4055 §1.2 rsaEncryption; both
+  read the same RSAPublicKey.
+- *keys:* a key that isn't RSA is rejected as unsupported (RFC [7935 §3.1](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-3.1)))
+- *keys:* an rsaEncryption key without NULL parameters is rejected (RFC [4055 §1.2](../rfc/rfc4055.txt) ([html](https://www.rfc-editor.org/rfc/rfc4055.html#section-1.2)))
+- *keys:* a key that isn't a DER RSAPublicKey is rejected as malformed (RFC [4055 §1.2](../rfc/rfc4055.txt) ([html](https://www.rfc-editor.org/rfc/rfc4055.html#section-1.2)))
+- *keys:* an RSAPublicKey with a negative modulus is rejected as malformed (RFC [4055 §1.2](../rfc/rfc4055.txt) ([html](https://www.rfc-editor.org/rfc/rfc4055.html#section-1.2)))
 
 ### `Lumina.DERTest`
 
