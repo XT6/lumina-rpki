@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 10 Barry fixtures: 3 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 324 unit tests in 37 modules.
+- 344 unit tests in 38 modules.
 
 ## Barry fixtures
 
@@ -1009,6 +1009,46 @@ order and moves to the next URI on failure or key mismatch.
 - scheme case doesn't matter (RFC [3986 §3.1](../rfc/rfc3986.txt) ([html](https://www.rfc-editor.org/rfc/rfc3986.html#section-3.1)))
   Schemes are case-insensitive, so HTTPS:// counts as HTTPS.
 - the RFC 8630 example and every Barry TAL list HTTPS first (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [8630 §2.4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.4)))
+
+### `Lumina.URITest`
+
+[test/lumina/uri_test.exs](../../test/lumina/uri_test.exs)
+
+Tests repository URI parsing, normalization and cache-path mapping
+(`Lumina.URI`, #70). URIs come from certificates anyone can publish and
+become paths on disk, so besides the normalization rules (RFC 3986 §6.2)
+the tests pin every rejection rule, and check over a corpus of hostile
+inputs that no accepted URI maps outside the cache root. Real URIs, from
+Barry fixtures and the RIR TALs, must parse and map as expected.
+
+- *normalization:* scheme and host are lowercased; the path keeps its case (RFC [3986 §6.2.2.1](../rfc/rfc3986.txt) ([html](https://www.rfc-editor.org/rfc/rfc3986.html#section-6.2.2.1)))
+- *normalization:* the default port and an empty port are dropped; other ports are kept (RFC [3986 §6.2.3](../rfc/rfc3986.txt) ([html](https://www.rfc-editor.org/rfc/rfc3986.html#section-6.2.3)), [5781 §2](../rfc/rfc5781.txt) ([html](https://www.rfc-editor.org/rfc/rfc5781.html#section-2)))
+- *normalization:* a trailing slash doesn't change the URI, its module or its cache path (RFC [6487 §4.8.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.1)), [6481 §2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2)))
+  F-016: no RFC says whether a caRepository URI ends in "/". Both forms
+  must name the same directory, module and cache path (#43).
+- *normalization:* IPv6 literals are accepted, lowercased, with or without a port (RFC [3986 §3.2.2](../rfc/rfc3986.txt) ([html](https://www.rfc-editor.org/rfc/rfc3986.html#section-3.2.2)))
+- *rejection rules:* only rsync and https are accepted (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
+- *rejection rules:* user information is rejected (RFC [3986 §7.5](../rfc/rfc3986.txt) ([html](https://www.rfc-editor.org/rfc/rfc3986.html#section-7.5)))
+  RFC 5781 allows user@ in rsync URIs; RPKI repositories are public, so Lumina doesn't.
+- *rejection rules:* an empty, malformed or non-ASCII host is rejected (RFC [3986 §3.2.2](../rfc/rfc3986.txt) ([html](https://www.rfc-editor.org/rfc/rfc3986.html#section-3.2.2)))
+- *rejection rules:* a port outside 1-65535 or with non-digits is rejected (RFC [3986 §3.2.3](../rfc/rfc3986.txt) ([html](https://www.rfc-editor.org/rfc/rfc3986.html#section-3.2.3)))
+- *rejection rules:* queries and fragments are rejected (RFC [3986 §3.4](../rfc/rfc3986.txt) ([html](https://www.rfc-editor.org/rfc/rfc3986.html#section-3.4)), [3986 §3.5](../rfc/rfc3986.txt) ([html](https://www.rfc-editor.org/rfc/rfc3986.html#section-3.5)))
+- *rejection rules:* dot segments and empty segments are rejected (RFC [3986 §3.3](../rfc/rfc3986.txt) ([html](https://www.rfc-editor.org/rfc/rfc3986.html#section-3.3)), [3986 §6.2.2.3](../rfc/rfc3986.txt) ([html](https://www.rfc-editor.org/rfc/rfc3986.html#section-6.2.2.3)))
+  Dot segments are rejected, not resolved: resolving them is how a URI escapes the cache.
+- *rejection rules:* percent-encoding is rejected (RFC [3986 §2.1](../rfc/rfc3986.txt) ([html](https://www.rfc-editor.org/rfc/rfc3986.html#section-2.1)), [5781 §2](../rfc/rfc5781.txt) ([html](https://www.rfc-editor.org/rfc/rfc5781.html#section-2)))
+  Decoding percent-encoding would give one file two spellings, and %2F or %2E%2E a way out.
+- *rejection rules:* characters outside pchar are rejected (RFC [3986 §3.3](../rfc/rfc3986.txt) ([html](https://www.rfc-editor.org/rfc/rfc3986.html#section-3.3)))
+- *rejection rules:* every error names its rule, RFC section and reason
+- *modules (D-006):* an rsync URI's module is its first path segment (RFC [5781 §2](../rfc/rfc5781.txt) ([html](https://www.rfc-editor.org/rfc/rfc5781.html#section-2)))
+- *modules (D-006):* an rsync URI with no path, and an https URI, have no module
+- *cache paths:* a URI maps to <root>/<scheme>/<host[:port]>/<path>
+- *cache paths:* rsync and https copies of the same host and path don't share a cache path
+- *cache paths:* no accepted URI maps outside the cache root
+  Every combination of a hostile host and a hostile path is either
+  rejected or maps strictly inside the cache root, and a rejected one
+  always names a rule.
+- *real URIs:* every URI in every RIR TAL parses, and its text is already normal (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
+- *real URIs:* every Barry TAL's rsync URI is in module rpki on localhost:8873 (RFC [5781 §2](../rfc/rfc5781.txt) ([html](https://www.rfc-editor.org/rfc/rfc5781.html#section-2)))
 
 ### `LuminaTest`
 

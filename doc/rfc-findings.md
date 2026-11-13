@@ -42,6 +42,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-021](#f-021-the-tal-grammar-leaves-whitespace-and-blank-lines-open-and-its-example-is-indented) | 8630 §2.2, §2.4 | ambiguity | none found (not reported) | Strict grammar, whitespace warns (D-002, #54) |
 | [F-022](#f-022-the-whole-rp-procedure-for-tals-is-a-should) | 8630 §3 | ambiguity | none found (not reported) | Lumina performs every step (#56) |
 | [F-023](#f-023-a-non-empty-set-of-resources-across-one-or-two-extensions) | 8630 §2.3; 3779 App. A | ambiguity | none found (not reported) | Each present extension must be non-empty (#56) |
+| [F-024](#f-024-the-rsync-uri-scheme-has-no-module-and-no-encoding) | 5781 §2 | ambiguity | none found (not reported) | Module = first path segment (D-006); percent-encoding rejected (#70) |
 
 ## Entries
 
@@ -422,6 +423,23 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Impact:** relying parties that read the rule differently disagree on such a TA, and so on its entire tree.
 - **Resolution:** Lumina requires **each present** INR extension to be non-empty. An extension that is present but empty says nothing, and nothing legitimate needs it. Fixture `m2-ta-empty-ip` and `Lumina.TAL.check_ta/2` (#56) implement this.
 - **Suggested text:** *"Each INR extension present in the TA MUST contain a non-empty set of number resources."*
+
+### F-024: the rsync URI scheme has no module and no encoding
+
+- **Where:** RFC 5781 §2 gives the generic form as `rsync://[user@]host[:PORT]/Source` and says the URI "follows the general syntax from RFC 3986". It also says: "Since the rsync URI is defined using standard elements from RFC 3986, no special encoding considerations are present."
+- **Kind:** ambiguity.
+- **Official errata:** none found for RFC 5781 or RFC 6481 (checked 2026-11-13). **Not reported.**
+- **The problem:**
+  - **No structure:** `Source` has no structure in the RFC. An rsync server serves named *modules*, and the first path segment selects one, but the word "module" doesn't appear in RFC 5781, RFC 6481 or RFC 6487. An RP that fetches whole modules (D-006) relies on rsync's own convention, not on any RFC.
+  - **No encoding:** RFC 3986 lets a path carry percent-encoded octets (§2.1). RFC 5781 doesn't say whether `%41` in an rsync URI means `A` or the three characters `%41` in a file name. Two RPs can therefore fetch different files for the same URI, or treat one file as two.
+  - **Dot segments:** RFC 3986 §6.2.2.3 tells normalizers to remove `.` and `..`, but an RP that maps URIs to cache paths must decide whether to resolve them or reject them. Resolving `rsync://host/module/../../x` walks out of the module, and out of a cache directory too.
+- **Impact:** every RP has to pick a reading. Different readings mean different fetches and different cache layouts for the same certificate, and a careless reading is a path-traversal bug.
+- **Resolution:**
+  - `Lumina.URI` (#70) takes the module to be the first path segment.
+  - It rejects percent-encoding and dot segments outright, rather than decoding or resolving them.
+  - It drops a trailing `/` (F-016).
+- **Suggested text:** *"In RPKI, the first path segment of an rsync URI names an rsync module. RPKI rsync URIs MUST NOT contain percent-encoded octets or '.' or '..' segments."*
+- **Talk note:** a URI scheme registered as "provisional", with one paragraph of semantics, carries the whole RPKI repository system. The interesting rules are rsync's, not the RFC's.
 
 ## Process notes
 
