@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 10 Barry fixtures: 3 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 362 unit tests in 39 modules.
+- 380 unit tests in 40 modules.
 
 ## Barry fixtures
 
@@ -911,6 +911,51 @@ issues/1, not enforced.
 - *errors:* an address family other than IPv4 or IPv6 is a decode error (RFC [9582 §4.3.1](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.1)))
   The module's information object set rejects other AFIs at decode time (F-012).
 
+### `Lumina.RsyncTest`
+
+[test/lumina/rsync_test.exs](../../test/lumina/rsync_test.exs)
+
+Tests the rsync runner (`Lumina.Rsync`, #72) against a real
+`rsync --daemon` (`Lumina.Test.RsyncDaemon`) serving Barry fixture trees
+and hand-made directories on 127.0.0.1. These tests are tagged `:rsync`
+and excluded when no rsync 3.1.0 or later is installed.
+
+They pin what the cache depends on: a publication point is fetched
+recursively and byte-identical (D-009), files the server no longer has
+are deleted, symlinks on the server never arrive, an oversize file is
+skipped and reported rather than failing the fetch (D-008), and each
+kind of failure gives its typed reason. A repository URI can never be
+read as an rsync option.
+
+- *fetching:* a publication point is fetched recursively and byte-identical (RFC [5781 §2](../rfc/rfc5781.txt) ([html](https://www.rfc-editor.org/rfc/rfc5781.html#section-2)), [6481 §3](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-3)))
+  The whole publication point, subdirectories included, byte for byte (D-009).
+- *fetching:* a nested publication point brings only its own subtree (RFC [6481 §2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2)))
+- *fetching:* files the server no longer has are deleted from the destination
+  An object withdrawn from the repository must not survive in the fetched copy.
+- *fetching:* a previous copy given as :link_dest is reused for unchanged files
+  With :link_dest, unchanged files are hard links to the previous copy, not new downloads.
+- *fetching:* a single file, such as a TA certificate, is fetched to a path (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)))
+- *untrusted servers:* symlinks on the server are not created locally
+- *untrusted servers:* a file over the size limit is skipped and reported, and the rest is fetched
+  D-008: an object over the size limit is skipped and reported; the rest
+  of the publication point is still fetched. Failing the whole fetch
+  would let one oversize file freeze the publication point.
+- *untrusted servers:* a URI path that looks like an rsync option is only a path
+  F-025: the rsync daemon reads a path starting with "-" as its own
+  option. With the ./ the runner inserts, --help is just a missing file.
+- *untrusted servers:* directories and files whose names start with - are fetched
+  Base64url names can start with "-"; such directories and files must still fetch.
+- *untrusted servers:* a URI with no module can't be fetched
+- *failures:* a refused connection is :connection_refused
+- *failures:* a host that doesn't resolve is :unknown_host
+- *failures:* a module the server doesn't have is :no_such_module
+- *failures:* a path the module doesn't have is :not_found
+- *failures:* a server that never answers times out
+  A server that accepts the connection and then says nothing hits the I/O timeout (D-008).
+- *the rsync binary:* check finds rsync 3.1.0 or later
+- *the rsync binary:* a missing binary is :rsync_not_found, for check and for a fetch
+- *the rsync binary:* an rsync older than 3.1.0 is rejected
+
 ### `Lumina.SignedObjectTest`
 
 [test/lumina/signed_object_test.exs](../../test/lumina/signed_object_test.exs)
@@ -1077,8 +1122,8 @@ Barry fixtures and the RIR TALs, must parse and map as expected.
   Decoding percent-encoding would give one file two spellings, and %2F or %2E%2E a way out.
 - *rejection rules:* characters outside pchar are rejected (RFC [3986 §3.3](../rfc/rfc3986.txt) ([html](https://www.rfc-editor.org/rfc/rfc3986.html#section-3.3)))
 - *rejection rules:* every error names its rule, RFC section and reason
-- *modules (D-006):* an rsync URI's module is its first path segment (RFC [5781 §2](../rfc/rfc5781.txt) ([html](https://www.rfc-editor.org/rfc/rfc5781.html#section-2)))
-- *modules (D-006):* an rsync URI with no path, and an https URI, have no module
+- *modules:* an rsync URI's module is its first path segment (RFC [5781 §2](../rfc/rfc5781.txt) ([html](https://www.rfc-editor.org/rfc/rfc5781.html#section-2)))
+- *modules:* an rsync URI with no path, and an https URI, have no module
 - *cache paths:* a URI maps to <root>/<scheme>/<host[:port]>/<path>
 - *cache paths:* rsync and https copies of the same host and path don't share a cache path
 - *cache paths:* no accepted URI maps outside the cache root

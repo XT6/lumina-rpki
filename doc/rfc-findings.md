@@ -42,7 +42,8 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-021](#f-021-the-tal-grammar-leaves-whitespace-and-blank-lines-open-and-its-example-is-indented) | 8630 §2.2, §2.4 | ambiguity | none found (not reported) | Strict grammar, whitespace warns (D-002, #54) |
 | [F-022](#f-022-the-whole-rp-procedure-for-tals-is-a-should) | 8630 §3 | ambiguity | none found (not reported) | Lumina performs every step (#56) |
 | [F-023](#f-023-a-non-empty-set-of-resources-across-one-or-two-extensions) | 8630 §2.3; 3779 App. A | ambiguity | none found (not reported) | Each present extension must be non-empty (#56) |
-| [F-024](#f-024-the-rsync-uri-scheme-has-no-module-and-no-encoding) | 5781 §2 | ambiguity | none found (not reported) | Module = first path segment (D-006); percent-encoding rejected (#70) |
+| [F-024](#f-024-the-rsync-uri-scheme-has-no-module-and-no-encoding) | 5781 §2 | ambiguity | none found (not reported) | Module = first path segment; percent-encoding rejected (#70) |
+| [F-025](#f-025-an-rsync-uri-path-can-become-an-option-on-the-server) | 5781 §2, §4; 6487 §4.8.8 | tooling | none found (not reported) | Source written as `module/./path` (#72) |
 
 ## Entries
 
@@ -430,7 +431,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Kind:** ambiguity.
 - **Official errata:** none found for RFC 5781 or RFC 6481 (checked 2026-11-13). **Not reported.**
 - **The problem:**
-  - **No structure:** `Source` has no structure in the RFC. An rsync server serves named *modules*, and the first path segment selects one, but the word "module" doesn't appear in RFC 5781, RFC 6481 or RFC 6487. An RP that fetches whole modules (D-006) relies on rsync's own convention, not on any RFC.
+  - **No structure:** `Source` has no structure in the RFC. An rsync server serves named *modules*, and the first path segment selects one, but the word "module" doesn't appear in RFC 5781, RFC 6481 or RFC 6487. An RP that fetches whole modules relies on rsync's own convention, not on any RFC. (Lumina first planned to, D-006, then chose publication points instead, D-009.)
   - **No encoding:** RFC 3986 lets a path carry percent-encoded octets (§2.1). RFC 5781 doesn't say whether `%41` in an rsync URI means `A` or the three characters `%41` in a file name. Two RPs can therefore fetch different files for the same URI, or treat one file as two.
   - **Dot segments:** RFC 3986 §6.2.2.3 tells normalizers to remove `.` and `..`, but an RP that maps URIs to cache paths must decide whether to resolve them or reject them. Resolving `rsync://host/module/../../x` walks out of the module, and out of a cache directory too.
 - **Impact:** every RP has to pick a reading. Different readings mean different fetches and different cache layouts for the same certificate, and a careless reading is a path-traversal bug.
@@ -440,6 +441,29 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
   - It drops a trailing `/` (F-016).
 - **Suggested text:** *"In RPKI, the first path segment of an rsync URI names an rsync module. RPKI rsync URIs MUST NOT contain percent-encoded octets or '.' or '..' segments."*
 - **Talk note:** a URI scheme registered as "provisional", with one paragraph of semantics, carries the whole RPKI repository system. The interesting rules are rsync's, not the RFC's.
+
+### F-025: an rsync URI path can become an option on the server
+
+- **Where:**
+  - RFC 5781 §4: "The security considerations of the rsync protocol are not covered in this document."
+  - RFC 6487 §4.8.8: SIA URIs, including `caRepository`, are chosen by the CA that issues the certificate.
+- **Kind:** tooling: the RFC text is fine, but the tool every RP uses behaves in a way it doesn't mention.
+- **Official errata:** none found for RFC 5781 (checked 2026-11-13). **Not reported.**
+- **Found:** by a test in #72 that fetched `rsync://host/module/--help`.
+  - The rsync client sends the part of the path after the module to the server.
+  - The rsync daemon (3.5.2 here) parses that as its own command line and rejected `--help/` as an unknown option.
+  - `--secluded-args` (`-s`, formerly `--protect-args`) didn't change this in daemon mode.
+- **Impact:**
+  - **Who controls the path:** any CA can put any `caRepository` path in a certificate it issues, and every RP that fetches it passes that path to the named rsync server. A path segment starting with `-` reaches the server as an option, not a file name.
+  - **Why it can't simply be rejected:** RPKI file and directory names can legitimately start with `-`, because base64url uses it.
+- **Resolution:**
+  - `Lumina.Rsync` writes every source as `rsync://host/module/./path`. Without `--relative`, the `./` is a no-op, and nothing after it starts with `-`.
+  - Tests check both sides: `--help` is now just a missing file, and directories and files named `-x/-a.cer` still fetch.
+- **Suggested text** (for RFC 6481 or a future rsync-in-RPKI document): *"Relying parties MUST ensure that no part of an rsync URI taken from a certificate is interpreted as an rsync option, on the client or the server."*
+- **Talk note:**
+  - The URI comes from the signed object, the path from the URI, and the option parser runs on someone else's server.
+  - "Arguments as a list, no shell" isn't the end of injection. The protocol carries arguments too.
+  - Found because a test tried an obvious hostile path.
 
 ## Process notes
 

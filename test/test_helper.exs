@@ -8,4 +8,19 @@ exclude = if File.regular?(barry), do: [], else: [:barry]
 realrepo = "test/realrepos/repo-lacnic/lacnic/rta-lacnic-rpki.cer"
 exclude = if File.regular?(realrepo), do: exclude, else: [:realrepo | exclude]
 
+# Tests tagged :rsync run a real rsync daemon and client
+# (Lumina.Test.RsyncDaemon). They're excluded without rsync 3.1.0 or later.
+# CI sets LUMINA_REQUIRE_RSYNC so they fail instead of being skipped.
+exclude =
+  case Lumina.Rsync.check() do
+    {:ok, _} ->
+      exclude
+
+    {:error, reason} ->
+      if System.get_env("LUMINA_REQUIRE_RSYNC"),
+        do: raise("LUMINA_REQUIRE_RSYNC is set but rsync isn't usable: #{inspect(reason)}")
+
+      [:rsync | exclude]
+  end
+
 ExUnit.start(exclude: exclude)

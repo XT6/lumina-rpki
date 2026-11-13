@@ -13,9 +13,10 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-003](#d-003-order-of-ta-uris) | TA URIs tried HTTPS first, then in TAL order | 2026-11-12 | #57, M2 |
 | [D-004](#d-004-production-tals) | Production TALs live in a top-level `tals/` folder, copies of the reviewed RIR TALs | 2026-11-13 | #67, M2 |
 | [D-005](#d-005-repository-walk-before-validation) | M3 walks the repository through every CA certificate that decodes; M4 narrows it to those that validate | 2026-11-13 | M3 plan, #75 |
-| [D-006](#d-006-one-rsync-run-per-module) | One rsync run per rsync module, not per publication point | 2026-11-13 | M3 plan, #70, #72 |
+| [D-006](#d-006-one-rsync-run-per-module) | ~~One rsync run per rsync module~~ (superseded by D-009) | 2026-11-13 | M3 plan, #70, #72 |
 | [D-007](#d-007-manifest-consistency-deferred-to-m5) | Manifest and directory consistency during a fetch is handled in M5 | 2026-11-13 | M3 plan |
 | [D-008](#d-008-default-fetch-limits) | Default fetch limits: timeouts, object size, walk depth, redirects | 2026-11-13 | M3 plan, #72, #73, #75 |
+| [D-009](#d-009-one-rsync-run-per-publication-point-not-already-covered) | One rsync run per publication point, skipping any inside a directory already fetched in the run | 2026-11-13 | M3, #72, #75 |
 
 ## D-001: CLI model
 
@@ -95,6 +96,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 
 ## D-006: One rsync run per module
 
+- **Status:** superseded by [D-009](#d-009-one-rsync-run-per-publication-point-not-already-covered) on 2026-11-13, before any fetching code was written.
 - **Date:** 2026-11-13
 - **Decision:**
   - rsync fetches whole **modules**, `rsync://host[:port]/module/`, the URI's first path segment, recursively and once per run.
@@ -131,3 +133,25 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
   - RFC 6481 §5 says the walk SHOULD support a locally configured maximum chain length.
   - The other limits keep a slow or hostile repository from stalling or filling the relying party.
 - **Consequences:** #72 (rsync), #73 (HTTPS) and #75 (walk) implement them.
+
+## D-009: One rsync run per publication point not already covered
+
+- **Date:** 2026-11-13
+- **Supersedes:** D-006.
+- **Decision:**
+  - rsync fetches a CA's **publication point**, the directory its SIA `caRepository` URI names, recursively, including every subdirectory.
+  - A publication point inside a directory already fetched in the same run needs no fetch of its own.
+  - The rsync module is no longer the unit of fetching.
+- **Why:**
+  - **Shared hosting:** D-006 assumed each rsync module holds one organisation's tree. Shared hosting breaks that.
+    - In the maintainer's copy of the LACNIC repository, one CA delegates to `rsync://rpki-rsync.us-east-2.amazonaws.com/volume/c474d778-43cb-4c30-ad6a-39968cbc94bc/`.
+    - The module there, `volume`, holds every CA that host serves, from any RIR, so fetching it would download other organisations' content to get one directory.
+  - **The same few runs:** a recursive fetch of the TA's publication point still covers every CA nested below it. The LACNIC tree needs **3** rsync runs:
+    - `rsync://repository.lacnic.net/rpki/lacnic/` covers 3,512 of its 3,514 CA certificates.
+    - The other two are delegations to `rsync://rpki-repo.registro.br/repo/nicbr_repo/1/` and the Amazon-hosted directory above.
+  - **It follows the RFCs:** RFC 6481 §2 and RFC 6487 §4.8.8.1 define the `caRepository` directory as the place that holds a CA's products. Fetching it means fetching what the certificate points to.
+- **Consequences:**
+  - The rsync runner (#72) fetches any rsync directory URI.
+  - The walk (#75) works out which publication points are already covered.
+  - `Lumina.URI.module/1` stays as a helper but isn't the unit of fetching.
+  - The cache layout doesn't change: a publication point lands at its own `cache_path/2`, inside its host's tree.
