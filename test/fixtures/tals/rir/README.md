@@ -30,4 +30,4 @@ This is a record of what was read, not legal advice.
 
 ## Updating
 
-RIRs occasionally roll keys or change URIs. To update a TAL, fetch it again from the source above, show the maintainer the change, and only then update the file, its SHA-256, the date and the expected values in `test/lumina/tal_rir_test.exs`.
+RIRs occasionally roll keys or change URIs. To update a TAL, fetch it again from the source above, show the maintainer the change, and only then update the file, its SHA-256, the date and the expected values in `test/lumina/tal_rir_test.exs`. Then copy it to the production `tals/` folder (D-004); a test fails if the two differ.

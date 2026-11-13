@@ -11,6 +11,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-001](#d-001-cli-model) | CLI model: `lumina <command> [flags] [arguments]` | 2026-11-12 | #34, PR #53 |
 | [D-002](#d-002-tal-parsing-strictness) | TAL parsing: strict RFC 8630 §2.2 grammar; trailing whitespace only warns | 2026-11-12 | #54, M2 |
 | [D-003](#d-003-order-of-ta-uris) | TA URIs tried HTTPS first, then in TAL order | 2026-11-12 | #57, M2 |
+| [D-004](#d-004-production-tals) | Production TALs live in a top-level `tals/` folder, copies of the reviewed RIR TALs | 2026-11-13 | #67, M2 |
 
 ## D-001: CLI model
 
@@ -64,3 +65,13 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
   - The TAL's own order is kept within each scheme.
 - **Consequences:** `Lumina.TAL.uris_by_preference/1` (#57) implements it, and M3's fetcher follows it.
 
+## D-004: Production TALs
+
+- **Date:** 2026-11-13
+- **Decision:** the TALs Lumina uses in production live in a top-level **`tals/`** folder. It starts with the five RIR TALs the maintainer approved in #58: AFRINIC, APNIC (HTTPS-first archive variant), ARIN, LACNIC and RIPE NCC. Each is a byte-exact copy of the file in `test/fixtures/tals/rir/`.
+- **Why:**
+  - Production TALs belong outside the test tree.
+  - Keeping them identical to the test copies means every production TAL has been reviewed (source, terms), and parsed by the tests.
+- **Consequences:**
+  - A test fails if `tals/` and `test/fixtures/tals/rir/` differ.
+  - Updating a TAL means updating both (`tals/README.md`).

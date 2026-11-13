@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 10 Barry fixtures: 3 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 321 unit tests in 36 modules.
+- 324 unit tests in 37 modules.
 
 ## Barry fixtures
 
@@ -784,6 +784,22 @@ must be stable: the same file always prints the same text.
   Warnings (D-002) are kept in brief output: they say the file isn't clean.
 - *TALs (#59):* a TAL parse error names the line, the rule and the RFC section (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
 - *error/2:* names the layer for each kind of failure
+
+### `Lumina.ProductionTALsTest`
+
+[test/lumina/production_tals_test.exs](../../test/lumina/production_tals_test.exs)
+
+The production TALs in `tals/` (D-004, #67). They must be byte-exact
+copies of the reviewed RIR TALs in `test/fixtures/tals/rir/`, which
+`Lumina.TALRIRTest` checks in detail, so production never uses a TAL
+that wasn't approved and tested. They must also parse cleanly where they
+are, under the strict grammar (D-002).
+
+- tals/ holds the same five TAL files as the reviewed RIR TALs
+  Adding or removing a TAL in one folder and not the other fails.
+- every production TAL is byte-identical to its reviewed copy
+  Byte for byte: a changed key, URI, line ending or comment in either copy fails.
+- every production TAL parses with no warnings (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
 
 ### `Lumina.ResourcesTest`
 
