@@ -1,0 +1,7 @@
+ta.cer
+	ca1.cer
+		roa1.roa
+
+[node: roa1.roa]
+# The example from Barry's own tutorial.
+obj.content.encapContentInfo.eContent.version = 2
