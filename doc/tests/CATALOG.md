@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 10 Barry fixtures: 3 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 297 unit tests in 32 modules.
+- 302 unit tests in 33 modules.
 
 ## Barry fixtures
 
@@ -889,6 +889,23 @@ key, because everything the validator trusts starts from this key.
   D-002: trailing whitespace is ignored, with one warning per line.
 - errors carry a line, a rule, an RFC reference and a message
 - a missing file is an error
+
+### `Lumina.TALURIOrderTest`
+
+[test/lumina/tal_uri_order_test.exs](../../test/lumina/tal_uri_order_test.exs)
+
+Tests the order in which a TAL's URIs are tried (D-003, #57): HTTPS first
+in TAL order, then rsync in TAL order. RFC 8630 §3 leaves the rule to each
+relying party and §4 recommends HTTPS; the fetcher in M3 follows this
+order and moves to the next URI on failure or key mismatch.
+
+- HTTPS URIs come before rsync URIs, whatever their order in the TAL (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)))
+- TAL order is kept within each scheme (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)))
+  Within a scheme the TAL's own order is the operator's preference, so it is kept.
+- a TAL with a single scheme keeps its order
+- scheme case doesn't matter (RFC [3986 §3.1](../rfc/rfc3986.txt) ([html](https://www.rfc-editor.org/rfc/rfc3986.html#section-3.1)))
+  Schemes are case-insensitive, so HTTPS:// counts as HTTPS.
+- the RFC 8630 example and every Barry TAL list HTTPS first (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [8630 §2.4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.4)))
 
 ### `LuminaTest`
 
