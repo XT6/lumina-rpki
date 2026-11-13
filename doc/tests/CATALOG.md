@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 10 Barry fixtures: 3 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 344 unit tests in 38 modules.
+- 362 unit tests in 39 modules.
 
 ## Barry fixtures
 
@@ -495,6 +495,44 @@ untrusted repositories.
 - *malformed input:* reports an unknown module, an unknown type and non-binary input
 - *malformed input:* encoding an invalid value returns an error
 - every module key names a loaded, compiled ASN.1 module
+
+### `Lumina.CacheTest`
+
+[test/lumina/cache_test.exs](../../test/lumina/cache_test.exs)
+
+Tests the local cache (`Lumina.Cache`, #71): the layout, staging and
+swapping a fetch into place, and that a failed fetch or a crash never
+loses the last good copy (RFC 8897 §7). Repository content is untrusted,
+so the tests also check that symlinks and special files never reach the
+cache. The content used is a real Barry fixture tree, compared byte for
+byte. Crashes are simulated by leaving the cache in each state an
+interrupted `commit/3` can leave it in.
+
+- *layout and swapping:* a committed fetch is the live copy, at the module's cache path (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+- *layout and swapping:* a second commit replaces the first completely
+  Files deleted upstream must disappear from the cache, not linger from the old copy.
+- *layout and swapping:* a failed fetch is discarded and the last good copy stays byte-identical (RFC [8897 §7](../rfc/rfc8897.txt) ([html](https://www.rfc-editor.org/rfc/rfc8897.html#section-7)))
+- *layout and swapping:* a commit that fails halfway puts the live copy back (RFC [8897 §7](../rfc/rfc8897.txt) ([html](https://www.rfc-editor.org/rfc/rfc8897.html#section-7)))
+  The live copy is moved aside, then the staging directory can't be
+  renamed into place (its parent is read-only): the live copy must go
+  back where it was.
+- *layout and swapping:* committing a staging directory that doesn't exist changes nothing
+- *layout and swapping:* working directories start with a dot and never collide with repository content
+- *untrusted content:* symlinks are removed and reported, and their targets aren't touched
+  A repository could plant a symlink to a file outside the cache. It's
+  removed before the swap, never followed, and its target is untouched.
+- *untrusted content:* FIFOs and other special files are removed and reported
+- *recovery after a crash:* a live copy left aside is put back (RFC [8897 §7](../rfc/rfc8897.txt) ([html](https://www.rfc-editor.org/rfc/rfc8897.html#section-7)))
+- *recovery after a crash:* after a crash that completed the swap, only the old copy is removed
+- *recovery after a crash:* leftover staging directories are removed
+- *recovery after a crash:* recovering a fresh or clean cache does nothing
+- *single files:* a TA certificate fetched over HTTPS is written at its cache path, replacing the old one (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)))
+- *fetch status (D-007):* a URI never fetched has no status
+- *fetch status (D-007):* a success records the attempt and the success
+- *fetch status (D-007):* a failure after a success keeps the time of the last success
+  The time of the last success is what tells a reader how stale the copy is.
+- *fetch status (D-007):* a failure with no earlier success has no last success
+- *fetch status (D-007):* statuses of different URIs are kept apart
 
 ### `Lumina.CertificateTest`
 
