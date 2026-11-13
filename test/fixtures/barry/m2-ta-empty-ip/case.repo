@@ -1,0 +1,5 @@
+ta.cer
+
+[node: ta.cer]
+# The IP extension is present but holds no address families.
+obj.tbsCertificate.extensions.ip.extnValue = []
