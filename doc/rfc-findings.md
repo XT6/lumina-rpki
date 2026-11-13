@@ -44,6 +44,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-023](#f-023-a-non-empty-set-of-resources-across-one-or-two-extensions) | 8630 §2.3; 3779 App. A | ambiguity | none found (not reported) | Each present extension must be non-empty (#56) |
 | [F-024](#f-024-the-rsync-uri-scheme-has-no-module-and-no-encoding) | 5781 §2 | ambiguity | none found (not reported) | Module = first path segment; percent-encoding rejected (#70) |
 | [F-025](#f-025-an-rsync-uri-path-can-become-an-option-on-the-server) | 5781 §2, §4; 6487 §4.8.8 | tooling | none found (not reported) | Source written as `module/./path` (#72) |
+| [F-026](#f-026-otps-http-client-cant-bound-a-response-body) | 8630 §4 (OTP `:httpc`) | tooling | n/a | Own HTTP/1.1 GET over `:ssl` (#73) |
 
 ## Entries
 
@@ -464,6 +465,19 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
   - The URI comes from the signed object, the path from the URI, and the option parser runs on someone else's server.
   - "Arguments as a list, no shell" isn't the end of injection. The protocol carries arguments too.
   - Found because a test tried an obvious hostile path.
+
+### F-026: OTP's HTTP client can't bound a response body
+
+- **Where:** RFC 8630 §4 has RPs fetch TA certificates over HTTPS, and RFC 9112 §6.3 lets a server end a response body by closing the connection, with no Content-Length.
+- **Kind:** tooling: the RFCs are fine, but OTP's `:httpc` (inets 9.8.1) can't enforce a size limit on every response.
+- **Official errata:** n/a.
+- **Found:** while planning #73, by reading `httpc_handler.erl` and `httpc_response.erl`.
+  - `max_body_size` is checked against a Content-Length and inside chunked decoding.
+  - A body with neither is accumulated in memory until the server closes (`whole_body/2` with length -1).
+  - `stream: :self` streams only 200 and 206 responses, so a non-200 body is always buffered whole.
+- **Impact:** a hostile or broken server named in a TAL could make an RP built on `:httpc` hold any amount of data in memory, until the timeout ends it.
+- **Resolution:** `Lumina.HTTPS` speaks a minimal HTTP/1.1 GET over `:ssl` itself. Every body (Content-Length, chunked or close-delimited) is bounded by the D-008 size limit, the head by 64 KiB, and every read by the overall timeout; a non-200 body isn't read at all. A test sends a close-delimited body past the limit.
+- **Talk note:** "no third-party dependencies" moves the trust to the standard library, and it needs the same reading.
 
 ## Process notes
 

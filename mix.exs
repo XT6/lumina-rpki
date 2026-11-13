@@ -140,8 +140,9 @@ defmodule Lumina.MixProject do
   def application do
     [
       # :asn1 provides asn1ct (compiler) and the runtime the generated
-      # decoders use; see asn1/README.md.
-      extra_applications: [:logger, :asn1]
+      # decoders use; see asn1/README.md. :ssl and :public_key are for
+      # Lumina.HTTPS.
+      extra_applications: [:logger, :asn1, :public_key, :ssl]
     ]
   end
 
