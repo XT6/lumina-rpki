@@ -295,6 +295,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
   - Unknown non-critical extensions: **open**, needs a maintainer decision (#42).
   - Unknown critical extensions: reject, as §4.8 requires (fixture `m1-cert-unknown-critical-extension`).
   - The decoder keeps every unknown extension, with its criticality, so any decision can be implemented.
+- **Data point (2026-11-12):** in a full rsync copy of LACNIC's repository, **none of the 3,514 certificates** carries an unknown extension, critical or not, and all are version 3. So for LACNIC's repository today, the #42 decision changes no verdicts.
 - **Suggested text:** RFC 6487 §4.8 could state the RP rule directly, for example *"A relying party MUST reject a resource certificate that contains any extension not listed in this section."* RFC 8897 §3.1 could then point to that sentence.
 - **Talk note:** "MAY" in a list of RP requirements means two compliant implementations are allowed to disagree, and in a routing security system disagreement is the failure mode.
 
@@ -334,6 +335,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Official errata:** none, and none expected; this is by design.
 - **Impact:** what a relying party should do today with a ROA holding a superfluous maxLength, or prefixes out of canonical order, is left open, and the RFC expects the answer to change over time. Relying parties that tighten at different times will disagree on the same ROA during the transition, the same divergence risk as F-010 and F-015.
 - **Resolution:** `Lumina.ROA.issues/1` reports `:superfluous_max_length`, `:not_canonical_order` and `:duplicate_address`, and doesn't reject them. Whether M7 accepts, warns or rejects is a maintainer decision for M7.
+- **Data point (2026-11-12):** a full rsync copy of LACNIC's repository decoded with Lumina's M1 decoders. **0 of 17,747 ROAs** show a superfluous maxLength, out-of-order or duplicate prefixes, or any other §4.3 issue. Enforcing the SHOULDs strictly would reject nothing in LACNIC's repository today.
 - **Talk note:** a standard that schedules its own tightening ("future Relying Parties will…") turns the gap between relying parties into a planned phase. Being lenient is the safe choice for VRP output only until it isn't.
 
 ### F-019: manifest times inherit a CRL rule they cannot follow
