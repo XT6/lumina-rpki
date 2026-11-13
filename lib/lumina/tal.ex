@@ -74,6 +74,32 @@ defmodule Lumina.TAL do
   end
 
   @doc """
+  The TAL's URIs in the order they should be tried (D-003 in
+  doc/decisions.md): HTTPS URIs first, in TAL order, then rsync URIs in TAL
+  order. RFC 8630 §3 leaves the preference rule to each relying party, and
+  §4 RECOMMENDS HTTPS because rsync has no transport security.
+
+  The fetcher (M3) tries them in this order. If a URI can't be fetched, or
+  returns a certificate whose key doesn't match the TAL (`check_ta/2`), it
+  moves on to the next (RFC 8630 §3).
+
+  ## Examples
+
+      iex> tal = %Lumina.TAL{uris: ["rsync://a.example/ta.cer", "https://b.example/ta.cer"]}
+      iex> Lumina.TAL.uris_by_preference(tal)
+      ["https://b.example/ta.cer", "rsync://a.example/ta.cer"]
+
+  """
+  @spec uris_by_preference(t()) :: [String.t()]
+  def uris_by_preference(%__MODULE__{uris: uris}) do
+    {https, rsync} = Enum.split_with(uris, &(scheme(&1) == "https"))
+    https ++ rsync
+  end
+
+  # The URI's scheme, lowercased; schemes are case-insensitive (RFC 3986 §3.1).
+  defp scheme(uri), do: uri |> String.split(":", parts: 2) |> hd() |> String.downcase()
+
+  @doc """
   The Subject Key Identifier the trust anchor certificate is expected to
   carry: the SHA-1 of the key bits (RFC 6487 §4.8.2).
   """
