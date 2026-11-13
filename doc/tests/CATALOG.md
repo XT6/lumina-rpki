@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 10 Barry fixtures: 3 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 404 unit tests in 41 modules.
+- 414 unit tests in 42 modules.
 
 ## Barry fixtures
 
@@ -1038,6 +1038,37 @@ Profile violations decode; only non-DER or unparseable input fails.
   see its order (X.690 11.6). Only re-encoding catches unsorted
   attributes, and the signature covers these exact bytes.
 - *structural decoding:* non-DER, truncated and unrelated input are errors naming the layer
+
+### `Lumina.TATest`
+
+[test/lumina/ta_test.exs](../../test/lumina/ta_test.exs)
+
+Tests TA retrieval (`Lumina.TA`, #74): the TAL's URIs tried in D-003
+order over the real fetchers, each certificate checked against the TAL
+(RFC 8630 §3), the next URI tried on any failure, the accepted
+certificate kept in the cache, and the previous one offered as stale
+when every URI fails.
+
+HTTPS URIs are served by `Lumina.Test.HTTPSServer` with a CA made in the
+test, rsync URIs by `Lumina.Test.RsyncDaemon`, both serving Barry
+fixture TAs. The fixture TALs name fixed ports, so each test points the
+TAL at its own servers by replacing its URIs; the key stays the
+fixture's.
+
+- *retrieval:* every Barry fixture's TA is retrieved over rsync and stored byte-identical (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)))
+  The fixtures built to fail the TA check (m2-ta-*) are covered by the next test.
+- *retrieval:* a fixture TA that fails the TAL check is fetched but not accepted (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)))
+- *retrieval:* when the first URI is unreachable, the next one is used (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)))
+- *retrieval:* a certificate whose key doesn't match is reported, and the next URI is used (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)))
+- *retrieval:* content that isn't a certificate is reported, and the next URI is used
+- *retrieval:* an HTTPS URI is tried before an rsync URI listed ahead of it (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)))
+  D-003: HTTPS first, whatever the TAL order. The rsync URI is never tried.
+- *the cache:* when every URI fails, the error lists each attempt and the previous TA is kept (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [8897 §7](../rfc/rfc8897.txt) ([html](https://www.rfc-editor.org/rfc/rfc8897.html#section-7)))
+  The last accepted TA is kept, byte for byte, and offered as stale with its source.
+- *the cache:* when every URI fails and nothing was cached, there is no stale TA
+- *the cache:* a rejected certificate never replaces the accepted one
+  A TA rejected later must not replace the one accepted before.
+- *the cache:* each URI's outcome is recorded in the cache status
 
 ### `Lumina.TALCheckTest`
 
