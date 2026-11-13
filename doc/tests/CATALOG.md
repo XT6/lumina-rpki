@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 15 Barry fixtures: 8 valid, 7 invalid.
+- 16 Barry fixtures: 9 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 438 unit tests in 44 modules.
+- 441 unit tests in 44 modules.
 
 ## Barry fixtures
 
@@ -229,6 +229,18 @@ one fetch covers most of the tree.
 - **Expected:** valid
 - **RFC:** [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [6481 §2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2))
 - **Files:** [descriptor](../../test/fixtures/barry/m3-walk-nested/case.repo) · [metadata](../../test/fixtures/barry/m3-walk-nested/case.exs) · [rsync tree](../../test/fixtures/barry/m3-walk-nested/rsync)
+
+#### `m3-walk-siblings`: Eight sibling CAs, each with its own publication point on one host
+
+The TA certifies eight CAs, each publishing in its own directory beside
+the TA's, so no fetched directory covers another: each needs its own
+rsync run. This is how registro.br publishes under LACNIC, with
+thousands of member CAs (#85). The walk fetches them concurrently, at
+most a fixed number at once per host (D-011).
+
+- **Expected:** valid
+- **RFC:** [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5))
+- **Files:** [descriptor](../../test/fixtures/barry/m3-walk-siblings/case.repo) · [metadata](../../test/fixtures/barry/m3-walk-siblings/case.exs) · [rsync tree](../../test/fixtures/barry/m3-walk-siblings/rsync)
 
 #### `m3-walk-unreachable`: A child CA whose publication point is on an unreachable host
 
@@ -1347,6 +1359,16 @@ from the certificates.
   First run: the host is reachable (remapped to a daemon). Second run:
   it isn't. The last good copy stays byte-identical, and the walk
   continues from it, marked stale.
+- *concurrent fetches (D-011):* sibling publication points on one host are fetched at most :per_host at a time (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  Eight sibling publication points, as registro.br publishes thousands
+  (#85). The daemon refuses a third connection, so a single refusal
+  would show the cap was exceeded.
+- *concurrent fetches (D-011):* sibling publication points on one host are fetched concurrently
+  The converse of the test above: with :per_host above what the daemon
+  accepts, it refuses some of the eight sibling fetches, which shows
+  they really run at the same time.
+- *concurrent fetches (D-011):* points and fetches are reported in walk order, whatever order the fetches finish in (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  The order a sequential walk gives: TA first, then ca1 to ca8 as listed.
 - *selecting CAs (D-005):* a certificate that isn't a CA isn't followed (RFC [6487 §4.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.1)))
 - *selecting CAs (D-005):* a CA is followed to its rsync caRepository (RFC [6487 §4.8.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.1)))
 

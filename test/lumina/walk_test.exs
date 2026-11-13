@@ -201,6 +201,66 @@ defmodule Lumina.WalkTest do
     end
   end
 
+  describe "concurrent fetches (D-011)" do
+    # Serves m3-walk-siblings from a daemon that accepts at most
+    # `max_connections` at once per module, refusing the rest, and walks
+    # it with at most `per_host` rsync runs at once.
+    defp siblings!(tmp, max_connections, per_host) do
+      id = "m3-walk-siblings"
+
+      daemon =
+        RsyncDaemon.start!(tmp, %{"rpki" => rsync_root(id)}, max_connections: max_connections)
+
+      Walk.run(ta!(id), cache(tmp),
+        now: @now,
+        per_host: per_host,
+        remap: %{"localhost:8873" => "127.0.0.1:#{daemon.port}"}
+      )
+    end
+
+    @tag rfc: "6481#5",
+         doc: """
+         Eight sibling publication points, as registro.br publishes thousands
+         (#85). The daemon refuses a third connection, so a single refusal
+         would show the cap was exceeded.
+         """
+    test "sibling publication points on one host are fetched at most :per_host at a time", %{
+      tmp_dir: tmp
+    } do
+      result = siblings!(tmp, 2, 2)
+
+      assert result.issues == []
+      assert length(result.fetches) == 9
+      assert Enum.all?(result.fetches, &(&1.outcome == :ok))
+
+      assert tree(Path.join(cache(tmp), "rsync/localhost:8873/rpki")) ==
+               Map.delete(tree(rsync_root("m3-walk-siblings")), "ta.cer")
+    end
+
+    @tag doc: """
+         The converse of the test above: with :per_host above what the daemon
+         accepts, it refuses some of the eight sibling fetches, which shows
+         they really run at the same time.
+         """
+    test "sibling publication points on one host are fetched concurrently", %{tmp_dir: tmp} do
+      result = siblings!(tmp, 1, 8)
+
+      assert Enum.any?(result.fetches, &(&1.outcome == :error))
+      assert [%{uri: @base <> "/ta", outcome: :ok} | _] = result.fetches
+    end
+
+    @tag rfc: "6481#5",
+         doc: "The order a sequential walk gives: TA first, then ca1 to ca8 as listed."
+    test "points and fetches are reported in walk order, whatever order the fetches finish in",
+         %{tmp_dir: tmp} do
+      result = siblings!(tmp, 8, 8)
+      expected = [@base <> "/ta" | for(i <- 1..8, do: @base <> "/ca#{i}")]
+
+      assert Enum.map(result.fetches, & &1.uri) == expected
+      assert Enum.map(result.points, & &1.uri) == expected
+    end
+  end
+
   describe "selecting CAs (D-005)" do
     @tag rfc: "6487#4.8.1"
     test "a certificate that isn't a CA isn't followed" do
