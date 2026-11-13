@@ -4,6 +4,29 @@
 
 An RPKI validator written from scratch.
 
+## Installing
+
+Lumina needs Erlang/OTP and Elixir (versions in [`.tool-versions`](.tool-versions)) and rsync 3.1.0 or later. On macOS, `/usr/bin/rsync` is openrsync, which is too old.
+
+```sh
+scripts/install-deps.sh           # installs what's missing, fetches dev dependencies, builds ./lumina
+scripts/install-deps.sh --check   # only reports; exits 1 if something is missing
+```
+
+Erlang and Elixir come from mise or asdf when either is installed (both read `.tool-versions`), otherwise from Homebrew on macOS; rsync from Homebrew on macOS, or apt-get/dnf on Linux. If a good rsync is installed but not first on `PATH`, either fix `PATH` or give it to `lumina sync --rsync PATH`.
+
+## `lumina sync`
+
+Fetches the trust anchors and repositories into a local cache. Nothing is validated yet.
+
+```sh
+./lumina sync                          # every TAL in ./tals/ (the five RIRs)
+./lumina sync --tal tals/lacnic.tal    # one TAL
+./lumina help sync                     # flags: --cache, --timeout, --max-depth, --rsync
+```
+
+Exit codes: `0` everything fetched, `1` a fetch failed (the cache is still usable), the cache is in use, or rsync is missing or too old, `2` usage error.
+
 ## `lumina print`
 
 Prints RPKI objects in human-readable form, one `field: value` per line. It's useful for inspecting a repository, writing fixtures and debugging.
