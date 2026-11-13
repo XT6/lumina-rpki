@@ -5,7 +5,7 @@
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
 - 7 Barry fixtures: 3 valid, 4 invalid.
-- 257 unit tests in 28 modules.
+- 268 unit tests in 28 modules.
 
 ## Barry fixtures
 
@@ -204,15 +204,23 @@ and only non-DER or unparseable input fails.
 [test/lumina/cli_test.exs](../../test/lumina/cli_test.exs)
 
 Tests the `lumina` command line through `Lumina.CLI.run/3`, which returns
-the exit code instead of halting: 0 when every file printed, 1 when any
-failed to decode, 2 for usage errors. Output goes to StringIO devices.
+the exit code instead of halting. The CLI follows the command plus flags
+model (D-001 in doc/decisions.md): `lumina print [--brief] FILE...`,
+`lumina help [command]`. Exit codes: 0 success, 1 a file failed to
+decode, 2 usage error. Output goes to StringIO devices.
 
-- --print prints one file and exits 0
-- several files print one section each, with a header
-- a file that doesn't decode is reported on stderr and the exit code is 1
-- an unknown file type and a missing file are decode failures
-- --help prints usage to stdout and exits 0
-- missing arguments and unknown options print usage to stderr and exit 2
+- *print:* prints one file in full and exits 0
+- *print:* --brief leaves out cryptographic detail and keeps the payload
+- *print:* --brief may come after the files
+- *print:* several files print one section each, with a header
+- *print:* a file that doesn't decode is reported on stderr, and the exit code is 1
+- *print:* an unknown file type and a missing file are decode failures
+- *print:* print with no files, or an unknown flag, prints the print usage and exits 2
+- *print:* print --help shows the print usage
+- *help and usage:* help, -h and --help print the general usage and exit 0
+- *help and usage:* help <command> prints that command's usage
+- *help and usage:* no arguments, an unknown command, or the old --print flag exit 2 with usage
+  The first version used a --print flag (PR #53); under D-001 it's a usage error.
 
 ### `Lumina.CRLTest`
 
@@ -384,7 +392,8 @@ layer that failed.
 
 [test/lumina/print_test.exs](../../test/lumina/print_test.exs)
 
-Tests the human-readable rendering behind `lumina --print` (#34). Expected
+Tests the human-readable rendering behind `lumina print` (#34), full and
+`--brief` (D-001 in doc/decisions.md). Expected
 values come from the decoded structs, not hard-coded bytes, so
 regenerating a fixture (fresh keys) doesn't break the tests. The output
 must be stable: the same file always prints the same text.
@@ -399,6 +408,12 @@ must be stable: the same file always prints the same text.
 - inherited resources print as inherit
 - profile violations print like anything else
 - a signed object whose eContent isn't decoded yet prints its envelope and size
+- *brief:* a brief certificate keeps names, validity, URIs and resources, and drops crypto detail
+- *brief:* a brief manifest lists file names without hashes
+- *brief:* a brief ROA keeps the signing time, EE validity and prefixes
+- *brief:* a brief CRL keeps issuer, dates, number and revocations
+- *brief:* brief still shows unknown extensions, without their bytes (RFC [6487 §4.8](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8)))
+- *brief:* inherit is kept in brief output
 - *error/2:* names the layer for each kind of failure
 
 ### `Lumina.ResourcesTest`

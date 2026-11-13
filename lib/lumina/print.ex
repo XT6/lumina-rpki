@@ -2,7 +2,8 @@ defmodule Lumina.Print do
   @moduledoc """
   Renders decoded RPKI objects as human-readable text: one `field: value`
   per line, nested structures indented by two spaces. Used by
-  `lumina --print` (#34).
+  `lumina print` (#34); `lumina print --brief` uses `render(object,
+  brief: true)`.
 
   Conventions: OIDs as `name (dotted)` when the name is known, times in ISO
   8601 UTC, key identifiers and hashes in colon-separated hex, prefixes in
@@ -27,10 +28,21 @@ defmodule Lumina.Print do
 
   @type node_ :: {String.t(), String.t() | [node_()]}
 
-  @doc "Renders a decoded object."
-  @spec render(Object.t()) :: String.t()
-  def render(%Object{} = object),
-    do: object |> tree() |> lines(0) |> Enum.join("\n") |> Kernel.<>("\n")
+  @doc """
+  Renders a decoded object.
+
+  With `brief: true`, most cryptographic detail is left out (key
+  identifiers, public keys, signature algorithms and values, digests,
+  signer details, manifest hashes). Validity dates and the useful payload
+  are kept: names, serials, resources, repository and CRL URIs, ROA
+  prefixes, manifest file names, CRL revocations, unknown extensions.
+  See D-001 in doc/decisions.md.
+  """
+  @spec render(Object.t(), keyword()) :: String.t()
+  def render(%Object{} = object, opts \\ []) do
+    tree = if Keyword.get(opts, :brief, false), do: brief(object), else: tree(object)
+    tree |> lines(0) |> Enum.join("\n") |> Kernel.<>("\n")
+  end
 
   @doc "Describes a decoding error from `Lumina.Object.decode/2`."
   @spec error(term(), String.t()) :: String.t()
@@ -70,6 +82,103 @@ defmodule Lumina.Print do
   defp tree(%Object{type: type, value: %SignedObject{} = object}) do
     signed_object(to_string(type), object) ++
       [{"econtent", "#{byte_size(object.econtent || <<>>)} bytes, not decoded yet (M9)"}]
+  end
+
+  # Brief trees: validity and payload, without cryptographic detail.
+
+  @brief_extensions [
+    :crl_distribution_points,
+    :authority_info_access,
+    :subject_info_access,
+    :ip_resources,
+    :as_resources
+  ]
+
+  defp brief(%Object{type: :certificate, value: cert}), do: brief_certificate(cert)
+
+  defp brief(%Object{type: :crl, value: crl}) do
+    revoked =
+      case crl.revoked do
+        [] -> "none"
+        entries -> Enum.map(entries, &{"serial #{&1.serial}", time(&1.revoked_at)})
+      end
+
+    [
+      {"type", "crl"},
+      {"issuer", Name.to_string(crl.issuer)},
+      {"this update", time(crl.this_update)},
+      {"next update", if(crl.next_update, do: time(crl.next_update), else: "absent")},
+      {"crl number", crl |> CRL.number() |> inspect()},
+      {"revoked", revoked}
+    ]
+  end
+
+  defp brief(%Object{type: :roa, value: %ROA{} = roa}),
+    do: brief_signed_object("roa", roa.object) ++ [{"roa", roa(roa)}]
+
+  defp brief(%Object{type: :manifest, value: %Manifest{} = mft}) do
+    files =
+      case mft.files do
+        [] -> "none"
+        files -> Enum.map(files, &{"file", &1.name})
+      end
+
+    brief_signed_object("manifest", mft.object) ++
+      [
+        {"manifest",
+         [
+           {"manifest number", to_string(mft.number)},
+           {"this update", time(mft.this_update)},
+           {"next update", time(mft.next_update)},
+           {"files", files}
+         ]}
+      ]
+  end
+
+  defp brief(%Object{type: type, value: %SignedObject{} = object}) do
+    brief_signed_object(to_string(type), object) ++
+      [{"econtent", "#{byte_size(object.econtent || <<>>)} bytes, not decoded yet (M9)"}]
+  end
+
+  defp brief_certificate(%Certificate{} = cert) do
+    extensions =
+      for %Extension{name: name, value: value} = ext <- cert.extensions,
+          name in @brief_extensions or value == :unknown or match?({:malformed, _}, value) do
+        case extension(ext) do
+          {label, "unknown extension" <> _} -> {label, "unknown extension"}
+          node -> node
+        end
+      end
+
+    [
+      {"type", "certificate (#{kind(cert)})"},
+      {"version", to_string(cert.version)},
+      {"serial", to_string(cert.serial)},
+      {"issuer", Name.to_string(cert.issuer)},
+      {"subject", Name.to_string(cert.subject)},
+      {"validity", [{"not before", time(cert.not_before)}, {"not after", time(cert.not_after)}]},
+      {"extensions", extensions}
+    ]
+  end
+
+  defp brief_signed_object(type, %SignedObject{} = object) do
+    signing_time =
+      case SignedObject.signed_attribute(object, :signing_time) do
+        %{at: _} = t -> time(t)
+        _ -> "absent"
+      end
+
+    ee =
+      case SignedObject.ee_certificate(object) do
+        nil -> "none"
+        cert -> [{"not before", time(cert.not_before)}, {"not after", time(cert.not_after)}]
+      end
+
+    [
+      {"type", "#{type} (signed object)"},
+      {"signing time", signing_time},
+      {"ee certificate validity", ee}
+    ]
   end
 
   defp certificate(%Certificate{} = cert) do
