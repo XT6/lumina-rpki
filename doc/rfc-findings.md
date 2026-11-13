@@ -37,6 +37,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-016](#f-016-no-rfc-says-how-a-repository-directory-uri-ends) | 6487 §4.8.8.1 | ambiguity | none found (not reported) | Both forms handled in M3 (#43) |
 | [F-017](#f-017-rfc-6487-still-points-to-the-obsolete-algorithm-profile) | 6487 §4.3, §4.7, §5, §6.1.1 | reference | none found (not reported) | Use RFC 7935 (M4) |
 | [F-018](#f-018-rfc-9582-tells-cas-that-relying-parties-will-change-their-minds) | 9582 §4.3.2.2, §4.3.3 | ambiguity | none (by design) | Reported by `ROA.issues/1`; decide in M7 |
+| [F-019](#f-019-manifest-times-inherit-a-crl-rule-they-cannot-follow) | 9286 §4.2.1 | ambiguity | none found (not reported) | Use RFC 5280 GeneralizedTime rules (#48) |
 
 ## Entries
 
@@ -333,6 +334,24 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Impact:** what a relying party should do today with a ROA holding a superfluous maxLength, or prefixes out of canonical order, is left open, and the RFC expects the answer to change over time. Relying parties that tighten at different times will disagree on the same ROA during the transition, the same divergence risk as F-010 and F-015.
 - **Resolution:** `Lumina.ROA.issues/1` reports `:superfluous_max_length`, `:not_canonical_order` and `:duplicate_address`, and doesn't reject them. Whether M7 accepts, warns or rejects is a maintainer decision for M7.
 - **Talk note:** a standard that schedules its own tightening ("future Relying Parties will…") turns the gap between relying parties into a planned phase. Being lenient is the safe choice for VRP output only until it isn't.
+
+### F-019: manifest times inherit a CRL rule they cannot follow
+
+- **Where:** RFC 9286 §4.2.1, on the manifest's `thisUpdate`: "This field has the same format constraints as specified in [RFC5280] for the CRL field of the same name." `nextUpdate` refers back to it. The manifest module types both fields as `GeneralizedTime`.
+- **What RFC 5280 says for the CRL field (§5.1.2.4):** "CRL issuers conforming to this profile MUST encode thisUpdate as UTCTime for dates through the year 2049. CRL issuers conforming to this profile MUST encode thisUpdate as GeneralizedTime for dates in the year 2050 or later."
+- **Kind:** ambiguity.
+- **Official errata:** none found for RFC 9286, its predecessor RFC 6486, or RFC 9981 (checked 2026-11-12). **Not reported.**
+- **The problem:**
+  - Taken literally, the referenced constraints require UTCTime for every manifest dated before 2050, but the field can only hold GeneralizedTime.
+  - So every manifest in existence would be non-conforming.
+  - The rule that can actually carry over is RFC 5280 §4.1.2.5.2's GeneralizedTime profile: Zulu time, seconds present, no fractional seconds. That rule is stricter than DER, which allows fractions.
+- **Impact:** a relying party that follows the reference literally rejects everything. One that ignores it accepts fractional seconds that RFC 5280's profile forbids. Two plausible readings give different verdicts on a fractional-second manifest.
+- **Resolution:**
+  - M5 checks manifest times against RFC 5280 §4.1.2.5.2 (#48).
+  - `Lumina.Time` keeps the raw value so the check can be precise.
+  - Decoding accepts any DER GeneralizedTime.
+- **Suggested text:** *"This field MUST be encoded as GeneralizedTime as specified in Section 4.1.2.5.2 of [RFC5280]."*
+- **Talk note:** "same constraints as field X in document Y" imports everything about field X, including the parts that only make sense for X's type.
 
 ## Process notes
 

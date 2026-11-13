@@ -5,7 +5,7 @@
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
 - 6 Barry fixtures: 2 valid, 4 invalid.
-- 218 unit tests in 23 modules.
+- 228 unit tests in 24 modules.
 
 ## Barry fixtures
 
@@ -285,6 +285,32 @@ before any object is decoded. Decoding and validation start in M1.
 - the TAL's rsync URI points to the trust anchor certificate in the tree
 - the TAL's public key is base64 that decodes to a DER SEQUENCE
 - the RRDP files are present
+
+### `Lumina.ManifestTest`
+
+[test/lumina/manifest_test.exs](../../test/lumina/manifest_test.exs)
+
+Tests decoding of manifests (RFC 9286). Publication point validation (M5)
+compares each file against the manifest's hash and checks the manifest
+number and times, so these must decode exactly. Decoding is structural:
+an empty file list decodes, and its rejection is validation's job (#37).
+
+- *the m0-minimal-valid manifests:* list exactly the other files in their publication points (RFC [9286 §4.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2)), [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)), [6481 §2.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2.2)))
+  Each manifest lists every other file at its publication point; the manifest itself is not listed.
+- *the m0-minimal-valid manifests:* each listed hash is the SHA-256 of the file (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2)))
+  Decode sanity only: each listed hash equals the SHA-256 of the file. Checking it is M5.
+- *the m0-minimal-valid manifests:* version, manifest number, times and hash algorithm (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)))
+- *structural decoding:* an empty file list decodes to no files (RFC [9286 §A](../rfc/rfc9286.txt), [9286 §7](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-7)))
+  The module allows SIZE (0..MAX). Verified erratum 7118 and §7 forbid an
+  empty list, but rejecting it is M5's job (#37, F-001), so it must decode.
+- *structural decoding:* a 20-octet manifest number decodes exactly (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)))
+  Manifest numbers up to 20 octets MUST be processable.
+- *structural decoding:* a non-zero version decodes with that version (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)))
+- *structural decoding:* an explicitly encoded default version is not DER (RFC [9286 §A](../rfc/rfc9286.txt))
+  X.690 11.5: version [0] equal to its DEFAULT 0 must not be encoded; only re-encoding catches it.
+- *structural decoding:* a time that isn't a real date is an error
+- *errors:* a signed object that isn't a manifest
+- *errors:* non-DER and unparseable eContent
 
 ### `Lumina.ResourcesTest`
 
