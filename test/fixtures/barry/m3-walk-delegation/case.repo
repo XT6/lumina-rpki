@@ -4,6 +4,10 @@ ta.cer
 	ca2.cer
 		roa2.roa
 
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
 [node: ca2.cer]
 # ca2's publication point is on a second rsync host, as LACNIC delegates
 # to registro.br and to an Amazon-hosted directory (D-009). Its files are

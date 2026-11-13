@@ -25,6 +25,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-015](#d-015-the-crl-that-decides-revocation-in-m4) | In M4, revocation uses the CRL named by the CRLDP; M5 adds the manifest check (RFC 9829) | 2026-11-13 | M4 plan |
 | [D-016](#d-016-a-stale-crl-is-used-with-a-warning) | A CRL past its nextUpdate is still used, with a warning | 2026-11-13 | M4 plan |
 | [D-017](#d-017-revocation-fixtures-are-re-signed-by-the-tests) | Revocation fixtures: Barry signs with keys we supply, tests re-sign CRLs with revoked entries | 2026-11-13 | M4 plan, #52 |
+| [D-018](#d-018-public-key-algorithm-rsaencryption-sha256withrsaencryption-warned) | Certificate keys: rsaEncryption; sha256WithRSAEncryption accepted with a warning | 2026-11-13 | #108, #109, F-027 |
 
 ## D-001: CLI model
 
@@ -262,3 +263,11 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Why:** Barry (pinned `478ee89`) can't write revoked entries (#52). Re-encoding without re-signing, the earlier workaround, tests a broken signature rather than revocation.
 - **Where:** M4 plan, #52.
 - **Consequences:** fixture keys live in the repository (test-only keys). If Barry gains revoked entries, the fixtures can switch to descriptors and these tests stay the same.
+
+## D-018: Public key algorithm: rsaEncryption, sha256WithRSAEncryption warned
+
+- **Date:** 2026-11-13
+- **Decision:** a certificate's subjectPublicKeyInfo algorithm is rsaEncryption with NULL parameters (RFC 4055 §1.2). sha256WithRSAEncryption, which RFC 7935 §3.1 names there, is accepted with a warning. Any other algorithm is rejected.
+- **Why:** RFC 7935 §3.1 and RFC 4055 §1.2 disagree (F-027; erratum 5737 rejected on process). Practice and every Barry fixture use rsaEncryption; rejecting a certificate written to the letter of RFC 7935 would be harsher than either text justifies, and the warning makes the case visible.
+- **Where:** PR #118 (#108), for #109.
+- **Consequences:** `Lumina.Crypto.rsa_public_key/1` reads both; the certificate profile check (#109) adds the warning.

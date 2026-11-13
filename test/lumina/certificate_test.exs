@@ -38,7 +38,7 @@ defmodule Lumina.CertificateTest do
       ta = decode!(read("ta.cer"))
 
       assert ta.version == 3
-      assert ta.serial == 0
+      assert ta.serial == 1
       assert ta.issuer == ta.subject and ta.issuer_der == ta.subject_der
       assert [[%{type: {2, 5, 4, 3}, value: cn}]] = ta.subject
       assert is_binary(cn)

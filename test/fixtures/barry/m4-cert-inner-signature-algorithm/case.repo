@@ -1,0 +1,10 @@
+ta.cer
+	ca1.cer
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: ca1.cer]
+# sha384WithRSAEncryption inside tbsCertificate; Barry still signs with SHA-256.
+obj.tbsCertificate.signature.algorithm = 1.2.840.113549.1.1.12

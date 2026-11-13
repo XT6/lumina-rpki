@@ -2,6 +2,10 @@ ta.cer
 	ca1.cer
 		roa1.roa
 
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
 [node: ca1.cer]
 # ca1's publication point is a subdirectory of the TA's, so the fetch of
 # the TA's module already brings it (D-012).

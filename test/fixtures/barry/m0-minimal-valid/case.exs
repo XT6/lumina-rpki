@@ -5,8 +5,8 @@
   rationale: """
   The smallest repository that exercises a full chain: a trust anchor that
   certifies one CA, which issues one ROA. Each publication point has the CRL
-  and manifest Barry generates. Nothing is overridden, so every object is
-  correct.
+  and manifest Barry generates. Only the TA's serial number is overridden
+  (Barry gives it 0, F-029), so every object is correct.
 
   In M0 it proves the fixture pipeline works end to end: descriptor,
   generation, metadata check, catalog and test helper. In later milestones

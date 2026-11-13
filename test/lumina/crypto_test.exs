@@ -77,9 +77,8 @@ defmodule Lumina.CryptoTest do
   defp sha256_with_rsa, do: %{oid: @sha256_with_rsa, parameters: <<5, 0>>}
 
   defp flip_last_bit(bytes) do
-    len = byte_size(bytes) - 1
-    <<head::binary-size(len), last>> = bytes
-    <<head::binary, Bitwise.bxor(last, 1)>>
+    last = :binary.last(bytes)
+    binary_part(bytes, 0, byte_size(bytes) - 1) <> <<Bitwise.bxor(last, 1)>>
   end
 
   describe "valid signatures" do

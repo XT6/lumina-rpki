@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 16 Barry fixtures: 9 valid, 7 invalid.
+- 23 Barry fixtures: 9 valid, 14 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 483 unit tests in 47 modules.
+- 502 unit tests in 48 modules.
 
 ## Barry fixtures
 
@@ -18,8 +18,8 @@ Repositories generated with Barry, and what a correct validator must conclude fr
 
 The smallest repository that exercises a full chain: a trust anchor that
 certifies one CA, which issues one ROA. Each publication point has the CRL
-and manifest Barry generates. Nothing is overridden, so every object is
-correct.
+and manifest Barry generates. Only the TA's serial number is overridden
+(Barry gives it 0, F-029), so every object is correct.
 
 In M0 it proves the fixture pipeline works end to end: descriptor,
 generation, metadata check, catalog and test helper. In later milestones
@@ -256,6 +256,108 @@ them, to have a last good copy, and then take the host away.
 - **Expected:** valid
 - **RFC:** [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [8897 §7](../rfc/rfc8897.txt) ([html](https://www.rfc-editor.org/rfc/rfc8897.html#section-7))
 - **Files:** [descriptor](../../test/fixtures/barry/m3-walk-unreachable/case.repo) · [metadata](../../test/fixtures/barry/m3-walk-unreachable/case.exs) · [rsync tree](../../test/fixtures/barry/m3-walk-unreachable/rsync)
+
+### M4
+
+#### `m4-cert-expired`: CA certificate already expired at validation time
+
+The baseline tree with one change: the CA certificate's notAfter is 2029-01-01, before the validation time the
+tests use (2030-01-01).
+
+Certificate profile check (#109): validation must reject the CA
+certificate with this one reason, and accept everything else.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta/ca1.cer`: expired: notAfter is before the validation time
+- **RFC:** [6487 §4.6](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.6)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [5280 §4.1.2.5](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.5))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-cert-expired/case.repo) · [metadata](../../test/fixtures/barry/m4-cert-expired/case.exs) · [rsync tree](../../test/fixtures/barry/m4-cert-expired/rsync)
+
+#### `m4-cert-inner-signature-algorithm`: CA certificate whose inner signature algorithm differs from the outer one
+
+The baseline tree with one change: the signature algorithm inside the CA certificate's tbsCertificate is
+sha384WithRSAEncryption, while the outer signatureAlgorithm (and the
+signature) are sha256WithRSAEncryption. RFC 5280 section 4.1.1.2 requires
+the two to be the same, and RFC 7935 section 2 allows only
+sha256WithRSAEncryption.
+
+Certificate profile check (#109): validation must reject the CA
+certificate with this one reason, and accept everything else.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta/ca1.cer`: the tbsCertificate signature algorithm is not the outer one
+- **RFC:** [6487 §4.3](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.3)), [5280 §4.1.1.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.1.2)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-cert-inner-signature-algorithm/case.repo) · [metadata](../../test/fixtures/barry/m4-cert-inner-signature-algorithm/case.exs) · [rsync tree](../../test/fixtures/barry/m4-cert-inner-signature-algorithm/rsync)
+
+#### `m4-cert-name-extra-attribute`: CA certificate whose subject has an organizationName
+
+The baseline tree with one change: the CA certificate's subject holds an organizationName besides its
+commonName. RFC 6487 sections 4.4 and 4.5 allow only one commonName and
+an optional serialNumber. The subject becomes the issuer of the CA's own
+CRL, manifest and ROA certificates, so their issuer names break the same
+rule.
+
+Certificate profile check (#109): validation must reject the CA
+certificate and the two EE certificates for their names. The CRL's
+issuer breaks the same rule; the CRL profile is #111.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta/ca1.cer`: the subject holds an organizationName
+  - `ca1/ca1.mft`: the EE certificate's issuer holds an organizationName
+  - `ca1/roa1.roa`: the EE certificate's issuer holds an organizationName
+- **RFC:** [6487 §4.4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.4)), [6487 §4.5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.5))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-cert-name-extra-attribute/case.repo) · [metadata](../../test/fixtures/barry/m4-cert-name-extra-attribute/case.exs) · [rsync tree](../../test/fixtures/barry/m4-cert-name-extra-attribute/rsync)
+
+#### `m4-cert-not-yet-valid`: CA certificate not yet valid at validation time
+
+The baseline tree with one change: the CA certificate's notBefore is 2031-01-01, after the validation time the
+tests use (2030-01-01).
+
+Certificate profile check (#109): validation must reject the CA
+certificate with this one reason, and accept everything else.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta/ca1.cer`: not yet valid: notBefore is after the validation time
+- **RFC:** [6487 §4.6](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.6)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [5280 §4.1.2.5](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.5))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-cert-not-yet-valid/case.repo) · [metadata](../../test/fixtures/barry/m4-cert-not-yet-valid/case.exs) · [rsync tree](../../test/fixtures/barry/m4-cert-not-yet-valid/rsync)
+
+#### `m4-cert-serial-negative`: CA certificate with a negative serial number
+
+The baseline tree with one change: the CA certificate's serial number is -1. RFC 6487 section 4.2 and RFC
+5280 section 4.1.2.2 require a positive integer.
+
+Certificate profile check (#109): validation must reject the CA
+certificate with this one reason, and accept everything else.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta/ca1.cer`: serial number is -1; it must be positive
+- **RFC:** [6487 §4.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.2)), [5280 §4.1.2.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.2))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-cert-serial-negative/case.repo) · [metadata](../../test/fixtures/barry/m4-cert-serial-negative/case.exs) · [rsync tree](../../test/fixtures/barry/m4-cert-serial-negative/rsync)
+
+#### `m4-cert-serial-too-long`: CA certificate with a 21-octet serial number
+
+The baseline tree with one change: the CA certificate's serial number takes 21 octets. RFC 5280 section
+4.1.2.2 forbids CAs to use more than 20.
+
+Certificate profile check (#109): validation must reject the CA
+certificate with this one reason, and accept everything else.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta/ca1.cer`: serial number is 21 octets; at most 20 are allowed
+- **RFC:** [5280 §4.1.2.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.2)), [6487 §4.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.2))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-cert-serial-too-long/case.repo) · [metadata](../../test/fixtures/barry/m4-cert-serial-too-long/case.exs) · [rsync tree](../../test/fixtures/barry/m4-cert-serial-too-long/rsync)
+
+#### `m4-cert-serial-zero`: CA certificate with serial number 0
+
+The baseline tree with one change: the CA certificate's serial number is 0. RFC 6487 section 4.2 and RFC
+5280 section 4.1.2.2 require a positive integer.
+
+Certificate profile check (#109): validation must reject the CA
+certificate with this one reason, and accept everything else.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta/ca1.cer`: serial number is 0; it must be positive
+- **RFC:** [6487 §4.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.2)), [5280 §4.1.2.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.2))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-cert-serial-zero/case.repo) · [metadata](../../test/fixtures/barry/m4-cert-serial-zero/case.exs) · [rsync tree](../../test/fixtures/barry/m4-cert-serial-zero/rsync)
 
 ## Test TALs
 
@@ -1110,6 +1212,51 @@ are, under the strict grammar (D-002).
 - every production TAL is byte-identical to its reviewed copy
   Byte for byte: a changed key, URI, line ending or comment in either copy fails.
 - every production TAL parses with no warnings (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
+
+### `Lumina.ProfileTest`
+
+[test/lumina/profile_test.exs](../../test/lumina/profile_test.exs)
+
+Tests the basic-field checks of the resource certificate profile
+(`Lumina.Profile.certificate/2`, #109): RFC 6487 §4.1 to §4.7, with the
+validity check of §7.2.
+
+Every certificate of the positive Barry fixtures must pass, and each
+`m4-cert-*` fixture (plus `m1-cert-version-2`) breaks one rule, which
+must be the one reported. Cases Barry can't produce, such as unique
+identifiers or a commonName that isn't a PrintableString, change one
+field of a decoded fixture certificate; the profile checks don't verify
+signatures, so the struct needn't be re-signed.
+
+Fixtures validate at 2030-01-01, inside the default 2026-2036
+validity.
+
+- *fixtures:* every certificate of every positive Barry fixture passes (RFC [6487 §4.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.1)), [6487 §4.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.2)), [6487 §4.3](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.3)), [6487 §4.4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.4)), [6487 §4.5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.5)), [6487 §4.6](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.6)), [6487 §4.7](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.7)))
+  TA, CA and EE certificates (from manifests and ROAs) of every fixture expected valid.
+- *fixtures:* m1-cert-version-2: a version 2 certificate is rejected (RFC [6487 §4.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.1)))
+- *fixtures:* m4-cert-expired: a certificate past its notAfter is rejected as expired (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
+- *fixtures:* m4-cert-not-yet-valid: a certificate before its notBefore is rejected (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
+- *fixtures:* m4-cert-serial-zero: serial number 0 is rejected (RFC [6487 §4.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.2)), [5280 §4.1.2.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.2)))
+- *fixtures:* m4-cert-serial-negative: a negative serial number is rejected (RFC [6487 §4.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.2)), [5280 §4.1.2.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.2)))
+- *fixtures:* m4-cert-serial-too-long: a 21-octet serial number is rejected (RFC [5280 §4.1.2.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.2)))
+- *fixtures:* m4-cert-inner-signature-algorithm: an inner algorithm unlike the outer one is rejected (RFC [6487 §4.3](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.3)), [5280 §4.1.1.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.1.2)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2)))
+  sha384WithRSAEncryption inside: both a mismatch and an unsupported algorithm.
+- *fixtures:* m4-cert-name-extra-attribute: a name with an organizationName is rejected (RFC [6487 §4.4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.4)), [6487 §4.5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.5)))
+  The CA's subject, and the issuer of the EE certificates it signs.
+- *validity:* a certificate is valid at exactly its notBefore and its notAfter (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
+  notBefore and notAfter are both inside the validity period.
+- *serial number:* a 20-octet serial number is accepted (RFC [5280 §4.1.2.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.2)))
+  2^159 - 1 is the largest positive INTEGER in 20 octets.
+- *names:* a commonName with a serialNumber is accepted (RFC [6487 §4.5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.5)))
+- *names:* a commonName that isn't a PrintableString is rejected (RFC [6487 §4.5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.5)))
+- *names:* a name without a commonName is rejected (RFC [6487 §4.5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.5)))
+- *names:* a name with two commonNames is rejected (RFC [6487 §4.5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.5)))
+- *names:* a name with two serialNumbers is rejected (RFC [6487 §4.5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.5)))
+- *fields the profile excludes:* issuer and subject unique identifiers are rejected (RFC [6487 §4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4)))
+  RFC 6487 §4: fields not listed in the profile MUST NOT appear.
+- *public key (D-018):* a sha256WithRSAEncryption key algorithm is accepted with a warning (RFC [7935 §3.1](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-3.1)), [4055 §1.2](../rfc/rfc4055.txt) ([html](https://www.rfc-editor.org/rfc/rfc4055.html#section-1.2)))
+  F-027: allowed by RFC 7935 §3.1's text, not by practice; a warning, so it passes.
+- *public key (D-018):* a 1024-bit key is rejected (RFC [7935 §3](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-3)))
 
 ### `Lumina.ProgressTest`
 
