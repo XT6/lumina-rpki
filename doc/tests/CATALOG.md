@@ -5,7 +5,7 @@
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
 - 4 Barry fixtures: 1 valid, 3 invalid.
-- 185 unit tests in 20 modules.
+- 193 unit tests in 21 modules.
 
 ## Barry fixtures
 
@@ -153,6 +153,30 @@ and only non-DER or unparseable input fails.
   A broken known extension is reported in place, so validation can name it, not the whole certificate.
 - *malformed content:* a validity time that isn't a real date is an error (RFC [5280 §4.1.2.5.1](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.5.1)))
 - *malformed content:* non-DER, truncated and non-certificate input are errors naming the layer (RFC [6487 §4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4)), [6481 §2.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2.2)))
+
+### `Lumina.CRLTest`
+
+[test/lumina/crl_test.exs](../../test/lumina/crl_test.exs)
+
+Tests decoding of CRLs (RFC 5280 §5, profiled by RFC 6487 §5). Revocation
+checks and the CRL validation in M4 read these structs, so decoding must
+expose issuer, dates, CRL Number and revoked entries faithfully, keep the
+exact signed bytes, and stay structural: profile violations decode.
+
+- *the m0-minimal-valid CRLs:* decode as v2 CRLs valid 2026-2036 with no revoked certificates (RFC [6487 §5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-5)), [5280 §5.1.2.1](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.2.1)), [5280 §5.1.2.4](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.2.4)), [5280 §5.1.2.5](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.2.5)))
+- *the m0-minimal-valid CRLs:* each CRL names its issuing CA and carries that CA's key identifier (RFC [6487 §5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-5)), [5280 §5.1.2.3](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.2.3)), [5280 §5.2.1](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.2.1)))
+  A CRL is matched to its issuer by name and by AKI = the issuer's SKI.
+- *the m0-minimal-valid CRLs:* tbs_der is the exact tbsCertList bytes from the input (RFC [5280 §5.1.1.3](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.1.3)))
+  Signatures are over the exact DER of tbsCertList, so it must be the input's bytes.
+- *revoked certificates:* revoked entries decode with serial, date and entry extensions (RFC [5280 §5.1.2.6](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.2.6)), [5280 §5.3.1](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.3.1)))
+  Barry can't write revoked entries yet (revokedCertificates is on its
+  README's list of unimplemented fields), so this CRL is Barry's,
+  decoded, given two entries and re-encoded.
+- *structural decoding:* a CRL without a version field is version 1 (RFC [5280 §5.1.2.1](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.2.1)))
+- *structural decoding:* a CRL without nextUpdate decodes with next_update nil (RFC [6487 §5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-5)), [5280 §5.1.2.5](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.2.5)))
+  nextUpdate is OPTIONAL in the ASN.1; requiring it is the profile's job (M4).
+- *structural decoding:* a CRL Number that doesn't decode is marked malformed, and number/1 is nil (RFC [5280 §5.2.3](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.2.3)), [9829 §3.1](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.1)))
+- *structural decoding:* non-DER, truncated and non-CRL input are errors naming the layer
 
 ### `Lumina.DERTest`
 

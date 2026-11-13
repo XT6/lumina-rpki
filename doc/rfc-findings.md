@@ -33,8 +33,9 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-012](#f-012-the-roa-module-enforces-the-afi-rule-at-decode-time) | 9582 §4, §4.3.1 | tooling | none | Accepted; decode error (#24) |
 | [F-013](#f-013-the-address-sort-key-has-a-part-that-never-matters) | 3779 §2.2.3.6 | ambiguity | none found (not reported) | Sort by lowest address (#26) |
 | [F-014](#f-014-two-rfc-3779-errata-change-what-a-decoder-must-accept) | 3779 §2.2.3.9, §3.2.3.8 | erratum | [2537](https://www.rfc-editor.org/errata/eid2537) verified, [7653](https://www.rfc-editor.org/errata/eid7653) held | Both followed (#26) |
-| [F-015](#f-015-two-conforming-validators-can-disagree-on-unknown-extensions) | 6487 §4.1, §4.8; 8897 §3.1 | ambiguity | none found (not reported) | Version settled by 8897; extensions open (#42) |
+| [F-015](#f-015-two-conforming-validators-can-disagree-on-unknown-extensions) | 6487 §4.1, §4.8, §5; 8897 §3.1, §3.3 | ambiguity | none found (not reported) | Versions settled by 8897; extensions open (#42) |
 | [F-016](#f-016-no-rfc-says-how-a-repository-directory-uri-ends) | 6487 §4.8.8.1 | ambiguity | none found (not reported) | Both forms handled in M3 (#43) |
+| [F-017](#f-017-rfc-6487-still-points-to-the-obsolete-algorithm-profile) | 6487 §4.3, §4.7, §5, §6.1.1 | reference | none found (not reported) | Use RFC 7935 (M4) |
 
 ## Entries
 
@@ -280,6 +281,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Official errata:** none found for RFC 6487 or RFC 8897 (checked 2026-11-12). **Not reported.**
 - **The problem:**
   - **Version:** "need not process" isn't "MUST reject". RFC 8897 §3.1 settles it, since an RP must verify adherence to the §4 profile, so a v1 or v2 certificate is rejected.
+  - **CRL version:** RFC 6487 §5 has the same pattern: "RPs are NOT required to process version 1 CRLs". RFC 8897 §3.3 settles it indirectly. It requires the AKI and CRL Number extensions and makes RPs verify that, and a v1 CRL can't carry extensions, so it fails.
   - **Unknown non-critical extensions:** not settled.
     - "MAY be ignored" lets one RP ignore the extension and another reject the certificate.
     - RFC 8897's "any extension excluded by Section 4.8" doesn't help, because §4.8 lists mandatory extensions and never lists excluded ones. Whether "not listed" means "excluded" is exactly the question.
@@ -304,6 +306,19 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
   - **Divergence:** validators that insist on one form diverge on certificates that use the other.
 - **Resolution:** handled in M3 (#43). The fetcher normalizes both forms to the same directory and cache location.
 - **Suggested text:** *"The id-ad-caRepository URI identifies a directory and MUST end with '/'"*, or alternatively *"relying parties MUST treat the URI as a directory whether or not it ends in '/'"*.
+
+### F-017: RFC 6487 still points to the obsolete algorithm profile
+
+- **Where:** RFC 6487 says "The algorithm used in this profile is specified in [RFC6485]" in five places (§4.3, §4.7, §5, and twice in §6.1.1 for certificate requests). RFC 6485 was obsoleted by RFC 7935 in 2016.
+- **Kind:** reference.
+- **Official errata:** none found for RFC 6487 (checked 2026-11-12). **Not reported.**
+- **The problem:**
+  - RFC 7935 obsoletes RFC 6485 but isn't marked as updating RFC 6487.
+  - None of RFC 6487's updates (RFC 7318, RFC 8209, RFC 9829) changed these references.
+  - A reader of RFC 6487 follows the citation to an obsolete document, and the RFC index entry for RFC 6487 gives no hint of RFC 7935.
+- **Impact:** small in practice, since RFC 7935 keeps the same suite (RSA 2048, SHA-256), but an implementer must know to substitute it. Lumina's library holds RFC 7935 and lists RFC 6485 as obsoleted.
+- **Resolution:** signature and key checks in M4 cite RFC 7935.
+- **Talk note:** the same pattern as F-006 and F-009. Obsoleting an RFC updates the metadata of the obsoleted document, not the documents that cite it.
 
 ## Process notes
 

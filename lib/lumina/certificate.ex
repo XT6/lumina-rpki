@@ -18,25 +18,7 @@ defmodule Lumina.Certificate do
   is `tbs_signature_algorithm`, and the outer one `signature_algorithm`.
   """
 
-  alias Lumina.{ASN1, DER, Name, Resources, Time}
-
-  defmodule Extension do
-    @moduledoc """
-    One certificate extension. `value` is the decoded value for the
-    extensions Lumina knows, `:unknown` for others, and
-    `{:malformed, reason}` when a known extension's value doesn't decode.
-    Validation decides what each of those means.
-    """
-    defstruct [:oid, :name, :critical, :der, :value]
-
-    @type t :: %__MODULE__{
-            oid: tuple(),
-            name: atom() | nil,
-            critical: boolean(),
-            der: binary(),
-            value: term()
-          }
-  end
+  alias Lumina.{ASN1, DER, Extension, Name, Time}
 
   defstruct [
     :der,
@@ -78,32 +60,6 @@ defmodule Lumina.Certificate do
           signature_algorithm: algorithm(),
           signature: bitstring()
         }
-
-  # Access methods (RFC 5280 §4.2.2, RFC 6487 §4.8.8, RFC 8182 §3.2).
-  @access_methods %{
-    {1, 3, 6, 1, 5, 5, 7, 48, 1} => :ocsp,
-    {1, 3, 6, 1, 5, 5, 7, 48, 2} => :ca_issuers,
-    {1, 3, 6, 1, 5, 5, 7, 48, 5} => :ca_repository,
-    {1, 3, 6, 1, 5, 5, 7, 48, 10} => :rpki_manifest,
-    {1, 3, 6, 1, 5, 5, 7, 48, 11} => :signed_object,
-    {1, 3, 6, 1, 5, 5, 7, 48, 13} => :rpki_notify
-  }
-
-  # Known extensions: name, ASN.1 module and type, and how to convert.
-  @extensions %{
-    {2, 5, 29, 19} => {:basic_constraints, :pkix_ext, :BasicConstraints},
-    {2, 5, 29, 14} => {:subject_key_identifier, :pkix_ext, :SubjectKeyIdentifier},
-    {2, 5, 29, 35} => {:authority_key_identifier, :pkix_ext, :AuthorityKeyIdentifier},
-    {2, 5, 29, 15} => {:key_usage, :pkix_ext, :KeyUsage},
-    {2, 5, 29, 37} => {:extended_key_usage, :pkix_ext, :ExtKeyUsageSyntax},
-    {2, 5, 29, 31} => {:crl_distribution_points, :pkix_ext, :CRLDistributionPoints},
-    {1, 3, 6, 1, 5, 5, 7, 1, 1} =>
-      {:authority_info_access, :pkix_ext, :AuthorityInfoAccessSyntax},
-    {1, 3, 6, 1, 5, 5, 7, 1, 11} => {:subject_info_access, :pkix_ext, :SubjectInfoAccessSyntax},
-    {2, 5, 29, 32} => {:certificate_policies, :pkix_ext, :CertificatePolicies},
-    {1, 3, 6, 1, 5, 5, 7, 1, 7} => {:ip_resources, :resources, :IPAddrBlocks},
-    {1, 3, 6, 1, 5, 5, 7, 1, 8} => {:as_resources, :resources, :ASIdentifiers}
-  }
 
   @doc """
   Decodes a DER certificate.
@@ -147,7 +103,7 @@ defmodule Lumina.Certificate do
          },
          issuer_unique_id: Map.get(tbs, :issuerUniqueID),
          subject_unique_id: Map.get(tbs, :subjectUniqueID),
-         extensions: tbs |> Map.get(:extensions, []) |> Enum.map(&extension/1),
+         extensions: tbs |> Map.get(:extensions, []) |> Enum.map(&Extension.from_asn1/1),
          signature_algorithm: algorithm(cert.signatureAlgorithm),
          signature: cert.signature
        }}
@@ -161,37 +117,27 @@ defmodule Lumina.Certificate do
   repeat an extension (RFC 5280 §4.2); validation checks for duplicates.
   """
   @spec extension(t(), atom()) :: Extension.t() | nil
-  def extension(%__MODULE__{extensions: extensions}, name),
-    do: Enum.find(extensions, &(&1.name == name))
+  def extension(%__MODULE__{extensions: extensions}, name), do: Extension.find(extensions, name)
 
   @doc """
   The decoded value of extension `name`, or `nil` if it is absent.
   """
   @spec extension_value(t(), atom()) :: term()
-  def extension_value(cert, name) do
-    case extension(cert, name) do
-      nil -> nil
-      %Extension{value: value} -> value
-    end
-  end
+  def extension_value(%__MODULE__{extensions: extensions}, name),
+    do: Extension.value(extensions, name)
 
   @doc """
-  The URIs of every access description with `method` in the SIA or AIA
+  The URIs of every access description with `method` in the SIA
   extension, for example `sia_uris(cert, :rpki_manifest)`.
   """
   @spec sia_uris(t(), atom()) :: [String.t()]
-  def sia_uris(cert, method), do: access_uris(extension_value(cert, :subject_info_access), method)
+  def sia_uris(cert, method),
+    do: Extension.access_uris(extension_value(cert, :subject_info_access), method)
 
   @doc "Like `sia_uris/2`, for the Authority Information Access extension."
   @spec aia_uris(t(), atom()) :: [String.t()]
   def aia_uris(cert, method),
-    do: access_uris(extension_value(cert, :authority_info_access), method)
-
-  defp access_uris(descriptions, method) when is_list(descriptions) do
-    for %{method: ^method, location: {:uri, uri}} <- descriptions, do: uri
-  end
-
-  defp access_uris(_absent_or_malformed, _method), do: []
+    do: Extension.access_uris(extension_value(cert, :authority_info_access), method)
 
   defp der_check(:ok), do: :ok
   defp der_check({:error, %{rule: _} = error}), do: {:error, {:der, error}}
@@ -202,76 +148,4 @@ defmodule Lumina.Certificate do
   defp version(:v3), do: 3
 
   defp algorithm(%{algorithm: oid} = alg), do: %{oid: oid, parameters: Map.get(alg, :parameters)}
-
-  defp extension(%{extnID: oid, extnValue: value} = ext) do
-    critical = Map.get(ext, :critical, false)
-
-    {name, decoded} =
-      case Map.fetch(@extensions, oid) do
-        {:ok, {name, key, type}} -> {name, decode_extension(name, key, type, value)}
-        :error -> {nil, :unknown}
-      end
-
-    %Extension{oid: oid, name: name, critical: critical, der: value, value: decoded}
-  end
-
-  defp decode_extension(name, key, type, der) do
-    with :ok <- der_check(DER.check(der)),
-         {:ok, value} <- decode_value(name, key, type, der) do
-      value
-    else
-      {:error, reason} -> {:malformed, reason}
-    end
-  end
-
-  defp decode_value(:ip_resources, _key, _type, der), do: Resources.decode_ip(der)
-  defp decode_value(:as_resources, _key, _type, der), do: Resources.decode_as(der)
-
-  defp decode_value(name, key, type, der) do
-    with {:ok, value} <- ASN1.decode(key, type, der), do: {:ok, convert(name, value)}
-  end
-
-  defp convert(:basic_constraints, value),
-    do: %{ca: Map.get(value, :cA, false), path_len: Map.get(value, :pathLenConstraint)}
-
-  defp convert(:authority_key_identifier, value) do
-    %{
-      key_identifier: Map.get(value, :keyIdentifier),
-      issuer: value |> Map.get(:authorityCertIssuer) |> general_names(),
-      serial: Map.get(value, :authorityCertSerialNumber)
-    }
-  end
-
-  defp convert(:crl_distribution_points, points) do
-    for point <- points do
-      full_name =
-        case Map.get(point, :distributionPoint) do
-          {:fullName, names} -> general_names(names)
-          other -> other
-        end
-
-      %{
-        full_name: full_name,
-        reasons: Map.get(point, :reasons),
-        crl_issuer: point |> Map.get(:cRLIssuer) |> general_names()
-      }
-    end
-  end
-
-  defp convert(name, descriptions) when name in [:authority_info_access, :subject_info_access] do
-    for %{accessMethod: oid, accessLocation: location} <- descriptions do
-      %{method: Map.get(@access_methods, oid, oid), location: Name.general_name(location)}
-    end
-  end
-
-  defp convert(:certificate_policies, policies) do
-    for policy <- policies do
-      %{oid: policy.policyIdentifier, qualifiers: Map.get(policy, :policyQualifiers, [])}
-    end
-  end
-
-  defp convert(_name, value), do: value
-
-  defp general_names(nil), do: nil
-  defp general_names(names), do: Enum.map(names, &Name.general_name/1)
 end

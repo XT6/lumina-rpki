@@ -9,7 +9,7 @@ defmodule Lumina.CertificateTest do
   use ExUnit.Case, async: true
 
   alias Lumina.Certificate
-  alias Lumina.Certificate.Extension
+  alias Lumina.Extension
   alias Lumina.Test.Fixture
 
   @fixture Fixture.load!("m0-minimal-valid")
