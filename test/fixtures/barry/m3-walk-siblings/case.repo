@@ -15,3 +15,39 @@ ta.cer
 		roa7.roa
 	ca8.cer
 		roa8.roa
+
+# Each CA publishes in a module of its own on the same host, as the
+# directories of a shared host would be under D-012 (#99). Tests serve
+# them as separate modules (rsync_modules in case.exs).
+
+[node: ca1.cer]
+rpp.uri = rsync://localhost:8873/s1/ca1
+rpp.path = s1/ca1
+
+[node: ca2.cer]
+rpp.uri = rsync://localhost:8873/s2/ca2
+rpp.path = s2/ca2
+
+[node: ca3.cer]
+rpp.uri = rsync://localhost:8873/s3/ca3
+rpp.path = s3/ca3
+
+[node: ca4.cer]
+rpp.uri = rsync://localhost:8873/s4/ca4
+rpp.path = s4/ca4
+
+[node: ca5.cer]
+rpp.uri = rsync://localhost:8873/s5/ca5
+rpp.path = s5/ca5
+
+[node: ca6.cer]
+rpp.uri = rsync://localhost:8873/s6/ca6
+rpp.path = s6/ca6
+
+[node: ca7.cer]
+rpp.uri = rsync://localhost:8873/s7/ca7
+rpp.path = s7/ca7
+
+[node: ca8.cer]
+rpp.uri = rsync://localhost:8873/s8/ca8
+rpp.path = s8/ca8

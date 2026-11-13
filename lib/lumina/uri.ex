@@ -30,8 +30,8 @@ defmodule Lumina.URI do
     * queries and fragments are rejected. A repository object is a file.
 
   An rsync URI's first path segment is its module (`module/1`). RFC 5781
-  doesn't name this structure (F-024). Fetching is per publication point,
-  not per module (D-009).
+  doesn't name this structure (F-024). The walk fetches whole modules
+  (D-012).
   """
 
   @enforce_keys [:scheme, :host]

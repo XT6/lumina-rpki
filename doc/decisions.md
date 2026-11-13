@@ -16,9 +16,10 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-006](#d-006-one-rsync-run-per-module) | ~~One rsync run per rsync module~~ (superseded by D-009) | 2026-11-13 | M3 plan, #70, #72 |
 | [D-007](#d-007-manifest-consistency-deferred-to-m5) | Manifest and directory consistency during a fetch is handled in M5 | 2026-11-13 | M3 plan |
 | [D-008](#d-008-default-fetch-limits) | Default fetch limits: timeouts, object size, walk depth, redirects | 2026-11-13 | M3 plan, #72, #73, #75 |
-| [D-009](#d-009-one-rsync-run-per-publication-point-not-already-covered) | One rsync run per publication point, skipping any inside a directory already fetched in the run | 2026-11-13 | M3, #72, #75 |
+| [D-009](#d-009-one-rsync-run-per-publication-point-not-already-covered) | ~~One rsync run per publication point, skipping any inside a directory already fetched in the run~~ (superseded by D-012) | 2026-11-13 | M3, #72, #75 |
 | [D-010](#d-010-wildcard-server-certificates-are-accepted-with-a-warning) | Wildcard-only HTTPS server certificates are accepted with a warning | 2026-11-13 | PR #81, #73 |
 | [D-011](#d-011-publication-points-fetched-in-parallel-capped-per-host) | Each walk level's rsync runs go in parallel, at most 8 at once per host | 2026-11-13 | #77, #85 |
+| [D-012](#d-012-one-rsync-run-per-module-again) | One rsync run per module, as D-006: shared hosts are rare enough | 2026-11-13 | #99 |
 
 ## D-001: CLI model
 
@@ -138,6 +139,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 
 ## D-009: One rsync run per publication point not already covered
 
+- **Status:** superseded by [D-012](#d-012-one-rsync-run-per-module-again) on 2026-11-13.
 - **Date:** 2026-11-13
 - **Supersedes:** D-006.
 - **Decision:**
@@ -188,3 +190,22 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
   - Fixture `m3-walk-siblings` (eight sibling CAs) and the test daemon's `:max_connections` option check the cap.
   - The cap is configurable: `lumina sync --per-host N` (#98), for slow links where each rsync run costs more.
   - Live result (2026-11-13, #77): the LACNIC tree took 3,685 rsync runs to 8 hosts and 7,195 publication points; fetching took about 4.5 minutes, against over 28 minutes unfinished sequentially. A level waits for its slowest fetch, so one unresponsive host (rsync connect timeout, 30 s) delays the next level.
+
+## D-012: One rsync run per module, again
+
+- **Date:** 2026-11-13
+- **Supersedes:** D-009 (and restores D-006's unit of fetching).
+- **Decision:**
+  - rsync fetches the **module** of a publication point, `rsync://host[:port]/module/` (`Lumina.URI.module/1`), recursively, at most once per walk.
+  - A publication point in a module already fetched in the walk is read from that copy.
+  - D-011 still applies: the modules of one level are fetched in parallel, at most `--per-host` (8) at once per host.
+- **Why:**
+  - The maintainer: "as it would be rare that a pub host is shared, pull everything".
+  - **Run count:** under D-009, registro.br's ~3,680 member CAs each took an rsync run, because each publishes in its own directory of `rsync://rpki-repo.registro.br/repo/`. A cold LACNIC sync took 4 min 32 s here, 3 min 40 s of it on that one level, and much longer from a machine farther away. The module `repo/` is 32,260 files and 58 MB in **one** run (its listing took 1.8 s on 2026-11-13).
+  - **The cost D-009 avoided:** on a shared host the module holds other organisations' trees. Amazon's `rpki-rsync.us-east-2.amazonaws.com/volume/` has 77 top-level directories (22,220 files, 48 MB), of which LACNIC's tree uses 2. That's paid once, then rsync transfers only changes. Content outside the tree is mirrored but never walked.
+- **Where:** after the slow sync on the maintainer's second machine, #99.
+- **Consequences:**
+  - `Lumina.Walk` plans a fetch of the module of each publication point not covered; `fetches` list modules, and each point's `covered_by` is its module.
+  - Fixtures can serve extra modules on `localhost:8873` with `rsync_modules` in `case.exs`; `m3-walk-siblings` puts eight CAs in eight modules to keep testing D-011's cap.
+  - A module is fetched again for each TAL in a sync (each TAL is a separate walk); sharing fetches across TALs would be a later improvement.
+  - **Measured** (cold cache, 2026-11-13, LACNIC): 10 rsync runs instead of 3,685, and 1 min 52 s instead of 4 min 32 s. About a minute of what remains is three unresponsive delegated hosts waiting out rsync's 30 s connect timeout (#88). The cache holds 82,827 files.

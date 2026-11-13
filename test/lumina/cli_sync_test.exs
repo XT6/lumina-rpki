@@ -33,7 +33,7 @@ defmodule Lumina.CLISyncTest do
     daemon =
       RsyncDaemon.start!(
         Path.join(tmp, "daemon-" <> id),
-        %{"rpki" => fixture.rsync_root},
+        fixture.modules,
         daemon_opts
       )
 
@@ -83,8 +83,8 @@ defmodule Lumina.CLISyncTest do
       assert {0, out, ""} = run(["sync", "--cache", cache, "--tal", tal], remap: remap)
 
       assert out =~ "#{tal}\n  ta: rsync://127.0.0.1:"
-      assert out =~ "  publication points: 2\n  rsync fetches: 2, 0 failed\n"
-      assert out =~ "1 TAL(s), 2 rsync fetch(es), 0 TAL(s) with failures"
+      assert out =~ "  publication points: 2\n  rsync fetches: 1, 0 failed\n"
+      assert out =~ "1 TAL(s), 1 rsync fetch(es), 0 TAL(s) with failures"
       assert File.exists?(Path.join(cache, "rsync/localhost:8873/rpki/ca1/roa1.roa"))
     end
 
@@ -130,8 +130,8 @@ defmodule Lumina.CLISyncTest do
       assert {1, out, ""} =
                run(["sync", "--cache", Path.join(tmp, "cache"), "--tal", tal], remap: remap)
 
-      assert out =~ "fetch_failed: rsync://unreachable.invalid/repo/ca1 (unknown_host)"
-      assert out =~ "rsync fetches: 3, 1 failed"
+      assert out =~ "fetch_failed: rsync://unreachable.invalid/repo (unknown_host)"
+      assert out =~ "rsync fetches: 2, 1 failed"
       assert out =~ "1 TAL(s) with failures"
     end
 
@@ -313,7 +313,7 @@ defmodule Lumina.CLISyncTest do
       calls = log |> File.read!() |> String.split("\n", trim: true)
       assert ["--version" | fetches] = calls
       assert Enum.any?(fetches, &(&1 =~ "/rpki/./ta.cer"))
-      assert Enum.count(fetches, &(&1 =~ ~r"/rpki/\./(ta|ca1)/")) == 2
+      assert Enum.count(fetches, &(&1 =~ ~r"/rpki/\./ ")) == 1
     end
 
     @tag doc: """

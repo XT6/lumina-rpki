@@ -18,7 +18,8 @@ defmodule Lumina.Test.RsyncDaemon do
   @doc """
   Starts a daemon serving `modules` (name => directory) and waits until it
   accepts connections. Option `:max_connections` limits the connections
-  each module accepts at once; the daemon refuses the rest.
+  the daemon accepts at once, over all its modules (they share one lock
+  file); it refuses the rest.
   """
   @spec start!(Path.t(), %{String.t() => Path.t()}, keyword()) :: t()
   def start!(work_dir, modules, opts \\ []) do
@@ -32,14 +33,12 @@ defmodule Lumina.Test.RsyncDaemon do
       "use chroot = no\n",
       "pid file = #{pid_file}\n",
       "log file = #{Path.join(dir, "rsyncd.log")}\n",
+      if(max = opts[:max_connections],
+        do: "max connections = #{max}\nlock file = #{Path.join(dir, "rsyncd.lock")}\n",
+        else: []
+      ),
       for {name, path} <- modules do
-        [
-          "[#{name}]\npath = #{Path.expand(path)}\nread only = yes\n",
-          if(max = opts[:max_connections],
-            do: "max connections = #{max}\nlock file = #{Path.join(dir, name <> ".lock")}\n",
-            else: []
-          )
-        ]
+        "[#{name}]\npath = #{Path.expand(path)}\nread only = yes\n"
       end
     ])
 

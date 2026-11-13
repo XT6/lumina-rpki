@@ -4,8 +4,9 @@ defmodule Lumina.Rsync do
   from an rsync server (RFC 5781, RFC 6481 §3), with the limits of D-008
   (#72).
 
-  A publication point is fetched recursively, every subdirectory included
-  (D-009), into a directory the caller chose, normally a
+  A directory (the walk fetches whole modules, D-012) is fetched
+  recursively, every subdirectory included, into a directory the caller
+  chose, normally a
   `Lumina.Cache.stage/1` directory. The flags are fixed:
 
     * `-rt --delete`: recursive, with modification times, and nothing in the

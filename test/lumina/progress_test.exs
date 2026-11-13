@@ -60,9 +60,10 @@ defmodule Lumina.ProgressTest do
   describe "events" do
     @tag :rsync
     @tag doc: """
-         m0-minimal-valid: the TA's level fetches its publication point, the
-         next level ca1's. Each level is started, its fetches run, and it is
-         finished, with the running totals of the walk.
+         m0-minimal-valid: the TA's level fetches the module rpki (all 7
+         files), which already holds ca1's publication point, so the next
+         level fetches nothing. Each level is started, its fetches run, and
+         it is finished, with the running totals of the walk.
          """
     test "a walk emits level and fetch events, in order, with outcomes and file counts", %{
       tmp_dir: tmp
@@ -76,16 +77,14 @@ defmodule Lumina.ProgressTest do
         progress: listener()
       )
 
-      base = "rsync://localhost:8873/rpki"
+      module = "rsync://localhost:8873/rpki"
 
       assert received() == [
                {:level_started, 0, %{points: 1, fetches: 1}},
-               {:fetch_started, base <> "/ta", "localhost"},
-               {:fetch_finished, base <> "/ta", "localhost", :ok, 3},
+               {:fetch_started, module, "localhost"},
+               {:fetch_finished, module, "localhost", :ok, 7},
                {:level_finished, 0, %{points: 1, issues: 0}},
-               {:level_started, 1, %{points: 1, fetches: 1}},
-               {:fetch_started, base <> "/ca1", "localhost"},
-               {:fetch_finished, base <> "/ca1", "localhost", :ok, 3},
+               {:level_started, 1, %{points: 1, fetches: 0}},
                {:level_finished, 1, %{points: 2, issues: 0}}
              ]
     end
@@ -171,7 +170,7 @@ defmodule Lumina.ProgressTest do
                &(&1 =~ ~r/\A\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ \d+s  m0\.tal \(1\/1\)/)
              )
 
-      assert List.last(lines) =~ "level 1 (1 point)  points 2  rsync 2 done, 0 running  files 6"
+      assert List.last(lines) =~ "level 1 (1 point)  points 2  rsync 1 done, 0 running  files 7"
     end
 
     @tag :rsync

@@ -145,6 +145,7 @@ The generated files are committed with the descriptor, so tests are reproducible
 | `rfc` | yes | RFC sections the fixture checks, in the same format as the `:rfc` tag. |
 | `expected` | yes | `:valid`, or `{:invalid, rejects}`. Each reject gives an `object` (a path under `rsync/`, which must exist) and the `reason` a validator must reject it. |
 | `barry` | no | Overrides the validity period passed to Barry: `now:` and `later:`, as UTC timestamps. |
+| `rsync_modules` | no | Extra rsync modules on `localhost:8873`, besides `rpki` (all of `rsync/`): a map of module name to the directory under `rsync/` it serves, such as `%{"s1" => "s1"}`. `fixture.modules` gives the full set for a test daemon. |
 
 The file is read as data. Function calls, variables and string interpolation are rejected, and nothing in it is run.
 
