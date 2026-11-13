@@ -45,6 +45,8 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-024](#f-024-the-rsync-uri-scheme-has-no-module-and-no-encoding) | 5781 §2 | ambiguity | none found (not reported) | Module = first path segment; percent-encoding rejected (#70) |
 | [F-025](#f-025-an-rsync-uri-path-can-become-an-option-on-the-server) | 5781 §2, §4; 6487 §4.8.8 | tooling | none found (not reported) | Source written as `module/./path` (#72) |
 | [F-026](#f-026-otps-http-client-cant-bound-a-response-body) | 8630 §4 (OTP `:httpc`) | tooling | n/a | Own HTTP/1.1 GET over `:ssl` (#73) |
+| [F-027](#f-027-rfc-7935-names-a-signature-algorithm-as-the-public-key-algorithm) | 7935 §3.1; 4055 §1.2 | erratum | [5737](https://www.rfc-editor.org/errata/eid5737) (Rejected) | Accept both for reading the key; the profile check is #109 |
+| [F-028](#f-028-rfc-7935-4-cites-the-public-key-section-for-the-signature-format) | 7935 §4 | reference | none found (not reported) | Signature format from RFC 4055 §3.2 and RFC 5280 §4.1.1.3 (#108) |
 
 ## Entries
 
@@ -479,6 +481,25 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Resolution:** `Lumina.HTTPS` speaks a minimal HTTP/1.1 GET over `:ssl` itself. Every body (Content-Length, chunked or close-delimited) is bounded by the D-008 size limit, the head by 64 KiB, and every read by the overall timeout; a non-200 body isn't read at all. A test sends a close-delimited body past the limit.
 - **Also, in `:ssl` (11.7.8):** `server_name_indication: :disable` doesn't only stop sending SNI, it also turns off the host name check, silently. A test connecting to `https://127.0.0.1/` with a certificate for `localhost` succeeded once that option was set. `Lumina.HTTPS` never sets it, and the test stays.
 - **Talk note:** "no third-party dependencies" moves the trust to the standard library, and it needs the same reading.
+
+### F-027: RFC 7935 names a signature algorithm as the public key algorithm
+
+- **Where:** RFC 7935 §3.1, on subjectPublicKeyInfo: "The object identifier for RSA PKCS #1 v1.5 with SHA-256 MUST be used in the algorithm field, as specified in Section 5 of [RFC4055]." That OID is sha256WithRSAEncryption, a signature algorithm.
+- **Kind:** erratum: RFC 4055 §1.2, which RFC 7935 itself cites for the key encoding, says rsaEncryption "MUST be used in the algorithm field within the subject public key information" when the key isn't restricted to PSS or OAEP. RPKI repositories, and every Barry fixture, use rsaEncryption.
+- **Official errata:** [5737](https://www.rfc-editor.org/errata/eid5737), Technical, **Rejected** (2019-09-10). It proposed rsaEncryption; the verifier rejected it because a normative change needs SIDROPS working group consensus, not because it was wrong.
+- **Found:** while writing `Lumina.Crypto` (#108), which has to decide which algorithm identifiers mark an RSA key.
+- **Impact:** an RP that follows RFC 7935 §3.1 literally rejects the whole RPKI; one that follows RFC 4055 §1.2 rejects keys written to the letter of RFC 7935.
+- **Resolution:** `Lumina.Crypto.rsa_public_key/1` reads the key under either OID: rsaEncryption with NULL parameters (RFC 4055 §1.2), or sha256WithRSAEncryption with NULL or absent parameters (RFC 4055 §5). RFC 4055 §1.2 says the RSAPublicKey is encoded the same way under any OID. Whether the certificate profile accepts both, warns, or rejects one is for the maintainer to decide in #109.
+- **Talk note:** a rejected erratum isn't a wrong erratum. The status field records process, so "Rejected" can still mean "right, but not ours to change here".
+
+### F-028: RFC 7935 §4 cites the public key section for the signature format
+
+- **Where:** RFC 7935 §4: "The structure for the certificate's signature field is as specified in Section 1.2 of [RFC4055]."
+- **Kind:** reference: RFC 4055 §1.2 is "RSA Public Keys" and says nothing about signature values. The conversion of a signature to the BIT STRING of a certificate or CRL is in RFC 4055 §3.2 (written for RSASSA-PSS), the PKCS #1 v1.5 algorithm identifiers in §5, and the field itself in RFC 5280 §4.1.1.3.
+- **Official errata:** none found (2026-11-13, not reported).
+- **Found:** while writing `Lumina.Crypto` (#108).
+- **Impact:** small; the format is the obvious one (the octets of the signature, first bit first), but a reader following the citation finds nothing.
+- **Resolution:** `Lumina.Crypto` cites RFC 4055 §3.2 and RFC 5280 §4.1.1.3 for the BIT STRING, and RFC 8017 §8.2.2 for its length.
 
 ## Process notes
 
