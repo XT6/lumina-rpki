@@ -5,7 +5,7 @@
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
 - 6 Barry fixtures: 2 valid, 4 invalid.
-- 228 unit tests in 24 modules.
+- 237 unit tests in 25 modules.
 
 ## Barry fixtures
 
@@ -311,6 +311,28 @@ an empty file list decodes, and its rejection is validation's job (#37).
 - *structural decoding:* a time that isn't a real date is an error
 - *errors:* a signed object that isn't a manifest
 - *errors:* non-DER and unparseable eContent
+
+### `Lumina.ObjectTest`
+
+[test/lumina/object_test.exs](../../test/lumina/object_test.exs)
+
+Tests the entry point that decodes any repository file by its extension.
+Repository processing and `lumina --print` go through it, so every
+registered extension must reach the right decoder, a signed object's
+eContent type must agree with its extension, and failures must name the
+layer that failed.
+
+- every file in every fixture decodes as the type its extension names (RFC [6481 §2.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2.2)), [6481 §7.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-7.2)))
+- registered extensions map to their types; others are unknown (RFC [6481 §2.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2.2)), [6493 §9.2](../rfc/rfc6493.txt) ([html](https://www.rfc-editor.org/rfc/rfc6493.html#section-9.2)), [9323 §9.3](../rfc/rfc9323.txt) ([html](https://www.rfc-editor.org/rfc/rfc9323.html#section-9.3)), [9691 §11.3](../rfc/rfc9691.txt) ([html](https://www.rfc-editor.org/rfc/rfc9691.html#section-11.3)))
+- a signed object whose eContent type disagrees with its extension is rejected (RFC [6481 §2.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2.2)), [6488 §2.1.3.1](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.3.1)))
+  A manifest published under a .roa name must not be taken for a ROA.
+- Ghostbusters, RSC and TAK objects decode their envelope only (RFC [6493 §9.2](../rfc/rfc6493.txt) ([html](https://www.rfc-editor.org/rfc/rfc6493.html#section-9.2)), [9323 §9.3](../rfc/rfc9323.txt) ([html](https://www.rfc-editor.org/rfc/rfc9323.html#section-9.3)), [9691 §11.3](../rfc/rfc9691.txt) ([html](https://www.rfc-editor.org/rfc/rfc9691.html#section-11.3)))
+  Ghostbusters, RSC and TAK eContent is decoded in M9; until then the envelope is decoded and eContent kept raw.
+- *errors name the layer:* DER
+- *errors name the layer:* ASN.1
+- *errors name the layer:* envelope
+- *errors name the layer:* eContent
+- *errors name the layer:* type and file
 
 ### `Lumina.ResourcesTest`
 
