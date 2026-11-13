@@ -14,7 +14,7 @@ defmodule Lumina.Sync do
   goes ahead from that stale TA, and the failure is reported.
   """
 
-  alias Lumina.{Cache, TA, TAL, Walk}
+  alias Lumina.{Cache, Progress, TA, TAL, Walk}
 
   @type report :: %{
           tal: Path.t(),
@@ -28,8 +28,8 @@ defmodule Lumina.Sync do
   Returns one report per TAL, in order, or `{:error, {:locked, pid}}`.
 
   Options are passed on: `:timeout` (seconds, rsync I/O and the whole
-  HTTPS fetch), `:max_depth`, `:now`, and for tests `:https`, `:rsync` and
-  `:remap`.
+  HTTPS fetch), `:max_depth`, `:now`, `:progress` (a `Lumina.Progress`
+  listener), and for tests `:https`, `:rsync` and `:remap`.
   """
   @spec run([{Path.t(), TAL.t()}], Path.t(), keyword()) ::
           {:ok, [report()]} | {:error, {:locked, String.t()} | File.posix()}
@@ -38,7 +38,15 @@ defmodule Lumina.Sync do
          :ok <- lock(root) do
       try do
         {:ok, _} = Cache.recover(root)
-        {:ok, Enum.map(tals, fn {path, tal} -> sync_tal(path, tal, root, opts) end)}
+        total = length(tals)
+
+        reports =
+          for {{path, tal}, index} <- Enum.with_index(tals, 1) do
+            Progress.emit(opts, {:tal_started, path, index, total})
+            sync_tal(path, tal, root, opts)
+          end
+
+        {:ok, reports}
       after
         unlock(root)
       end
