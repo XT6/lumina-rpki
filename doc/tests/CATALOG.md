@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 15 Barry fixtures: 8 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 425 unit tests in 43 modules.
+- 438 unit tests in 44 modules.
 
 ## Barry fixtures
 
@@ -627,6 +627,37 @@ and only non-DER or unparseable input fails.
   A broken known extension is reported in place, so validation can name it, not the whole certificate.
 - *malformed content:* a validity time that isn't a real date is an error (RFC [5280 §4.1.2.5.1](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.5.1)))
 - *malformed content:* non-DER, truncated and non-certificate input are errors naming the layer (RFC [6487 §4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4)), [6481 §2.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2.2)))
+
+### `Lumina.CLISyncTest`
+
+[test/lumina/cli_sync_test.exs](../../test/lumina/cli_sync_test.exs)
+
+Tests `lumina sync` (#76) through `Lumina.CLI.run/4`, against real rsync
+daemons serving Barry fixtures: the summary, `--tal` picking TALs,
+exit codes (0 everything fetched, 1 a fetch failed, 2 usage error), the
+cache lock and `lumina help sync`. Output goes to StringIO devices.
+
+The fixture TALs name `https://localhost:8443` and
+`rsync://localhost:8873`. Each test writes a copy of the TAL whose rsync
+URI points at its own daemon, and remaps `localhost:8873` in the
+repository's certificates to it (`:remap`, see `Lumina.Walk`).
+
+- *syncing:* a full sync exits 0 and prints the TA URI, publication points and fetches (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+- *syncing:* --tal syncs only the TAL it names
+  Requested by the maintainer: --tal syncs that TAL only. The tals
+  folder also holds a TAL that can't be reached; it must not be tried.
+- *syncing:* without --tal, every TAL in the TAL folder is synced
+- *syncing:* a partial failure exits 1 and names the failure and its reason (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+- *syncing:* a TAL whose TA can't be fetched exits 1, with each attempt listed (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)))
+- *the cache lock:* a cache held by a running process isn't touched, and the sync exits 1
+- *the cache lock:* a lock whose process is gone is taken over
+  A lock left by a crashed run (its process is gone) is taken over and released.
+- *usage:* --tal on a missing file is a usage error
+- *usage:* --tal on a file that isn't a TAL is a usage error (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
+- *usage:* an unknown flag, a stray argument or a bad number is a usage error
+- *usage:* an empty TAL folder without --tal is a usage error
+- *usage:* lumina help sync describes the flags and exit codes
+- *usage:* lumina help lists sync
 
 ### `Lumina.CLITest`
 

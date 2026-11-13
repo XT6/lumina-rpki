@@ -164,5 +164,6 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
   - RFC 8630 §4 says DNS names in repository server certificates SHOULD NOT contain `*`. That is a rule for servers, not an instruction to relying parties to reject them.
   - Standard RFC 6125 matching accepts a wildcard in the leftmost label, and rejecting it could lose a TA certificate over a server-side SHOULD.
   - The warning lets an operator see the deviation.
+  - It happens in production: on 2026-11-13, `https://rpki.afrinic.net/repository/AfriNIC.cer` was served with a certificate for `*.afrinic.net` only. Rejecting wildcards would lose AFRINIC's HTTPS TA URI.
 - **Where:** PR #81 review, after #73.
 - **Consequences:** `Lumina.HTTPS.fetch/2` returns `:warnings` with `{:wildcard_certificate, uri, name}`; #74 and `lumina sync` (#76) pass them on.
