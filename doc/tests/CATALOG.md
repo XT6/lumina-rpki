@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 10 Barry fixtures: 3 valid, 7 invalid.
+- 15 Barry fixtures: 8 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 414 unit tests in 42 modules.
+- 425 unit tests in 43 modules.
 
 ## Barry fixtures
 
@@ -176,6 +176,72 @@ The key matches the TAL exactly, so only the CA check catches it.
   - `ta.cer`: Basic Constraints cA is false; RFC 8630 section 2.3 requires a CA certificate
 - **RFC:** [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)), [6487 §4.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.1))
 - **Files:** [descriptor](../../test/fixtures/barry/m2-ta-not-ca/case.repo) · [metadata](../../test/fixtures/barry/m2-ta-not-ca/case.exs) · [rsync tree](../../test/fixtures/barry/m2-ta-not-ca/rsync)
+
+### M3
+
+#### `m3-walk-deep`: A chain of four CAs below the TA
+
+TA, ca1, ca2, ca3, ca4 and a ROA: five publication points, depths 0 to 4.
+RFC 6481 §5 says the walk SHOULD support a locally configured maximum
+chain length (D-008: 32 by default). With a test-sized limit of 2 the
+walk must stop before ca3 and report it; with the default it must reach
+ca4.
+
+- **Expected:** valid
+- **RFC:** [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5))
+- **Files:** [descriptor](../../test/fixtures/barry/m3-walk-deep/case.repo) · [metadata](../../test/fixtures/barry/m3-walk-deep/case.exs) · [rsync tree](../../test/fixtures/barry/m3-walk-deep/rsync)
+
+#### `m3-walk-delegation`: A CA whose publication point is on a second rsync host
+
+The TA certifies two CAs. ca1 publishes beside the TA, on the same host;
+ca2's caRepository is on another host, rsync://other.example:8873/repo/ca2.
+This is how LACNIC delegates to registro.br and to an Amazon-hosted
+directory. The walk must fetch ca2's publication point from the host its
+certificate names, as its own rsync run, and not from the TA's host
+(D-009). Its files are generated under rsync/other/, which tests serve
+from a second daemon.
+
+- **Expected:** valid
+- **RFC:** [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [6487 §4.8.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.1))
+- **Files:** [descriptor](../../test/fixtures/barry/m3-walk-delegation/case.repo) · [metadata](../../test/fixtures/barry/m3-walk-delegation/case.exs) · [rsync tree](../../test/fixtures/barry/m3-walk-delegation/rsync)
+
+#### `m3-walk-loop`: A CA that names its parent's publication point as its own
+
+ca2 is issued by ca1 and published in ca1's directory, and its
+caRepository is that same directory. Walking ca2 leads back to the
+publication point that holds ca2.cer, so a naive walk never ends. The
+walk must notice that the publication point belongs to an ancestor,
+report the loop and carry on (D-008). The objects themselves are
+well formed; the loop is a property of the walk.
+
+- **Expected:** valid
+- **RFC:** [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5))
+- **Files:** [descriptor](../../test/fixtures/barry/m3-walk-loop/case.repo) · [metadata](../../test/fixtures/barry/m3-walk-loop/case.exs) · [rsync tree](../../test/fixtures/barry/m3-walk-loop/rsync)
+
+#### `m3-walk-nested`: A CA publication point nested inside the TA's
+
+ca1's caRepository is a subdirectory of the TA's publication point
+(rpki/ta/ca1). The recursive fetch of the TA's publication point already
+brings it, so the walk must read it from that copy and make no rsync run
+of its own (D-009). This is the common shape of RIR repositories, where
+one fetch covers most of the tree.
+
+- **Expected:** valid
+- **RFC:** [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [6481 §2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2))
+- **Files:** [descriptor](../../test/fixtures/barry/m3-walk-nested/case.repo) · [metadata](../../test/fixtures/barry/m3-walk-nested/case.exs) · [rsync tree](../../test/fixtures/barry/m3-walk-nested/rsync)
+
+#### `m3-walk-unreachable`: A child CA whose publication point is on an unreachable host
+
+The TA certifies two CAs. ca1's caRepository is on unreachable.invalid,
+a name that can never resolve (RFC 6761 reserves .invalid); ca2 is
+normal. The walk must report the failed fetch, keep any last good copy
+of ca1's publication point (RFC 8897 §7), and still mirror ca2. ca1's
+files are generated under rsync/unreachable/ so a test can first serve
+them, to have a last good copy, and then take the host away.
+
+- **Expected:** valid
+- **RFC:** [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [8897 §7](../rfc/rfc8897.txt) ([html](https://www.rfc-editor.org/rfc/rfc8897.html#section-7))
+- **Files:** [descriptor](../../test/fixtures/barry/m3-walk-unreachable/case.repo) · [metadata](../../test/fixtures/barry/m3-walk-unreachable/case.exs) · [rsync tree](../../test/fixtures/barry/m3-walk-unreachable/rsync)
 
 ## Test TALs
 
@@ -1212,6 +1278,46 @@ Barry fixtures and the RIR TALs, must parse and map as expected.
   always names a rule.
 - *real URIs:* every URI in every RIR TAL parses, and its text is already normal (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
 - *real URIs:* every Barry TAL's rsync URI is in module rpki on localhost:8873 (RFC [5781 §2](../rfc/rfc5781.txt) ([html](https://www.rfc-editor.org/rfc/rfc5781.html#section-2)))
+
+### `Lumina.WalkTest`
+
+[test/lumina/walk_test.exs](../../test/lumina/walk_test.exs)
+
+Tests the repository walk (`Lumina.Walk`, #75) against real rsync
+daemons serving Barry fixtures: from the TA, every publication point
+reached through CA certificates is mirrored into the cache (RFC 6481 §5),
+each fetched at most once per run, with publication points nested in a
+fetched directory read from that copy (D-009).
+
+The `m3-walk-*` fixtures each exercise one part of the walk: a
+delegation to a second rsync host, a nested publication point, an SIA
+loop, a deep chain and an unreachable host. The fixtures name
+`localhost:8873` (and `other.example:8873`), so each test remaps those
+to its own daemons with `:remap`; cache paths and reports keep the names
+from the certificates.
+
+- *mirroring:* every Barry fixture mirrors completely from the local daemon (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [6481 §2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2)))
+  Every file of the fixture except the TA certificate (fetched by TA
+  retrieval, #74) lies in a publication point, so all of them must
+  arrive. Fixtures that need a second host, or that are built to be
+  unreachable, have their own tests; so do the m2-ta-* fixtures,
+  whose TA is never accepted.
+- *mirroring:* a CA whose publication point is on a second rsync host is fetched there (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [6487 §4.8.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.1)))
+  D-009: like LACNIC's delegations to registro.br and Amazon, fetched where the certificate says.
+- *mirroring:* a publication point nested in one already fetched causes no extra rsync run (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  D-009: the TA's recursive fetch already brought ca1's directory; one rsync run in all.
+- *mirroring:* each fetch's outcome is recorded in the cache status
+- *limits (D-008):* an SIA loop terminates, with the loop reported (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+- *limits (D-008):* a chain deeper than the limit stops there, reported (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  RFC 6481 §5's locally configured maximum chain length, set to 2 here: ca3 is depth 3.
+- *limits (D-008):* the default depth limit lets a five-level chain through
+- *failures:* a child CA on an unreachable host is reported, and the rest is mirrored (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+- *failures:* an unreachable publication point keeps its last good copy, walked as stale (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [8897 §7](../rfc/rfc8897.txt) ([html](https://www.rfc-editor.org/rfc/rfc8897.html#section-7)))
+  First run: the host is reachable (remapped to a daemon). Second run:
+  it isn't. The last good copy stays byte-identical, and the walk
+  continues from it, marked stale.
+- *selecting CAs (D-005):* a certificate that isn't a CA isn't followed (RFC [6487 §4.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.1)))
+- *selecting CAs (D-005):* a CA is followed to its rsync caRepository (RFC [6487 §4.8.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.1)))
 
 ### `LuminaTest`
 

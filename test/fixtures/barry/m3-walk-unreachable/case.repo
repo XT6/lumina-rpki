@@ -1,0 +1,11 @@
+ta.cer
+	ca1.cer
+		roa1.roa
+	ca2.cer
+		roa2.roa
+
+[node: ca1.cer]
+# A host that can never resolve (RFC 6761 reserves .invalid). Its files
+# are generated under rsync/unreachable/ but never served.
+rpp.uri = rsync://unreachable.invalid/repo/ca1
+rpp.path = unreachable/ca1

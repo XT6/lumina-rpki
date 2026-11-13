@@ -1,0 +1,12 @@
+ta.cer
+	ca1.cer
+		roa1.roa
+	ca2.cer
+		roa2.roa
+
+[node: ca2.cer]
+# ca2's publication point is on a second rsync host, as LACNIC delegates
+# to registro.br and to an Amazon-hosted directory (D-009). Its files are
+# generated under rsync/other/ and served there by a second daemon.
+rpp.uri = rsync://other.example:8873/repo/ca2
+rpp.path = other/ca2
