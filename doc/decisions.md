@@ -12,6 +12,10 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-002](#d-002-tal-parsing-strictness) | TAL parsing: strict RFC 8630 §2.2 grammar; trailing whitespace only warns | 2026-11-12 | #54, M2 |
 | [D-003](#d-003-order-of-ta-uris) | TA URIs tried HTTPS first, then in TAL order | 2026-11-12 | #57, M2 |
 | [D-004](#d-004-production-tals) | Production TALs live in a top-level `tals/` folder, copies of the reviewed RIR TALs | 2026-11-13 | #67, M2 |
+| [D-005](#d-005-repository-walk-before-validation) | M3 walks the repository through every CA certificate that decodes; M4 narrows it to those that validate | 2026-11-13 | M3 plan, #75 |
+| [D-006](#d-006-one-rsync-run-per-module) | One rsync run per rsync module, not per publication point | 2026-11-13 | M3 plan, #70, #72 |
+| [D-007](#d-007-manifest-consistency-deferred-to-m5) | Manifest and directory consistency during a fetch is handled in M5 | 2026-11-13 | M3 plan |
+| [D-008](#d-008-default-fetch-limits) | Default fetch limits: timeouts, object size, walk depth, redirects | 2026-11-13 | M3 plan, #72, #73, #75 |
 
 ## D-001: CLI model
 
@@ -75,3 +79,55 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Consequences:**
   - A test fails if `tals/` and `test/fixtures/tals/rir/` differ.
   - Updating a TAL means updating both (`tals/README.md`).
+
+## D-005: Repository walk before validation
+
+- **Date:** 2026-11-13
+- **Decision:**
+  - In M3 the repository walk starts at the accepted TA and follows the SIA `caRepository` of every CA certificate that **decodes**: cA true, with a `caRepository` URI.
+  - The walk is bounded by D-008's depth limit, loop detection and size limits.
+  - M4, which validates certificates, changes "decodes" to "**validates**".
+- **Why:**
+  - RFC 6481 §5 describes a top-down walk through *valid* certificates, but validation arrives in M4.
+  - M3's "done when" is mirroring a live RIR repository, which needs a walk.
+  - The bounds keep a hostile or broken repository from making the walk run forever.
+- **Consequences:** #75 implements the walk with the CA selection in one place, so M4 can swap in validation.
+
+## D-006: One rsync run per module
+
+- **Date:** 2026-11-13
+- **Decision:**
+  - rsync fetches whole **modules**, `rsync://host[:port]/module/`, the URI's first path segment, recursively and once per run.
+  - A publication point inside a module that has already been fetched needs no fetch of its own.
+- **Why:**
+  - Fewer rsync runs, and repository trees are expected to be clean (RFC 6481 §3: "Aside from subdirectories, any other objects SHOULD NOT be placed in a repository publication point").
+  - The alternative, one run per publication point, follows the SIA more exactly, at the cost of many more connections.
+- **Consequences:**
+  - `Lumina.URI.module/1` (#70) gives the module, and the rsync runner (#72) fetches it.
+  - RFC 5781 doesn't define modules at all (F-024).
+  - The trailing slash of a `caRepository` URI (F-016) no longer changes what is fetched.
+
+## D-007: Manifest consistency deferred to M5
+
+- **Date:** 2026-11-13
+- **Decision:** RFC 6481 §5 asks RPs to allow for a manifest and its directory being out of step during a fetch, for example by fetching the manifest again and retrying when it changed. That is handled in **M5**, where manifests are validated. M3 records what was fetched and when.
+- **Why:** detecting the inconsistency needs manifest processing, which M3 doesn't have.
+- **Consequences:** the cache store (#71) records each module's fetch time and outcome for M5 to use.
+
+## D-008: Default fetch limits
+
+- **Date:** 2026-11-13
+- **Decision:** defaults, all configurable:
+
+  | Limit | Default |
+  | --- | --- |
+  | rsync connect timeout | 30 s |
+  | rsync I/O timeout | 300 s |
+  | Maximum object size (rsync and HTTPS) | 20 MB |
+  | Maximum walk depth (RFC 6481 §5) | 32 |
+  | HTTPS redirects | HTTPS to HTTPS only, at most 3 |
+
+- **Why:**
+  - RFC 6481 §5 says the walk SHOULD support a locally configured maximum chain length.
+  - The other limits keep a slow or hostile repository from stalling or filling the relying party.
+- **Consequences:** #72 (rsync), #73 (HTTPS) and #75 (walk) implement them.
