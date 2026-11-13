@@ -5,7 +5,7 @@
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
 - 4 Barry fixtures: 1 valid, 3 invalid.
-- 193 unit tests in 21 modules.
+- 206 unit tests in 22 modules.
 
 ## Barry fixtures
 
@@ -296,6 +296,40 @@ validation.
   Equal range ends are reported per erratum 7653, held for document update.
 - *Barry fixture:* the m0-minimal-valid certificates carry Barry's default resources (RFC [3779 §2.2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3)), [3779 §3.2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3)))
   Barry's README: the TA holds everything, and the first CA gets 1/8, 0100::/8 and AS 0x01000000-0x01FFFFFF.
+
+### `Lumina.SignedObjectTest`
+
+[test/lumina/signed_object_test.exs](../../test/lumina/signed_object_test.exs)
+
+Tests decoding of the CMS SignedData envelope shared by all RPKI signed
+objects (RFC 6488, RFC 5652). Signature checks (M5) need the exact signed
+attributes and the EE certificate, and the ROA and manifest decoders need
+the eContent, so the envelope must expose all of them faithfully.
+Profile violations decode; only non-DER or unparseable input fails.
+
+- *the m0-minimal-valid signed objects:* decode into SignedData with one EE certificate and the eContent type named (RFC [6488 §2](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2)), [6488 §2.1](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1)), [6488 §2.1.1](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.1)), [6488 §2.1.3.1](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.3.1)), [6488 §2.1.4](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.4)))
+- *the m0-minimal-valid signed objects:* the EE certificate is decoded from the object's bytes, and the signer ID is its SKI (RFC [6488 §2.1.4](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.4)), [6488 §2.1.6.2](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.2)))
+  The EE certificate keeps the exact bytes from the object; the signer is named by its SKI.
+- *the m0-minimal-valid signed objects:* the signed attributes decode: content type, message digest and signing time (RFC [6488 §2.1.6.4](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.4)), [6488 §2.1.6.4.1](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.4.1)), [6488 §2.1.6.4.2](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.4.2)), [6488 §2.1.6.4.3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.4.3)), [9589 §4](../rfc/rfc9589.txt) ([html](https://www.rfc-editor.org/rfc/rfc9589.html#section-4)))
+  Decode sanity only: content-type matches eContentType and message-digest is SHA-256 of eContent.
+- *the m0-minimal-valid signed objects:* signed_attrs_der is the object's signedAttrs bytes, re-tagged as a SET OF (RFC [5652 §5.4](../rfc/rfc5652.txt) ([html](https://www.rfc-editor.org/rfc/rfc5652.html#section-5.4)), [6488 §2.1.6.4](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.4)))
+  The signature covers the DER of signedAttrs as a SET OF (tag 0x31), not
+  the [0] IMPLICIT form in the object. Checked structurally here; the
+  signature itself is verified in M5.
+- *the m0-minimal-valid signed objects:* the signer's algorithms and signature (RFC [6488 §2.1.6.3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.3)), [6488 §2.1.6.5](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.5)), [6488 §2.1.6.6](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.6)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2)))
+- *content types:* decode_econtent/1 decodes ROA and manifest eContent with their ASN.1 types (RFC [9582 §4](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4)), [9286 §4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4)))
+- *content types:* the content types not decoded until M9 are named but have no decoder
+- *content types:* an unknown eContent type decodes the envelope and leaves eContent raw
+  An unknown eContent type is not a decoding error; the envelope decodes and eContent stays raw.
+- *structural decoding:* a forbidden signed attribute decodes and is named (RFC [6488 §2.1.6.4](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.4)), [9589 §4](../rfc/rfc9589.txt) ([html](https://www.rfc-editor.org/rfc/rfc9589.html#section-4)))
+  RFC 9589 removed binary-signing-time; it must still decode so M5 can name it.
+- *structural decoding:* a ContentInfo that isn't SignedData is an error (RFC [6488 §2.1](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1)), [5652 §5.1](../rfc/rfc5652.txt) ([html](https://www.rfc-editor.org/rfc/rfc5652.html#section-5.1)))
+- *structural decoding:* an embedded certificate that doesn't decode is an error naming the certificate
+- *structural decoding:* signed attributes out of DER order are rejected as not canonical (RFC [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
+  signedAttrs is an [0] IMPLICIT SET OF, so a schema-less DER walk can't
+  see its order (X.690 11.6). Only re-encoding catches unsorted
+  attributes, and the signature covers these exact bytes.
+- *structural decoding:* non-DER, truncated and unrelated input are errors naming the layer
 
 ### `LuminaTest`
 
