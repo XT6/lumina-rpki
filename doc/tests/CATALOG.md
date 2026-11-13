@@ -4,8 +4,8 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 4 Barry fixtures: 1 valid, 3 invalid.
-- 206 unit tests in 22 modules.
+- 6 Barry fixtures: 2 valid, 4 invalid.
+- 218 unit tests in 23 modules.
 
 ## Barry fixtures
 
@@ -81,6 +81,37 @@ reason instead of a generic decode error.
   - `ta/ca1.cer`: version is 2; RFC 6487 section 4.1 requires version 3
 - **RFC:** [6487 §4.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.1)), [8897 §3.1](../rfc/rfc8897.txt) ([html](https://www.rfc-editor.org/rfc/rfc8897.html#section-3.1)), [5280 §4.1.2.1](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.1))
 - **Files:** [descriptor](../../test/fixtures/barry/m1-cert-version-2/case.repo) · [metadata](../../test/fixtures/barry/m1-cert-version-2/case.exs) · [rsync tree](../../test/fixtures/barry/m1-cert-version-2/rsync)
+
+#### `m1-roa-prefixes`: ROA with IPv4 and IPv6 prefixes, with and without maxLength
+
+A valid ROA for AS64496 with three prefixes: 1.1.0.0/17 with maxLength
+24, 1.1.128.0/24 without maxLength, and 0101::/16 with maxLength 48. All
+lie inside the EE certificate's resources and are in canonical order.
+
+It checks that ROA decoding handles both address families, keeps an
+absent maxLength distinct from a present one, and turns each address
+into the right VRP: the maximum length is the prefix length when
+maxLength is absent. M7 reuses it as a positive case producing exactly
+these three VRPs.
+
+- **Expected:** valid
+- **RFC:** [9582 §4.3](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3)), [9582 §4.3.2.1](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.1)), [9582 §4.3.2.2](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.2)), [9582 §4.3.3](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.3))
+- **Files:** [descriptor](../../test/fixtures/barry/m1-roa-prefixes/case.repo) · [metadata](../../test/fixtures/barry/m1-roa-prefixes/case.exs) · [rsync tree](../../test/fixtures/barry/m1-roa-prefixes/rsync)
+
+#### `m1-roa-version-2`: ROA with version 2
+
+The baseline tree with one change: the ROA's version is 2. RFC 9582
+section 4.1 says it MUST be 0, so validation must reject the ROA. This is
+the incorrect repository from Barry's own tutorial.
+
+In M1 it checks that the decoder doesn't treat the wrong version as a
+decoding error: the ROA decodes with version 2 visible, and the version
+is explicitly encoded (it isn't the DEFAULT), so the object is still DER.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/roa1.roa`: version is 2; RFC 9582 section 4.1 requires 0
+- **RFC:** [9582 §4.1](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.1))
+- **Files:** [descriptor](../../test/fixtures/barry/m1-roa-version-2/case.repo) · [metadata](../../test/fixtures/barry/m1-roa-version-2/case.exs) · [rsync tree](../../test/fixtures/barry/m1-roa-version-2/rsync)
 
 ## Unit tests
 
@@ -296,6 +327,36 @@ validation.
   Equal range ends are reported per erratum 7653, held for document update.
 - *Barry fixture:* the m0-minimal-valid certificates carry Barry's default resources (RFC [3779 §2.2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3)), [3779 §3.2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3)))
   Barry's README: the TA holds everything, and the first CA gets 1/8, 0100::/8 and AS 0x01000000-0x01FFFFFF.
+
+### `Lumina.ROATest`
+
+[test/lumina/roa_test.exs](../../test/lumina/roa_test.exs)
+
+Tests decoding of ROAs (RFC 9582). VRP output (M7) is built from these
+structs, so the AS, prefixes and maxLength must decode exactly, from both
+the RFC's own example (Appendix A, read from the RFC text) and Barry
+objects. The RFC 9582 §4.3 encoding recommendations are reported by
+issues/1, not enforced.
+
+- *RFC 9582 Appendix A:* the example eContent decodes to AS65536 and 2001:db8::/32 (RFC [9582 §A](../rfc/rfc9582.txt))
+- *RFC 9582 Appendix A:* the complete example object matches its stated size and digest, and decodes (RFC [9582 §A](../rfc/rfc9582.txt))
+  The Base64 is read from the RFC text itself; the size and SHA-256 the RFC
+  states prove the transcription is exact before anything is decoded.
+- *Barry ROAs:* the m0-minimal-valid ROA authorizes AS1234 for its EE certificate's prefixes (RFC [9582 §4.2](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.2)), [9582 §4.3](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3)))
+- *Barry ROAs:* IPv4 and IPv6 prefixes with and without maxLength (RFC [9582 §4.3.2.1](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.1)), [9582 §4.3.2.2](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.2)))
+  An absent maxLength stays nil; the VRP then uses the prefix length.
+- *Barry ROAs:* a ROA with version 2 decodes with version 2 (RFC [9582 §4.1](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.1)))
+- *issues/1 (reported, not enforced):* maxLength below the prefix length, or equal to it, is reported (RFC [9582 §4.3.2.2](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.2)))
+- *issues/1 (reported, not enforced):* maxLength above the address width is a decode error (RFC [9582 §4](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4)), [9582 §4.3.2.2](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.2)))
+  The module bounds maxLength by the family's address width (INTEGER (0..ub),
+  ub = 32 or 128 via the information object set), so a maxLength above it
+  fails at decode time rather than in issues/1 (F-012).
+- *issues/1 (reported, not enforced):* IPv4-mapped IPv6 prefixes and repeated address families (RFC [9582 §4.3.1](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.1)))
+- *issues/1 (reported, not enforced):* elements out of canonical order, and duplicates (RFC [9582 §4.3.3](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.3)), [9582 §4.3.3.1](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.3.1)))
+- *errors:* a signed object that isn't a ROA
+- *errors:* non-DER and unparseable eContent
+- *errors:* an address family other than IPv4 or IPv6 is a decode error (RFC [9582 §4.3.1](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.1)))
+  The module's information object set rejects other AFIs at decode time (F-012).
 
 ### `Lumina.SignedObjectTest`
 

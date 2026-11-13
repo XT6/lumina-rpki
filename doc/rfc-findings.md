@@ -30,12 +30,13 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-009](#f-009-cms-and-attribute-certificate-modules-import-from-each-other) | 5652 §12.1, 5755 App. B | reference | none found | Avoided by F-006 placeholders (#23) |
 | [F-010](#f-010-no-rule-for-data-after-the-encoded-object) | 6481 §2.2, 6488 §3 | ambiguity | none found (not reported) | Trailing bytes rejected (#24, #25) |
 | [F-011](#f-011-asn1ct-error-reasons-carry-stack-traces) | (OTP `asn1ct`) | tooling | n/a | Wrapper shortens reasons (#24) |
-| [F-012](#f-012-the-roa-module-enforces-the-afi-rule-at-decode-time) | 9582 §4, §4.3.1 | tooling | none | Accepted; decode error (#24) |
+| [F-012](#f-012-the-roa-module-enforces-the-afi-rule-at-decode-time) | 9582 §4, §4.3.1, §4.3.2 | tooling | none | Accepted; decode error (#24, #30) |
 | [F-013](#f-013-the-address-sort-key-has-a-part-that-never-matters) | 3779 §2.2.3.6 | ambiguity | none found (not reported) | Sort by lowest address (#26) |
 | [F-014](#f-014-two-rfc-3779-errata-change-what-a-decoder-must-accept) | 3779 §2.2.3.9, §3.2.3.8 | erratum | [2537](https://www.rfc-editor.org/errata/eid2537) verified, [7653](https://www.rfc-editor.org/errata/eid7653) held | Both followed (#26) |
 | [F-015](#f-015-two-conforming-validators-can-disagree-on-unknown-extensions) | 6487 §4.1, §4.8, §5; 8897 §3.1, §3.3 | ambiguity | none found (not reported) | Versions settled by 8897; extensions open (#42) |
 | [F-016](#f-016-no-rfc-says-how-a-repository-directory-uri-ends) | 6487 §4.8.8.1 | ambiguity | none found (not reported) | Both forms handled in M3 (#43) |
 | [F-017](#f-017-rfc-6487-still-points-to-the-obsolete-algorithm-profile) | 6487 §4.3, §4.7, §5, §6.1.1 | reference | none found (not reported) | Use RFC 7935 (M4) |
+| [F-018](#f-018-rfc-9582-tells-cas-that-relying-parties-will-change-their-minds) | 9582 §4.3.2.2, §4.3.3 | ambiguity | none (by design) | Reported by `ROA.issues/1`; decide in M7 |
 
 ## Entries
 
@@ -237,6 +238,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Official errata:** none.
 - **Impact:** a compiler that honours table constraints, as `asn1ct` does, makes the **decoder** reject any other AFI: the generated code exits. In Lumina this is the one RFC 9582 rule that fails at decode time rather than in validation (M7), so its error is a generic decode error instead of "AFI must be IPv4 or IPv6 (RFC 9582 §4.3.1)". Dialyzer flags the generated lookup functions, because they only ever exit (ignored in `.dialyzer_ignore.exs`).
 - **Resolution:** accepted. The rule is unambiguous, and patching the constraint out would break the rule that patches never change what is accepted. The decoder turns the exit into an error, and a test covers AFI 3 (#24). M7 should map this decode error to a message that cites §4.3.1.
+- **More of the same (#30):** the module's parameterized type `ROAIPAddress {INTEGER: ub}` binds `address BIT STRING (SIZE(0..ub))` and `maxLength INTEGER (0..ub)` to 32 or 128 through the same information object set. So a maxLength of 33 in an IPv4 family also fails at decode time, while a maxLength **below** the prefix length (the other half of the same §4.3.2.2 MUST) decodes and is left to validation. One sentence of the RFC ends up enforced in two layers.
 - **Talk note:** information object sets put validation rules inside the ASN.1, so the same rule can fail in the decoder or in validation, depending on the toolchain.
 
 ### F-013: the address sort key has a part that never matters
@@ -320,6 +322,17 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Resolution:** signature and key checks in M4 cite RFC 7935.
 - **Same pattern elsewhere:** RFC 7935 (August 2016) cites RFC 3447 for RSASSA-PKCS1-v1_5 (§2). RFC 8017 obsoleted RFC 3447 three months later (November 2016). Lumina's library holds RFC 8017.
 - **Talk note:** the same pattern as F-006 and F-009. Obsoleting an RFC updates the metadata of the obsoleted document, not the documents that cite it.
+
+### F-018: RFC 9582 tells CAs that relying parties will change their minds
+
+- **Where:**
+  - RFC 9582 §4.3.2.2: "The maxLength element SHOULD NOT be encoded if the maximum length is equal to the prefix length. Certification Authorities SHOULD anticipate that future Relying Parties will become increasingly stringent in considering the presence of superfluous maxLength elements an encoding error."
+  - §4.3.3: "the process described in this section SHOULD be used … Certification Authorities SHOULD anticipate that future Relying Parties will impose a strict requirement for the ipAddrBlocks field to be in this canonical form."
+- **Kind:** ambiguity, deliberate. The RFC defines a canonical form, makes it a SHOULD, and announces that RP behaviour will tighten later.
+- **Official errata:** none, and none expected; this is by design.
+- **Impact:** what a relying party should do today with a ROA holding a superfluous maxLength, or prefixes out of canonical order, is left open, and the RFC expects the answer to change over time. Relying parties that tighten at different times will disagree on the same ROA during the transition, the same divergence risk as F-010 and F-015.
+- **Resolution:** `Lumina.ROA.issues/1` reports `:superfluous_max_length`, `:not_canonical_order` and `:duplicate_address`, and doesn't reject them. Whether M7 accepts, warns or rejects is a maintainer decision for M7.
+- **Talk note:** a standard that schedules its own tightening ("future Relying Parties will…") turns the gap between relying parties into a planned phase. Being lenient is the safe choice for VRP output only until it isn't.
 
 ## Process notes
 

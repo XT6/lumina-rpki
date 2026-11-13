@@ -98,13 +98,7 @@ defmodule Lumina.Resources do
   defp ip_entry({:addressRange, %{min: min, max: max}}, {:unknown, _}),
     do: {:ok, {:raw_range, min, max}}
 
-  defp ip_entry({:addressPrefix, bits}, afi) do
-    width = @widths[afi]
-
-    if bit_size(bits) <= width,
-      do: {:ok, {:prefix, pad(bits, width, 0), bit_size(bits)}},
-      else: {:error, {:prefix_too_long, afi, bit_size(bits)}}
-  end
+  defp ip_entry({:addressPrefix, bits}, afi), do: prefix(bits, afi)
 
   defp ip_entry({:addressRange, %{min: min, max: max}}, afi) do
     width = @widths[afi]
@@ -139,6 +133,32 @@ defmodule Lumina.Resources do
       {:error, _} = error, _ -> {:halt, error}
     end)
   end
+
+  @doc """
+  Converts a prefix BIT STRING (RFC 3779 §2.1.1, also used by ROAs, RFC 9582
+  §4.3.2.1) into `{:prefix, address, length}`.
+
+  ## Examples
+
+      iex> Lumina.Resources.prefix(<<10, 5, 0::7>>, :ipv4)
+      {:ok, {:prefix, 0x0A050000, 23}}
+
+      iex> Lumina.Resources.prefix(<<1, 2, 3, 4, 5>>, :ipv4)
+      {:error, {:prefix_too_long, :ipv4, 40}}
+
+  """
+  @spec prefix(bitstring(), :ipv4 | :ipv6) :: {:ok, ip_resource()} | {:error, term()}
+  def prefix(bits, afi) do
+    width = @widths[afi]
+
+    if bit_size(bits) <= width,
+      do: {:ok, {:prefix, pad(bits, width, 0), bit_size(bits)}},
+      else: {:error, {:prefix_too_long, afi, bit_size(bits)}}
+  end
+
+  @doc "The address width of a family: 32 or 128."
+  @spec width(:ipv4 | :ipv6) :: 32 | 128
+  def width(afi), do: @widths[afi]
 
   @doc """
   The lowest and highest address a resource covers, as integers.
