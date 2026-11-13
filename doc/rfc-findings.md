@@ -33,7 +33,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-012](#f-012-the-roa-module-enforces-the-afi-rule-at-decode-time) | 9582 §4, §4.3.1, §4.3.2 | tooling | none | Accepted; decode error (#24, #30) |
 | [F-013](#f-013-the-address-sort-key-has-a-part-that-never-matters) | 3779 §2.2.3.6 | ambiguity | none found (not reported) | Sort by lowest address (#26) |
 | [F-014](#f-014-two-rfc-3779-errata-change-what-a-decoder-must-accept) | 3779 §2.2.3.9, §3.2.3.8 | erratum | [2537](https://www.rfc-editor.org/errata/eid2537) verified, [7653](https://www.rfc-editor.org/errata/eid7653) held | Both followed (#26) |
-| [F-015](#f-015-two-conforming-validators-can-disagree-on-unknown-extensions) | 6487 §4.1, §4.8, §5; 8897 §3.1, §3.3 | ambiguity | none found (not reported) | Versions settled by 8897; extensions open (#42) |
+| [F-015](#f-015-two-conforming-validators-can-disagree-on-unknown-extensions) | 6487 §4.1, §4.8, §5; 8897 §3.1, §3.3 | ambiguity | none found (not reported) | Versions settled by 8897; unknown non-critical extensions accepted with a warning (D-013, #42) |
 | [F-016](#f-016-no-rfc-says-how-a-repository-directory-uri-ends) | 6487 §4.8.8.1 | ambiguity | none found (not reported) | Both forms handled in M3 (#43) |
 | [F-017](#f-017-rfc-6487-still-points-to-the-obsolete-algorithm-profile) | 6487 §4.3, §4.7, §5, §6.1.1; also 7935, 8630 | reference | none found (not reported) | Use the current RFCs |
 | [F-018](#f-018-rfc-9582-tells-cas-that-relying-parties-will-change-their-minds) | 9582 §4.3.2.2, §4.3.3 | ambiguity | none (by design) | Reported by `ROA.issues/1`; decide in M7 |
@@ -298,7 +298,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Impact:** a CA that adds an unknown non-critical extension gets its certificate accepted by some validators and rejected by others, which means different VRP sets. This is the same parser-differential risk as F-010.
 - **Resolution:**
   - Version: reject v1/v2 (fixture `m1-cert-version-2`).
-  - Unknown non-critical extensions: **open**, needs a maintainer decision (#42).
+  - Unknown non-critical extensions: **accepted with a warning** (D-013, maintainer decision 2026-11-13, #42).
   - Unknown critical extensions: reject, as §4.8 requires (fixture `m1-cert-unknown-critical-extension`).
   - The decoder keeps every unknown extension, with its criticality, so any decision can be implemented.
 - **Data point (2026-11-12):** in a full rsync copy of LACNIC's repository, **none of the 3,514 certificates** carries an unknown extension, critical or not, and all are version 3. So for LACNIC's repository today, the #42 decision changes no verdicts.
