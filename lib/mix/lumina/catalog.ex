@@ -13,11 +13,12 @@ defmodule Mix.Lumina.Catalog do
   def path, do: @default_path
 
   @doc """
-  Renders the catalog for `fixtures` and the unit test `modules` (from
-  `Mix.Lumina.TestScanner`). Links are relative to `catalog_path`.
+  Renders the catalog for `fixtures`, the unit test `modules` (from
+  `Mix.Lumina.TestScanner`) and the test TALs (`Mix.Lumina.TALCases`).
+  Links are relative to `catalog_path`.
   """
-  @spec render([Fixtures.fixture()], [TestScanner.test_module()], Path.t()) :: String.t()
-  def render(fixtures, modules, catalog_path \\ @default_path) do
+  @spec render([Fixtures.fixture()], [TestScanner.test_module()], Path.t(), [map()]) :: String.t()
+  def render(fixtures, modules, catalog_path \\ @default_path, tal_cases \\ []) do
     base = Path.dirname(catalog_path)
     modules = modules |> Enum.filter(& &1.exunit?) |> Enum.sort_by(&{&1.file, &1.line})
 
@@ -29,6 +30,7 @@ defmodule Mix.Lumina.Catalog do
     Every test, what it checks and why it exists. See [testing.md](#{relative("doc/testing.md", base)}) for the conventions.
 
     - #{fixture_summary(fixtures)}
+    - #{tal_summary(tal_cases)}
     - #{unit_summary(modules)}
 
     ## Barry fixtures
@@ -36,6 +38,12 @@ defmodule Mix.Lumina.Catalog do
     Repositories generated with Barry, and what a correct validator must conclude from each.
 
     #{fixtures_body(fixtures, base)}
+
+    ## Test TALs
+
+    Hand-written Trust Anchor Locators, valid and malformed, and what a correct TAL parser must report for each (RFC 8630 §2.2, D-002).
+
+    #{tals_body(tal_cases, base)}
 
     ## Unit tests
 
@@ -56,6 +64,46 @@ defmodule Mix.Lumina.Catalog do
       "### #{milestone}\n\n#{entries}"
     end)
   end
+
+  defp tals_body([], _base), do: "No test TALs yet."
+
+  defp tals_body(cases, base) do
+    cases
+    |> Enum.sort_by(& &1.id)
+    |> Enum.map_join("\n\n", fn tal_case ->
+      dir = relative(tal_case.dir, base)
+
+      """
+      #### `#{tal_case.id}`: #{tal_case.title}
+
+      #{String.trim(tal_case.rationale)}
+
+      - **Expected:** #{tal_expected(tal_case.expected)}
+      - **RFC:** #{Enum.map_join(tal_case.rfc, ", ", &rfc_link(&1, base))}
+      - **Files:** [TAL](#{dir}/case.tal) · [metadata](#{dir}/case.exs)\
+      """
+    end)
+  end
+
+  defp tal_expected(:valid), do: "valid"
+
+  defp tal_expected({:valid, warnings: warnings}),
+    do:
+      "valid, with warnings: " <> Enum.map_join(warnings, ", ", &"`#{&1.rule}` (line #{&1.line})")
+
+  defp tal_expected({:invalid, %{line: line, rule: rule}}),
+    do: "invalid: `#{rule}` at line #{line}"
+
+  defp tal_summary(cases) do
+    counts = Enum.frequencies_by(cases, &tal_kind(&1.expected))
+
+    "#{length(cases)} test #{plural(length(cases), "TAL")}: #{Map.get(counts, :valid, 0)} valid, " <>
+      "#{Map.get(counts, :warning, 0)} with warnings, #{Map.get(counts, :invalid, 0)} invalid."
+  end
+
+  defp tal_kind(:valid), do: :valid
+  defp tal_kind({:valid, _}), do: :warning
+  defp tal_kind({:invalid, _}), do: :invalid
 
   defp units_body([], _base), do: "No unit tests yet."
 

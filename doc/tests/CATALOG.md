@@ -5,7 +5,8 @@
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
 - 7 Barry fixtures: 3 valid, 4 invalid.
-- 268 unit tests in 28 modules.
+- 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
+- 280 unit tests in 30 modules.
 
 ## Barry fixtures
 
@@ -126,6 +127,281 @@ is explicitly encoded (it isn't the DEFAULT), so the object is still DER.
   - `ca1/roa1.roa`: version is 2; RFC 9582 section 4.1 requires 0
 - **RFC:** [9582 §4.1](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.1))
 - **Files:** [descriptor](../../test/fixtures/barry/m1-roa-version-2/case.repo) · [metadata](../../test/fixtures/barry/m1-roa-version-2/case.exs) · [rsync tree](../../test/fixtures/barry/m1-roa-version-2/rsync)
+
+## Test TALs
+
+Hand-written Trust Anchor Locators, valid and malformed, and what a correct TAL parser must report for each (RFC 8630 §2.2, D-002).
+
+#### `invalid-base64-character`: An illegal character in the base64 key
+
+The key is base64 (RFC 4648 section 4); "@" is outside the alphabet.
+
+- **Expected:** invalid: `bad_base64` at line 3
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)), [4648 §4](../rfc/rfc4648.txt) ([html](https://www.rfc-editor.org/rfc/rfc4648.html#section-4))
+- **Files:** [TAL](../../test/fixtures/tals/cases/invalid-base64-character/case.tal) · [metadata](../../test/fixtures/tals/cases/invalid-base64-character/case.exs)
+
+#### `invalid-base64-padding`: Base64 key with a character missing at the end
+
+The last character of the key is removed, so the base64 length is no
+longer a multiple of four and the padding is wrong. Length and padding
+errors aren't tied to one key line, so they are reported at the first
+key line.
+
+- **Expected:** invalid: `bad_base64` at line 3
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)), [4648 §4](../rfc/rfc4648.txt) ([html](https://www.rfc-editor.org/rfc/rfc4648.html#section-4))
+- **Files:** [TAL](../../test/fixtures/tals/cases/invalid-base64-padding/case.tal) · [metadata](../../test/fixtures/tals/cases/invalid-base64-padding/case.exs)
+
+#### `invalid-blank-line-after-key`: A blank line after the key
+
+After the key the file ends; a further empty line is outside the
+grammar. By D-002 it is an error, not something to skip silently.
+
+- **Expected:** invalid: `extra_blank_line` at line 4
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/invalid-blank-line-after-key/case.tal) · [metadata](../../test/fixtures/tals/cases/invalid-blank-line-after-key/case.exs)
+
+#### `invalid-comment-after-uris`: A comment after the last URI
+
+Same rule as a comment between URIs, at the end of the URI section.
+
+- **Expected:** invalid: `comment_after_uris` at line 2
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/invalid-comment-after-uris/case.tal) · [metadata](../../test/fixtures/tals/cases/invalid-comment-after-uris/case.exs)
+
+#### `invalid-comment-between-uris`: A comment between the URIs
+
+Comments are only allowed in the comment section, before the URIs. By
+D-002 a comment among the URIs is an error.
+
+- **Expected:** invalid: `comment_after_uris` at line 2
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/invalid-comment-between-uris/case.tal) · [metadata](../../test/fixtures/tals/cases/invalid-comment-between-uris/case.exs)
+
+#### `invalid-comment-control-character`: A control character in a comment
+
+Comment text must conform to RFC 5198 section 2, which excludes
+control characters such as BEL (0x07). RFC 5198 isn't in the library,
+so this follows RFC 8630's reference to it.
+
+- **Expected:** invalid: `invalid_comment_text` at line 1
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/invalid-comment-control-character/case.tal) · [metadata](../../test/fixtures/tals/cases/invalid-comment-control-character/case.exs)
+
+#### `invalid-empty`: Empty file
+
+A TAL must contain at least one URI and a key. An empty file must be
+rejected, not treated as an empty TAL.
+
+- **Expected:** invalid: `empty` at line 1
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/invalid-empty/case.tal) · [metadata](../../test/fixtures/tals/cases/invalid-empty/case.exs)
+
+#### `invalid-empty-key`: URIs and the blank line, but no key
+
+The key section is required. The problem is found at the end of the
+file, line 3.
+
+- **Expected:** invalid: `empty_key` at line 3
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/invalid-empty-key/case.tal) · [metadata](../../test/fixtures/tals/cases/invalid-empty-key/case.exs)
+
+#### `invalid-ftp-uri`: An FTP URI
+
+Any scheme other than rsync or HTTPS is unsupported.
+
+- **Expected:** invalid: `unsupported_scheme` at line 1
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/invalid-ftp-uri/case.tal) · [metadata](../../test/fixtures/tals/cases/invalid-ftp-uri/case.exs)
+
+#### `invalid-http-uri`: A plain HTTP URI
+
+A TA URI MUST be rsync or HTTPS. Plain HTTP offers no integrity, so it
+must be rejected even though it looks almost right.
+
+- **Expected:** invalid: `unsupported_scheme` at line 1
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)), [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4))
+- **Files:** [TAL](../../test/fixtures/tals/cases/invalid-http-uri/case.tal) · [metadata](../../test/fixtures/tals/cases/invalid-http-uri/case.exs)
+
+#### `invalid-key-not-der`: A key that decodes but isn't DER
+
+Valid base64 of a BER encoding with an indefinite length: it isn't
+DER, which the subjectPublicKeyInfo must be.
+
+- **Expected:** invalid: `not_der` at line 3
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/invalid-key-not-der/case.tal) · [metadata](../../test/fixtures/tals/cases/invalid-key-not-der/case.exs)
+
+#### `invalid-key-not-spki`: A key that is DER but not a SubjectPublicKeyInfo
+
+Valid base64 of a valid DER INTEGER: well formed, but not a
+subjectPublicKeyInfo.
+
+- **Expected:** invalid: `not_spki` at line 3
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)), [5280 §4.1.2.7](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.7))
+- **Files:** [TAL](../../test/fixtures/tals/cases/invalid-key-not-spki/case.tal) · [metadata](../../test/fixtures/tals/cases/invalid-key-not-spki/case.exs)
+
+#### `invalid-malformed-uri`: A URI containing a space
+
+A URI must have valid RFC 3986 syntax; an unencoded space makes it
+invalid.
+
+- **Expected:** invalid: `invalid_uri` at line 1
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)), [3986 §3](../rfc/rfc3986.txt) ([html](https://www.rfc-editor.org/rfc/rfc3986.html#section-3))
+- **Files:** [TAL](../../test/fixtures/tals/cases/invalid-malformed-uri/case.tal) · [metadata](../../test/fixtures/tals/cases/invalid-malformed-uri/case.exs)
+
+#### `invalid-missing-separator`: No blank line between the URIs and the key
+
+Without the separating line break, the first key line sits in the URI
+section. A parser must recognize it as the key and report the missing
+separator, rather than an odd URI.
+
+- **Expected:** invalid: `missing_separator` at line 2
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/invalid-missing-separator/case.tal) · [metadata](../../test/fixtures/tals/cases/invalid-missing-separator/case.exs)
+
+#### `invalid-no-uri`: Comments, then the blank line and key, but no URI
+
+The URI section has one or more URIs. Here the first non-comment line
+is already the separator, so there is no URI.
+
+- **Expected:** invalid: `no_uri` at line 2
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/invalid-no-uri/case.tal) · [metadata](../../test/fixtures/tals/cases/invalid-no-uri/case.exs)
+
+#### `invalid-only-comments`: Only comments
+
+Comments alone are not a TAL: the URI section requires at least one
+URI. The problem is found at the end of the file, line 3.
+
+- **Expected:** invalid: `no_uri` at line 3
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/invalid-only-comments/case.tal) · [metadata](../../test/fixtures/tals/cases/invalid-only-comments/case.exs)
+
+#### `invalid-relative-uri`: A relative reference instead of a URI
+
+A TA URI must be absolute, with a scheme; a path on its own isn't a TA
+URI.
+
+- **Expected:** invalid: `invalid_uri` at line 1
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)), [3986 §4.2](../rfc/rfc3986.txt) ([html](https://www.rfc-editor.org/rfc/rfc3986.html#section-4.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/invalid-relative-uri/case.tal) · [metadata](../../test/fixtures/tals/cases/invalid-relative-uri/case.exs)
+
+#### `invalid-rfc-8630-example-as-printed`: The RFC 8630 section 2.4 example, indented as printed in the RFC
+
+Copied verbatim from the RFC, the example keeps the document's nine-
+space indentation. The first line then doesn't start with "#", so it's
+neither a comment nor a URI. The RFC's own example isn't a valid TAL
+as printed.
+
+- **Expected:** invalid: `invalid_uri` at line 1
+- **RFC:** [8630 §2.4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.4)), [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/invalid-rfc-8630-example-as-printed/case.tal) · [metadata](../../test/fixtures/tals/cases/invalid-rfc-8630-example-as-printed/case.exs)
+
+#### `invalid-two-blank-lines`: Two blank lines before the key
+
+The grammar has exactly one line break between the URIs and the key.
+By D-002 an extra blank line is an error.
+
+- **Expected:** invalid: `extra_blank_line` at line 3
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/invalid-two-blank-lines/case.tal) · [metadata](../../test/fixtures/tals/cases/invalid-two-blank-lines/case.exs)
+
+#### `invalid-utf8-comment`: A comment that isn't valid UTF-8
+
+Comment text must be UTF-8. The Latin-1 byte 0xE9 on its own is
+invalid UTF-8.
+
+- **Expected:** invalid: `invalid_utf8` at line 1
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/invalid-utf8-comment/case.tal) · [metadata](../../test/fixtures/tals/cases/invalid-utf8-comment/case.exs)
+
+#### `valid-comments`: Comment section before the URIs
+
+The optional comment section: lines starting with "#" before the URIs,
+with non-ASCII UTF-8 text. A parser must skip them and keep them as
+comments.
+
+- **Expected:** valid
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/valid-comments/case.tal) · [metadata](../../test/fixtures/tals/cases/valid-comments/case.exs)
+
+#### `valid-crlf`: CRLF line ends throughout
+
+Line breaks may be CRLF or LF. A parser that splits only on LF would
+see a stray CR at the end of every line, in URIs and in the base64
+key.
+
+- **Expected:** valid
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/valid-crlf/case.tal) · [metadata](../../test/fixtures/tals/cases/valid-crlf/case.exs)
+
+#### `valid-https-only`: A single HTTPS URI
+
+A TA URI may be HTTPS rather than rsync; a TAL need not contain an
+rsync URI at all.
+
+- **Expected:** valid
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)), [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4))
+- **Files:** [TAL](../../test/fixtures/tals/cases/valid-https-only/case.tal) · [metadata](../../test/fixtures/tals/cases/valid-https-only/case.exs)
+
+#### `valid-key-wrapped-64`: The key wrapped at 64 characters per line
+
+Line breaks MAY be inserted into the base64 key. This uses a Barry TA
+key wrapped at 64 characters, the width Barry and most tools use, as
+opposed to the RFC example's 57.
+
+- **Expected:** valid
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)), [4648 §4](../rfc/rfc4648.txt) ([html](https://www.rfc-editor.org/rfc/rfc4648.html#section-4))
+- **Files:** [TAL](../../test/fixtures/tals/cases/valid-key-wrapped-64/case.tal) · [metadata](../../test/fixtures/tals/cases/valid-key-wrapped-64/case.exs)
+
+#### `valid-minimal`: One rsync URI and the key on one line
+
+The smallest TAL the grammar allows: no comments, one TA URI, the
+separating blank line, and the base64 key on a single line. A parser
+must accept it.
+
+- **Expected:** valid
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/valid-minimal/case.tal) · [metadata](../../test/fixtures/tals/cases/valid-minimal/case.exs)
+
+#### `valid-multiple-uris`: Two TA URIs, rsync then HTTPS
+
+The URI section can hold several URIs, which must be kept in TAL order
+(the preference order is a separate decision, D-003).
+
+- **Expected:** valid
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)), [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3))
+- **Files:** [TAL](../../test/fixtures/tals/cases/valid-multiple-uris/case.tal) · [metadata](../../test/fixtures/tals/cases/valid-multiple-uris/case.exs)
+
+#### `valid-no-final-newline`: No line break after the key
+
+The grammar ends with the key and doesn't require a final line break.
+A parser must not demand one.
+
+- **Expected:** valid
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/valid-no-final-newline/case.tal) · [metadata](../../test/fixtures/tals/cases/valid-no-final-newline/case.exs)
+
+#### `valid-rfc-8630-example`: The RFC 8630 section 2.4 example, without the RFC's indentation
+
+The example TAL from RFC 8630 section 2.4, with the document's
+indentation removed. It's the reference example, and must parse with
+two comments, two URIs and a 2048-bit RSA key.
+
+- **Expected:** valid
+- **RFC:** [8630 §2.4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.4)), [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/valid-rfc-8630-example/case.tal) · [metadata](../../test/fixtures/tals/cases/valid-rfc-8630-example/case.exs)
+
+#### `warning-trailing-whitespace`: Trailing whitespace on a comment, a URI and a key line
+
+The grammar doesn't mention whitespace. By D-002, trailing whitespace
+is accepted with a warning per line, because editors add it and it
+carries no meaning. Without stripping it, the URI and the base64 would
+be wrong.
+
+- **Expected:** valid, with warnings: `trailing_whitespace` (line 1), `trailing_whitespace` (line 2), `trailing_whitespace` (line 4)
+- **RFC:** [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2))
+- **Files:** [TAL](../../test/fixtures/tals/cases/warning-trailing-whitespace/case.tal) · [metadata](../../test/fixtures/tals/cases/warning-trailing-whitespace/case.exs)
 
 ## Unit tests
 
@@ -607,6 +883,9 @@ must not depend on input order.
 - an entry shows the rationale, expected outcome, RFC links and files
 - a valid fixture says so
 - links are relative to where the catalog is written
+- *test TALs:* lists each test TAL with its expected outcome, RFC links and files
+- *test TALs:* valid cases with warnings show each warning and its line
+- *test TALs:* says so when there are no test TALs
 - *unit tests:* lists each test module with its moduledoc, file and tests, in file order
 - *unit tests:* shows the describe block, RFC references and doc tag of a test
 - *unit tests:* says so for a module with only doctests
@@ -663,6 +942,21 @@ bug here would let wrong citations through or reject correct ones.
 - *validate/2:* rejects an RFC that is not in the library
 - *validate/2:* rejects a section that does not exist
 - *validate/2:* passes on parse errors
+
+### `Mix.Lumina.TALCasesMetadataTest`
+
+[test/mix/lumina/tal_cases_metadata_test.exs](../../test/mix/lumina/tal_cases_metadata_test.exs)
+
+Tests the metadata check for test TAL cases (Mix.Lumina.TALCases): every
+way a case can be incomplete or wrong must be reported, so the corpus
+stays documented and its expected outcomes stay meaningful. Cases are
+built in temporary directories.
+
+- a complete case loads, with its TAL bytes
+- all three forms of expected outcome are accepted
+- missing keys, an unknown key and a mismatched id are reported
+- an unknown rule, a bad line number and a malformed expectation are reported
+- an invalid RFC reference and a missing case.tal are reported
 
 ### `Mix.Lumina.TestScannerTest`
 
@@ -760,6 +1054,24 @@ section that exist in doc/rfc, so the coverage report and the catalog
 never cite text we don't have. See doc/testing.md.
 
 - every RFC reference in the test suite is valid
+
+### `Lumina.TALCasesTest`
+
+[test/tal_cases_test.exs](../../test/tal_cases_test.exs)
+
+Checks the corpus of hand-written test TALs (#55): every case documents
+why it exists, which RFC sections it covers and its exact expected
+outcome. Together the cases cover every rule the TAL parser reports,
+and the files keep the byte-level properties they test (CRLF line ends,
+trailing whitespace, a missing final newline). The parser itself (#54)
+is tested against these cases.
+
+- every case has complete metadata and a case.tal
+- every error and warning rule has at least one case
+  A rule with no case would go untested in #54.
+- the byte-level properties the cases rely on are intact (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
+  An editor or a git setting could silently normalize these bytes; the cases would then test nothing.
+- the two RFC 8630 example cases differ only in indentation (RFC [8630 §2.4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.4)))
 
 ### `Lumina.TestDocsTest`
 
