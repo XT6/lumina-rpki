@@ -14,3 +14,6 @@
 # Test TALs are byte-exact: CRLF line ends and trailing whitespace are
 # part of what they test, so git must never convert them.
 test/fixtures/tals/** -text
+
+# Production TALs are copies of the reviewed test TALs, byte for byte.
+tals/*.tal -text
