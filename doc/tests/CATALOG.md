@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 10 Barry fixtures: 3 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 380 unit tests in 40 modules.
+- 404 unit tests in 41 modules.
 
 ## Barry fixtures
 
@@ -686,6 +686,55 @@ before any object is decoded. Decoding and validation start in M1.
 - the TAL's rsync URI points to the trust anchor certificate in the tree
 - the TAL's public key is base64 that decodes to a DER SEQUENCE
 - the RRDP files are present
+
+### `Lumina.HTTPSTest`
+
+[test/lumina/https_test.exs](../../test/lumina/https_test.exs)
+
+Tests the HTTPS fetcher (`Lumina.HTTPS`, #73) against a local TLS server
+(`Lumina.Test.HTTPSServer`) whose CA and certificates are made in each
+test, so nothing depends on the network or on the system's CA store.
+
+RFC 8630 §4 makes TLS certificate and host name validation mandatory for
+TA certificates fetched over HTTPS, and asks for validation issues to be
+logged: each kind of bad certificate must be rejected with its own
+reason and a log line. The rest pins D-008's limits: redirects only to
+HTTPS and at most 3, and a size limit that holds however the server
+frames the body (Content-Length, chunked, or until it closes, F-026).
+
+- *certificate validation:* a file from a server with a valid certificate is fetched byte-identical (RFC [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)))
+- *certificate validation:* a certificate for another host name is rejected and logged (RFC [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)))
+- *certificate validation:* a certificate from a CA that isn't trusted is rejected and logged (RFC [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)))
+- *certificate validation:* an expired certificate is rejected and logged (RFC [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)))
+- *certificate validation:* a certificate that isn't valid yet is rejected and logged (RFC [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)))
+- *certificate validation:* a URI with an IP address is rejected when the certificate only names a host (RFC [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)))
+  A host given as an IP address must match the certificate too; a dNSName doesn't.
+- *certificate validation:* by default only the system CA store is trusted (RFC [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)))
+  Without :cacerts the system CA store is used, and it doesn't trust a test CA.
+- *wildcard certificates (D-010):* a certificate that matches only by wildcard is accepted, logged and reported (RFC [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)))
+  RFC 8630 §4: server names SHOULD NOT contain "*". The fetch succeeds,
+  with a log line and a warning in the result. :address connects to
+  127.0.0.1 while the name checked stays rpki.example.test.
+- *wildcard certificates (D-010):* a certificate that also names the host exactly gives no warning
+- *wildcard certificates (D-010):* a wildcard covers one label only (RFC [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)))
+- *redirects (D-008):* a redirect to another HTTPS URI is followed, and the final URI reported
+- *redirects (D-008):* a redirect to http:// is refused
+- *redirects (D-008):* three redirects are followed, a fourth is refused
+- *redirects (D-008):* a redirect to a URI Lumina doesn't accept is refused
+  The target must pass Lumina.URI.parse/1, like any URI from a repository; a query doesn't.
+- *size limit (D-008):* a body whose Content-Length is over the limit is refused
+- *size limit (D-008):* a body sent until the server closes is cut off at the limit
+  F-026: the case OTP's :httpc can't bound. The server just keeps sending.
+- *size limit (D-008):* a chunked body over the limit is cut off
+- *responses:* a chunked body is decoded
+  RFC 9112 §7.1 chunked framing, which servers may use for any response.
+- *responses:* a body that ends before its Content-Length is :truncated
+- *responses:* a status other than 200 is :http_status
+- *responses:* a response that isn't HTTP is :bad_response
+- *connection failures:* a refused connection is :connection_refused
+- *connection failures:* a host that doesn't resolve is :unknown_host
+- *connection failures:* a server that never answers times out
+  A server that accepts TCP and never starts TLS hits the connect timeout (D-008).
 
 ### `Lumina.M1DoneTest`
 
