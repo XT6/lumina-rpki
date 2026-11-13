@@ -22,6 +22,11 @@ defmodule Lumina.Walk do
   covers the directories below it for the rest of the run, so they aren't
   retried one by one.
 
+  **In parallel (D-011):** the walk goes one level at a time. A level's
+  new publication points are fetched concurrently, at most `:per_host`
+  (default 8) rsync runs at once on each host, and the results are
+  reported in walk order, as a sequential walk would give them.
+
   **Limits (D-008):** a certificate deeper than `:max_depth` (the TA is
   depth 0) isn't followed, and a publication point already visited isn't
   walked again: a loop if it is the publication point of an ancestor,
@@ -45,6 +50,7 @@ defmodule Lumina.Walk do
   alias Lumina.{Cache, Certificate, Object, Rsync, URI}
 
   @default_max_depth 32
+  @default_per_host 8
 
   @type issue :: %{kind: atom(), uri: String.t(), detail: term()}
   @type point :: %{
@@ -60,8 +66,8 @@ defmodule Lumina.Walk do
   @doc """
   Walks from `ta` (an accepted TA certificate) into the cache at `root`.
 
-  Options: `:max_depth` (default 32), `:now` (the time recorded for each
-  fetch), `:rsync` (options for `Lumina.Rsync.fetch_dir/3`), and `:remap`,
+  Options: `:max_depth` (default 32), `:per_host` (rsync runs at once per
+  host, default 8), `:now` (the time recorded for each fetch), `:rsync` (options for `Lumina.Rsync.fetch_dir/3`), and `:remap`,
   for tests: a map from `"host:port"` in repository URIs to the
   `"host:port"` actually connected to. Remapping changes only where rsync
   connects; cache paths and reports keep the URIs from the certificates.
@@ -72,8 +78,10 @@ defmodule Lumina.Walk do
       root: root,
       opts: opts,
       max_depth: Keyword.get(opts, :max_depth, @default_max_depth),
+      per_host: Keyword.get(opts, :per_host, @default_per_host),
       now: Keyword.get_lazy(opts, :now, &DateTime.utc_now/0),
-      # Directories fetched (or attempted) this run: URI => :ok | :error.
+      # Directories fetched (or attempted) this run: URI => :ok | :error
+      # (:planned while a level is being planned).
       fetched: %{},
       visited: MapSet.new(),
       points: [],
@@ -81,7 +89,7 @@ defmodule Lumina.Walk do
       issues: []
     }
 
-    state = walk(:queue.from_list([{ta, "TA", 0, []}]), state)
+    state = walk([{ta, "TA", 0, []}], state)
 
     %{
       points: Enum.reverse(state.points),
@@ -115,64 +123,116 @@ defmodule Lumina.Walk do
 
   defp rsync?(uri), do: String.starts_with?(String.downcase(uri), "rsync://")
 
-  # The queue holds {certificate, its name for reports, depth, ancestor
-  # publication points}.
-  defp walk(queue, state) do
-    case :queue.out(queue) do
-      {:empty, _} ->
-        state
+  # The walk goes one breadth-first level at a time. Each entry is
+  # {certificate, its name for reports, depth, ancestor publication
+  # points}. A level is planned in order, its fetches run concurrently, and
+  # its results are reported in order, so the outcome is the same as
+  # visiting the entries one by one.
+  defp walk([], state), do: state
 
-      {{:value, {cert, name, depth, ancestors}}, queue} ->
-        {children, state} = visit(cert, name, depth, ancestors, state)
-        walk(Enum.reduce(children, queue, &:queue.in/2), state)
-    end
+  defp walk(level, state) do
+    {plans, state} = Enum.map_reduce(level, state, &plan/2)
+    to_fetch = for {:point, _entry, pp, :fetch} <- plans, do: pp
+    results = fetch_all(to_fetch, state)
+
+    state = %{
+      state
+      | fetched:
+          Enum.reduce(results, state.fetched, fn {pp, r}, acc -> Map.put(acc, pp, r.outcome) end)
+    }
+
+    {next, state} = Enum.flat_map_reduce(plans, state, &report(&1, &2, results))
+    walk(next, state)
   end
 
-  defp visit(cert, name, depth, ancestors, state) do
+  # Decides what an entry needs: nothing, an issue, or a publication point
+  # read from a fetch (`:fetch` if it is fetched for itself, or the URI of
+  # the fetch that covers it).
+  defp plan({cert, name, depth, ancestors} = entry, state) do
     case repository(cert) do
       :not_ca ->
-        {[], state}
+        {:skip, state}
 
       {:error, kind, detail} ->
-        {[], issue(state, kind, name, detail)}
+        {{:issue, kind, name, detail}, state}
 
       {:ok, pp} ->
         key = to_string(pp)
 
         cond do
           depth > state.max_depth ->
-            {[], issue(state, :depth_exceeded, key, %{certificate: name, depth: depth})}
+            {{:issue, :depth_exceeded, key, %{certificate: name, depth: depth}}, state}
 
           key in ancestors ->
-            {[], issue(state, :loop, key, %{certificate: name})}
+            {{:issue, :loop, key, %{certificate: name}}, state}
 
           MapSet.member?(state.visited, key) ->
-            {[], issue(state, :duplicate, key, %{certificate: name})}
+            {{:issue, :duplicate, key, %{certificate: name}}, state}
 
           true ->
             state = %{state | visited: MapSet.put(state.visited, key)}
-            {covered_by, outcome, state} = ensure_fetched(pp, state)
-            path = Cache.path(state.root, pp)
 
-            if File.dir?(path) do
-              point = %{
-                uri: key,
-                depth: depth,
-                path: path,
-                covered_by: covered_by,
-                stale: outcome == :error
-              }
+            case covering(pp, state.fetched) do
+              nil ->
+                # Planned fetches of this level cover later points too.
+                {{:point, entry, pp, :fetch},
+                 %{state | fetched: Map.put(state.fetched, pp, :planned)}}
 
-              state = %{state | points: [point | state.points]}
-              children(path, key, depth, [key | ancestors], state)
-            else
-              {[], issue(state, :missing, key, %{covered_by: covered_by})}
+              {dir, _outcome} ->
+                {{:point, entry, pp, dir}, state}
             end
         end
     end
   end
 
-  # The CA certificates directly in a publication point, as queue entries.
+  defp report(:skip, state, _results), do: {[], state}
+
+  defp report({:issue, kind, uri, detail}, state, _results),
+    do: {[], issue(state, kind, uri, detail)}
+
+  defp report({:point, {_cert, _name, depth, ancestors}, pp, covered}, state, results) do
+    key = to_string(pp)
+
+    {covered_by, outcome, state} =
+      case covered do
+        :fetch ->
+          result = Map.fetch!(results, pp)
+
+          state =
+            Enum.reduce(result.issues, state, fn {kind, uri}, st -> issue(st, kind, uri, nil) end)
+
+          state =
+            if result.outcome == :error,
+              do: issue(state, :fetch_failed, key, result.detail),
+              else: state
+
+          fetch = %{uri: key, outcome: result.outcome, detail: result.detail}
+          {key, result.outcome, %{state | fetches: [fetch | state.fetches]}}
+
+        %URI{} = dir ->
+          {to_string(dir), Map.fetch!(state.fetched, dir), state}
+      end
+
+    path = Cache.path(state.root, pp)
+
+    if File.dir?(path) do
+      point = %{
+        uri: key,
+        depth: depth,
+        path: path,
+        covered_by: covered_by,
+        stale: outcome == :error
+      }
+
+      state = %{state | points: [point | state.points]}
+      children(path, key, depth, [key | ancestors], state)
+    else
+      {[], issue(state, :missing, key, %{covered_by: covered_by})}
+    end
+  end
+
+  # The CA certificates directly in a publication point, as entries of the
+  # next level.
   defp children(path, key, depth, ancestors, state) do
     {children, state} =
       path
@@ -194,23 +254,40 @@ defmodule Lumina.Walk do
     {Enum.reverse(children), state}
   end
 
-  # Fetches `pp` unless a directory fetched in this run covers it. Returns
-  # the URI that covered it, and that fetch's outcome.
-  defp ensure_fetched(pp, state) do
-    case covering(pp, state.fetched) do
-      {uri, outcome} -> {uri, outcome, state}
-      nil -> fetch(pp, state)
-    end
-  end
-
   defp covering(pp, fetched) do
     Enum.find_value(fetched, fn {%URI{} = dir, outcome} ->
       if dir.host == pp.host and dir.port == pp.port and
            List.starts_with?(pp.path, dir.path),
-         do: {to_string(dir), outcome}
+         do: {dir, outcome}
     end)
   end
 
+  # Fetches the publication points concurrently: every host at once, and
+  # at most `:per_host` rsync runs at a time on each (D-011). Returns
+  # %{pp => result}.
+  defp fetch_all(pps, state) do
+    groups = pps |> Enum.group_by(&{&1.host, &1.port}) |> Map.values()
+
+    groups
+    |> Task.async_stream(
+      fn group ->
+        Task.async_stream(group, &{&1, fetch(&1, state)},
+          max_concurrency: state.per_host,
+          timeout: :infinity,
+          ordered: false
+        )
+        |> Enum.map(fn {:ok, result} -> result end)
+      end,
+      max_concurrency: max(length(groups), 1),
+      timeout: :infinity,
+      ordered: false
+    )
+    |> Enum.flat_map(fn {:ok, results} -> results end)
+    |> Map.new()
+  end
+
+  # One rsync run into a staging directory, committed on success. Returns
+  # the outcome, its detail and the issues it raised, as {kind, uri}.
   defp fetch(pp, state) do
     %{root: root, opts: opts} = state
     key = to_string(pp)
@@ -218,40 +295,33 @@ defmodule Lumina.Walk do
     rsync_opts = Keyword.get(opts, :rsync, [])
     rsync_opts = if File.dir?(live), do: [{:link_dest, live} | rsync_opts], else: rsync_opts
 
-    {outcome, detail, state} =
+    result =
       with {:ok, staging} <- Cache.stage(root) do
         case Rsync.fetch_dir(remap(pp, opts[:remap]), staging, rsync_opts) do
           {:ok, %{oversize: oversize}} ->
-            state = Enum.reduce(oversize, state, &issue(&2, :oversize, key <> "/" <> &1, nil))
+            oversize = for file <- oversize, do: {:oversize, key <> "/" <> file}
 
             case Cache.commit(root, pp, staging) do
               {:ok, %{removed: removed}} ->
-                state = Enum.reduce(removed, state, &issue(&2, :removed, key <> "/" <> &1, nil))
-                {:ok, nil, state}
+                removed = for file <- removed, do: {:removed, key <> "/" <> file}
+                %{outcome: :ok, detail: nil, issues: oversize ++ removed}
 
               {:error, reason} ->
                 Cache.discard(staging)
-                {:error, {:commit_failed, reason}, state}
+                %{outcome: :error, detail: {:commit_failed, reason}, issues: oversize}
             end
 
           {:error, error} ->
             Cache.discard(staging)
-            {:error, error, state}
+            %{outcome: :error, detail: error, issues: []}
         end
       else
-        {:error, reason} -> {:error, {:stage_failed, reason}, state}
+        {:error, reason} -> %{outcome: :error, detail: {:stage_failed, reason}, issues: []}
       end
 
-    Cache.record(root, pp, if(outcome == :ok, do: :ok, else: {:error, detail}), state.now)
-    state = if outcome == :error, do: issue(state, :fetch_failed, key, detail), else: state
-
-    state = %{
-      state
-      | fetched: Map.put(state.fetched, pp, outcome),
-        fetches: [%{uri: key, outcome: outcome, detail: detail} | state.fetches]
-    }
-
-    {key, outcome, state}
+    status = if result.outcome == :ok, do: :ok, else: {:error, result.detail}
+    Cache.record(root, pp, status, state.now)
+    result
   end
 
   defp remap(uri, nil), do: uri

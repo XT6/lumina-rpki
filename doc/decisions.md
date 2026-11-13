@@ -17,6 +17,8 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-007](#d-007-manifest-consistency-deferred-to-m5) | Manifest and directory consistency during a fetch is handled in M5 | 2026-11-13 | M3 plan |
 | [D-008](#d-008-default-fetch-limits) | Default fetch limits: timeouts, object size, walk depth, redirects | 2026-11-13 | M3 plan, #72, #73, #75 |
 | [D-009](#d-009-one-rsync-run-per-publication-point-not-already-covered) | One rsync run per publication point, skipping any inside a directory already fetched in the run | 2026-11-13 | M3, #72, #75 |
+| [D-010](#d-010-wildcard-server-certificates-are-accepted-with-a-warning) | Wildcard-only HTTPS server certificates are accepted with a warning | 2026-11-13 | PR #81, #73 |
+| [D-011](#d-011-publication-points-fetched-in-parallel-capped-per-host) | Each walk level's rsync runs go in parallel, at most 8 at once per host | 2026-11-13 | #77, #85 |
 
 ## D-001: CLI model
 
@@ -149,6 +151,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
   - **The same few runs:** a recursive fetch of the TA's publication point still covers every CA nested below it. The LACNIC tree needs **3** rsync runs:
     - `rsync://repository.lacnic.net/rpki/lacnic/` covers 3,512 of its 3,514 CA certificates.
     - The other two are delegations to `rsync://rpki-repo.registro.br/repo/nicbr_repo/1/` and the Amazon-hosted directory above.
+    - **Live, this estimate was wrong** (2026-11-13, #77): the local copy lacked registro.br's own tree. registro.br's member CAs each publish in a sibling directory, `rsync://rpki-repo.registro.br/repo/<key>/1/`, which no fetched directory covers. A sequential walk had made about 2,950 rsync runs there after 28 minutes, unfinished. D-011 keeps this rule and runs the fetches in parallel.
   - **It follows the RFCs:** RFC 6481 §2 and RFC 6487 §4.8.8.1 define the `caRepository` directory as the place that holds a CA's products. Fetching it means fetching what the certificate points to.
 - **Consequences:**
   - The rsync runner (#72) fetches any rsync directory URI.
@@ -167,3 +170,19 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
   - It happens in production: on 2026-11-13, `https://rpki.afrinic.net/repository/AfriNIC.cer` was served with a certificate for `*.afrinic.net` only. Rejecting wildcards would lose AFRINIC's HTTPS TA URI.
 - **Where:** PR #81 review, after #73.
 - **Consequences:** `Lumina.HTTPS.fetch/2` returns `:warnings` with `{:wildcard_certificate, uri, name}`; #74 and `lumina sync` (#76) pass them on.
+
+## D-011: Publication points fetched in parallel, capped per host
+
+- **Date:** 2026-11-13
+- **Decision:**
+  - The walk keeps D-009's rule for *what* is fetched, but fetches the publication points of one breadth-first level **concurrently**.
+  - At most **8** rsync runs at once per host (`:per_host` option of `Lumina.Walk.run/3`); different hosts are fetched at the same time.
+  - Results are reported in walk order, the same as a sequential walk.
+- **Why:**
+  - The live LACNIC tree delegates to registro.br, where thousands of member CAs each publish in a directory of their own (see D-009). One rsync run each, one after another, took well over half an hour.
+  - The maintainer chose parallel fetches over going back to fetching a whole parent directory (D-006's problem with shared hosting) or waiting for RRDP.
+  - The per-host cap keeps any one repository server from seeing more than a few connections from Lumina at once.
+- **Where:** #77 (live LACNIC run), #85.
+- **Consequences:**
+  - `Lumina.Walk` plans a level in order, fetches its new publication points with `Task.async_stream`, then reports in order. A point nested in another fetched in the same level isn't fetched again.
+  - Fixture `m3-walk-siblings` (eight sibling CAs) and the test daemon's `:max_connections` option check the cap.
