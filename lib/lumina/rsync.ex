@@ -41,7 +41,11 @@ defmodule Lumina.Rsync do
     * `:connect_timeout`, `:timeout`
     * `:no_such_module`, `:not_found`, `:no_module` (the URI has no path)
     * `:partial` (some files not transferred, or files vanished meanwhile)
+    * `:usage_error` (rsync rejected its arguments: exit 1, typically an
+      rsync older than 3.1.0, such as macOS's openrsync)
     * `:protocol_error`, `:rsync_error`
+
+  `output` keeps rsync's own messages, for reports.
   """
 
   alias Lumina.URI
@@ -198,6 +202,8 @@ defmodule Lumina.Rsync do
   end
 
   # rsync's exit values (rsync(1), "EXIT VALUES"), refined by its messages.
+  defp reason(1, _output), do: :usage_error
+
   defp reason(5, output) do
     if output =~ "Unknown module", do: :no_such_module, else: :protocol_error
   end
