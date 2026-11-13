@@ -38,6 +38,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-017](#f-017-rfc-6487-still-points-to-the-obsolete-algorithm-profile) | 6487 §4.3, §4.7, §5, §6.1.1 | reference | none found (not reported) | Use RFC 7935 (M4) |
 | [F-018](#f-018-rfc-9582-tells-cas-that-relying-parties-will-change-their-minds) | 9582 §4.3.2.2, §4.3.3 | ambiguity | none (by design) | Reported by `ROA.issues/1`; decide in M7 |
 | [F-019](#f-019-manifest-times-inherit-a-crl-rule-they-cannot-follow) | 9286 §4.2.1 | ambiguity | none found (not reported) | Use RFC 5280 GeneralizedTime rules (#48) |
+| [F-020](#f-020-a-repository-file-extension-for-an-object-banned-from-repositories) | 9323 §2, §9.3; 6481 §7.2 | ambiguity | none found (not reported) | `.sig` recognized; repository policy in M5 |
 
 ## Entries
 
@@ -352,6 +353,18 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
   - Decoding accepts any DER GeneralizedTime.
 - **Suggested text:** *"This field MUST be encoded as GeneralizedTime as specified in Section 4.1.2.5.2 of [RFC5280]."*
 - **Talk note:** "same constraints as field X in document Y" imports everything about field X, including the parts that only make sense for X's type.
+
+### F-020: a repository file extension for an object banned from repositories
+
+- **Where:**
+  - RFC 9323 §2: "because RSCs MUST NOT be distributed through the global RPKI repository system, the Subject Information Access (SIA) extension MUST be omitted from the RSC's X.509 End-Entity (EE) certificate."
+  - RFC 9323 §9.3 nevertheless registers `.sig` in the "RPKI Repository Name Schemes" registry that RFC 6481 §7.2 created "for RPKI repository objects". RFC 6481 names the registry "Name Scheme", in the singular.
+- **Kind:** ambiguity, minor.
+- **Official errata:** none found (checked 2026-11-12). **Not reported.**
+- **The problem:** the registry gives RSCs a repository file name, but the RFC never says what a relying party should do when a `.sig` file does turn up at a publication point, whether listed on a manifest or not. Ignore it? Treat the publication point as broken? Process it?
+- **Impact:** small, but it's another place where relying parties may differ. For Lumina it matters as soon as M5 decides what to do with files of known but unexpected types.
+- **Resolution:** `Lumina.Object` recognizes `.sig` as `:rsc` (#32). How a publication point treats it is decided with the rest of manifest processing in M5.
+- **Talk note:** a registry called "repository name schemes" now includes the one object type that must never be in a repository.
 
 ## Process notes
 
