@@ -4,8 +4,8 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 6 Barry fixtures: 2 valid, 4 invalid.
-- 237 unit tests in 25 modules.
+- 7 Barry fixtures: 3 valid, 4 invalid.
+- 240 unit tests in 26 modules.
 
 ## Barry fixtures
 
@@ -81,6 +81,20 @@ reason instead of a generic decode error.
   - `ta/ca1.cer`: version is 2; RFC 6487 section 4.1 requires version 3
 - **RFC:** [6487 §4.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.1)), [8897 §3.1](../rfc/rfc8897.txt) ([html](https://www.rfc-editor.org/rfc/rfc8897.html#section-3.1)), [5280 §4.1.2.1](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.1))
 - **Files:** [descriptor](../../test/fixtures/barry/m1-cert-version-2/case.repo) · [metadata](../../test/fixtures/barry/m1-cert-version-2/case.exs) · [rsync tree](../../test/fixtures/barry/m1-cert-version-2/rsync)
+
+#### `m1-resources-inherit`: CA certificate that inherits all its resources
+
+A three-level tree, TA -> ca1 -> ca2, where ca2's IP address blocks (IPv4
+and IPv6) and AS numbers are all "inherit". By RFC 3779 the actual
+resources come from the issuer, ca1, and the certificate is valid.
+
+In M1 it checks that inherit is decoded as its own value (:inherit), not
+as an empty resource list, for both extensions. M6 reuses it for
+resource inclusion, where inherit must resolve up the chain.
+
+- **Expected:** valid
+- **RFC:** [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [3779 §3.2.3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.3)), [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10)), [6487 §4.8.11](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.11))
+- **Files:** [descriptor](../../test/fixtures/barry/m1-resources-inherit/case.repo) · [metadata](../../test/fixtures/barry/m1-resources-inherit/case.exs) · [rsync tree](../../test/fixtures/barry/m1-resources-inherit/rsync)
 
 #### `m1-roa-prefixes`: ROA with IPv4 and IPv6 prefixes, with and without maxLength
 
@@ -285,6 +299,23 @@ before any object is decoded. Decoding and validation start in M1.
 - the TAL's rsync URI points to the trust anchor certificate in the tree
 - the TAL's public key is base64 that decodes to a DER SEQUENCE
 - the RRDP files are present
+
+### `Lumina.M1DoneTest`
+
+[test/lumina/m1_done_test.exs](../../test/lumina/m1_done_test.exs)
+
+The end-to-end check that closes M1 (#33): every object in every Barry
+fixture decodes through `Lumina.Object`, including the fixtures whose
+objects break the RPKI profile (decoding is structural), and every
+malformed variant built by `Lumina.Test.Mutate` is rejected at the DER
+layer with the expected rule.
+
+- every object in every fixture decodes as its type, including profile violations (RFC [6481 §2.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2.2)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [6487 §4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4)), [9582 §4](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4)), [9286 §4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4)))
+- every malformed variant of every fixture object is rejected at the DER layer (RFC [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [6481 §2.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2.2)))
+  Each mutation in Lumina.Test.Mutate breaks one DER rule. It's applied to
+  every object it fits; certificates and CRLs have no signed attributes,
+  so the signed-attribute mutation only applies to manifests and ROAs.
+- inherited resources decode as :inherit, not as empty lists (RFC [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [3779 §3.2.3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.3)))
 
 ### `Lumina.ManifestTest`
 

@@ -1,0 +1,8 @@
+ta.cer
+	ca1.cer
+		ca2.cer
+
+[node: ca2.cer]
+# Both address families, and AS numbers, inherited from ca1.
+obj.tbsCertificate.extensions.ip.extnValue = inherit
+obj.tbsCertificate.extensions.as.extnValue.asnum = inherit
