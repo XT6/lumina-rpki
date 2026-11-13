@@ -9,7 +9,7 @@ defmodule Lumina.PrintTest do
   use ExUnit.Case, async: true
   doctest Lumina.OID
 
-  alias Lumina.{Certificate, Name, Object, Print}
+  alias Lumina.{Certificate, Name, Object, Print, TAL}
   alias Lumina.Test.Fixture
 
   defp object!(fixture_id, file) do
@@ -186,6 +186,84 @@ defmodule Lumina.PrintTest do
     test "inherit is kept in brief output" do
       assert Print.render(object!("m1-resources-inherit", "ca1/ca2.cer"), brief: true) =~
                "    IPv4: inherit\n"
+    end
+  end
+
+  describe "TALs (#59)" do
+    @rfc_example "test/fixtures/tals/cases/valid-rfc-8630-example/case.tal"
+
+    @tag rfc: "8630#2.3"
+    @tag doc: """
+         The printed SKI is the one `check_ta/2` compares, so it must match the
+         TA certificate Barry generated for the same key (RFC 6487 §4.8.2).
+         """
+    test "a Barry TAL prints its URIs and the SKI its TA certificate actually carries" do
+      fixture = Fixture.load!("m0-minimal-valid")
+      {:ok, tal} = TAL.decode_file(fixture.tal_path)
+      {:ok, ta} = Object.decode_file(Path.join(fixture.rsync_root, "ta.cer"))
+      text = Print.render(tal)
+
+      for uri <- tal.uris, do: assert(text =~ "  uri: #{uri}\n")
+
+      assert text =~
+               "expected ta subject key identifier: #{hex(Certificate.extension_value(ta.value, :subject_key_identifier))}\n"
+    end
+
+    @tag rfc: "8630#2.4"
+    @tag doc: """
+         The whole printout is pinned, so a change to the layout is deliberate.
+         The preference order follows D-003: HTTPS first, though the TAL lists
+         rsync first.
+         """
+    test "the RFC 8630 example prints in full" do
+      {:ok, tal} = TAL.decode_file(@rfc_example)
+
+      assert Print.render(tal) == """
+             type: tal
+             comments:
+               comment: # This TAL is intended for documentation purposes only.
+               comment: # Do not attempt to use this in a production setting.
+             uris:
+               uri: rsync://rpki.example.org/rpki/hedgehog/root.cer
+               uri: https://rpki.example.org/rpki/hedgehog/root.cer
+             preference order:
+               1: https://rpki.example.org/rpki/hedgehog/root.cer
+               2: rsync://rpki.example.org/rpki/hedgehog/root.cer
+             subject public key: rsaEncryption (1.2.840.113549.1.1.1), 2048-bit modulus
+             expected ta subject key identifier: #{hex(TAL.subject_key_identifier(tal))}
+             warnings: none
+             """
+    end
+
+    @tag rfc: "8630#2.4"
+    test "brief leaves out the key and keeps the comments, URIs and SKI" do
+      {:ok, tal} = TAL.decode_file(@rfc_example)
+      brief = Print.render(tal, brief: true)
+
+      assert brief == String.replace(Print.render(tal), ~r/^subject public key: .*\n/m, "")
+      assert brief =~ "comment: # This TAL is intended"
+      assert brief =~ "expected ta subject key identifier: "
+    end
+
+    @tag rfc: "8630#2.2"
+    @tag doc: "Warnings (D-002) are kept in brief output: they say the file isn't clean."
+    test "parser warnings print with their line numbers" do
+      {:ok, tal} =
+        TAL.decode_file("test/fixtures/tals/cases/warning-trailing-whitespace/case.tal")
+
+      assert Print.render(tal, brief: true) =~
+               "warnings:\n  line 1: trailing whitespace ignored (trailing_whitespace)\n" <>
+                 "  line 2: trailing whitespace ignored (trailing_whitespace)\n" <>
+                 "  line 4: trailing whitespace ignored (trailing_whitespace)\n"
+    end
+
+    @tag rfc: "8630#2.2"
+    test "a TAL parse error names the line, the rule and the RFC section" do
+      {:error, finding} =
+        TAL.decode_file("test/fixtures/tals/cases/invalid-two-blank-lines/case.tal")
+
+      assert Print.error(finding, "case.tal") ==
+               "TAL line 3: #{finding.message} (extra_blank_line, RFC 8630 §2.2)"
     end
   end
 

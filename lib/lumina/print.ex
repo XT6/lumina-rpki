@@ -3,7 +3,7 @@ defmodule Lumina.Print do
   Renders decoded RPKI objects as human-readable text: one `field: value`
   per line, nested structures indented by two spaces. Used by
   `lumina print` (#34); `lumina print --brief` uses `render(object,
-  brief: true)`.
+  brief: true)`. TALs (`Lumina.TAL`) print the same way (#59).
 
   Conventions: OIDs as `name (dotted)` when the name is known, times in ISO
   8601 UTC, key identifiers and hashes in colon-separated hex, prefixes in
@@ -23,7 +23,8 @@ defmodule Lumina.Print do
     OID,
     Resources,
     ROA,
-    SignedObject
+    SignedObject,
+    TAL
   }
 
   @type node_ :: {String.t(), String.t() | [node_()]}
@@ -37,9 +38,20 @@ defmodule Lumina.Print do
   are kept: names, serials, resources, repository and CRL URIs, ROA
   prefixes, manifest file names, CRL revocations, unknown extensions.
   See D-001 in doc/decisions.md.
+
+  A TAL prints its comments, URIs (in TAL order and in the order they are
+  tried, D-003), the key, the Subject Key Identifier its TA certificate
+  must carry, and parser warnings (D-002). `brief: true` leaves out the
+  key algorithm and size.
   """
-  @spec render(Object.t(), keyword()) :: String.t()
-  def render(%Object{} = object, opts \\ []) do
+  @spec render(Object.t() | TAL.t(), keyword()) :: String.t()
+  def render(object, opts \\ [])
+
+  def render(%TAL{} = tal, opts) do
+    tal |> tal(Keyword.get(opts, :brief, false)) |> lines(0) |> Enum.join("\n") |> Kernel.<>("\n")
+  end
+
+  def render(%Object{} = object, opts) do
     tree = if Keyword.get(opts, :brief, false), do: brief(object), else: tree(object)
     tree |> lines(0) |> Enum.join("\n") |> Kernel.<>("\n")
   end
@@ -62,8 +74,18 @@ defmodule Lumina.Print do
   def error(:unknown_type, name),
     do: "type: #{inspect(Path.extname(name))} is not a registered RPKI file extension"
 
+  def error(%{line: line, rule: rule, rfc: rfc, message: message}, _name),
+    do: "TAL line #{line}: #{message} (#{rule}, #{rfc_label(rfc)})"
+
   def error(reason, _name) when is_atom(reason), do: "file: #{:file.format_error(reason)}"
   def error(reason, _name), do: inspect(reason)
+
+  defp rfc_label(ref) do
+    case String.split(ref, "#", parts: 2) do
+      [rfc, section] -> "RFC #{rfc} §#{section}"
+      [rfc] -> "RFC #{rfc}"
+    end
+  end
 
   defp format_type({:unknown, oid}), do: OID.format(oid)
   defp format_type(type), do: to_string(type)
@@ -82,6 +104,42 @@ defmodule Lumina.Print do
   defp tree(%Object{type: type, value: %SignedObject{} = object}) do
     signed_object(to_string(type), object) ++
       [{"econtent", "#{byte_size(object.econtent || <<>>)} bytes, not decoded yet (M9)"}]
+  end
+
+  # TALs (RFC 8630 §2.2). The Subject Key Identifier is what the TA
+  # certificate must carry (RFC 6487 §4.8.2); `TAL.check_ta/2` checks it.
+
+  defp tal(%TAL{} = tal, brief) do
+    key =
+      if brief,
+        do: [],
+        else: [{"subject public key", tal_key(tal)}]
+
+    preference =
+      tal
+      |> TAL.uris_by_preference()
+      |> Enum.with_index(1)
+      |> Enum.map(fn {uri, n} -> {to_string(n), uri} end)
+
+    [
+      {"type", "tal"},
+      {"comments", Enum.map(tal.comments, &{"comment", &1})},
+      {"uris", Enum.map(tal.uris, &{"uri", &1})},
+      {"preference order", preference}
+    ] ++
+      key ++
+      [
+        {"expected ta subject key identifier", hex(TAL.subject_key_identifier(tal))},
+        {"warnings", Enum.map(tal.warnings, &{"line #{&1.line}", "#{&1.message} (#{&1.rule})"})}
+      ]
+  end
+
+  defp tal_key(%TAL{public_key_info: %{algorithm: oid}} = tal) do
+    OID.format(oid) <>
+      case TAL.key_bits(tal) do
+        nil -> ""
+        bits -> ", #{bits}-bit modulus"
+      end
   end
 
   # Brief trees: validity and payload, without cryptographic detail.

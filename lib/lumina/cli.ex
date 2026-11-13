@@ -12,13 +12,13 @@ defmodule Lumina.CLI do
   decode, 2 a usage error (including an unknown command or flag).
   """
 
-  alias Lumina.{Object, Print}
+  alias Lumina.{Object, Print, TAL}
 
   @usage """
   Usage: lumina <command> [flags] [arguments]
 
   Commands:
-    print   print RPKI objects in human-readable form
+    print   print RPKI objects and TALs in human-readable form
     help    show help for lumina or a command
 
   Run "lumina help <command>" for a command's flags.
@@ -30,8 +30,9 @@ defmodule Lumina.CLI do
   Usage: lumina print [--brief] FILE...
 
   Print RPKI objects (.cer, .crl, .mft, .roa, and the envelope of .gbr, .sig
-  and .tak) as human-readable text, one field per line. Printing shows what
-  is in each file; it doesn't validate it.
+  and .tak) and trust anchor locators (.tal) as human-readable text, one
+  field per line. Printing shows what is in each file; it doesn't validate
+  it.
 
   Flags:
     --brief   leave out most cryptographic detail (key identifiers, keys,
@@ -104,7 +105,7 @@ defmodule Lumina.CLI do
       |> Enum.map(fn {path, index} ->
         if many?, do: IO.write(out, if(index > 0, do: "\n", else: "") <> "==> #{path} <==\n")
 
-        case Object.decode_file(path) do
+        case decode_file(path) do
           {:ok, object} ->
             IO.write(out, Print.render(object, brief: brief))
             :ok
@@ -116,5 +117,11 @@ defmodule Lumina.CLI do
       end)
 
     if Enum.all?(results, &(&1 == :ok)), do: 0, else: 1
+  end
+
+  # TALs aren't repository objects (RFC 6481 doesn't register .tal), so
+  # they have their own parser.
+  defp decode_file(path) do
+    if Path.extname(path) == ".tal", do: TAL.decode_file(path), else: Object.decode_file(path)
   end
 end

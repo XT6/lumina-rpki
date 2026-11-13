@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 10 Barry fixtures: 3 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 302 unit tests in 33 modules.
+- 308 unit tests in 33 modules.
 
 ## Barry fixtures
 
@@ -541,6 +541,7 @@ decode, 2 usage error. Output goes to StringIO devices.
 - *print:* a file that doesn't decode is reported on stderr, and the exit code is 1
 - *print:* an unknown file type and a missing file are decode failures
 - *print:* print with no files, or an unknown flag, prints the print usage and exits 2
+- *print:* a TAL prints, and a malformed TAL exits 1 with the line number (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
 - *print:* print --help shows the print usage
 - *help and usage:* help, -h and --help print the general usage and exit 0
 - *help and usage:* help <command> prints that command's usage
@@ -739,6 +740,17 @@ must be stable: the same file always prints the same text.
 - *brief:* a brief CRL keeps issuer, dates, number and revocations
 - *brief:* brief still shows unknown extensions, without their bytes (RFC [6487 §4.8](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8)))
 - *brief:* inherit is kept in brief output
+- *TALs (#59):* a Barry TAL prints its URIs and the SKI its TA certificate actually carries (RFC [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)))
+  The printed SKI is the one `check_ta/2` compares, so it must match the
+  TA certificate Barry generated for the same key (RFC 6487 §4.8.2).
+- *TALs (#59):* the RFC 8630 example prints in full (RFC [8630 §2.4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.4)))
+  The whole printout is pinned, so a change to the layout is deliberate.
+  The preference order follows D-003: HTTPS first, though the TAL lists
+  rsync first.
+- *TALs (#59):* brief leaves out the key and keeps the comments, URIs and SKI (RFC [8630 §2.4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.4)))
+- *TALs (#59):* parser warnings print with their line numbers (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
+  Warnings (D-002) are kept in brief output: they say the file isn't clean.
+- *TALs (#59):* a TAL parse error names the line, the rule and the RFC section (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
 - *error/2:* names the layer for each kind of failure
 
 ### `Lumina.ResourcesTest`
