@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 7 Barry fixtures: 3 valid, 4 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 280 unit tests in 30 modules.
+- 287 unit tests in 31 modules.
 
 ## Barry fixtures
 
@@ -797,6 +797,26 @@ Profile violations decode; only non-DER or unparseable input fails.
   see its order (X.690 11.6). Only re-encoding catches unsorted
   attributes, and the signature covers these exact bytes.
 - *structural decoding:* non-DER, truncated and unrelated input are errors naming the layer
+
+### `Lumina.TALTest`
+
+[test/lumina/tal_test.exs](../../test/lumina/tal_test.exs)
+
+Tests the TAL parser (RFC 8630 §2.2, strict grammar per D-002). The test
+TAL corpus (#55) fixes the exact outcome, rule and line for every case.
+Barry's TALs must parse, and must carry exactly their TA certificate's
+key, because everything the validator trusts starts from this key.
+
+- every case in the test TAL corpus gives exactly its expected outcome (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)), [8630 §2.4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.4)), [4648 §4](../rfc/rfc4648.txt) ([html](https://www.rfc-editor.org/rfc/rfc4648.html#section-4)), [3986 §3](../rfc/rfc3986.txt) ([html](https://www.rfc-editor.org/rfc/rfc3986.html#section-3)))
+  The corpus states each case's expected outcome; any difference, including the line, fails.
+- every Barry TAL parses and carries its TA certificate's key (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)), [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)))
+  Barry writes one TAL per repository; its key must be exactly the TA certificate's SPKI.
+- the RFC 8630 example parses into its comments, two URIs and an RSA 2048 key (RFC [8630 §2.4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.4)), [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
+- CRLF and LF line ends give the same result (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
+- trailing whitespace is ignored and warned about, giving the same TAL (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
+  D-002: trailing whitespace is ignored, with one warning per line.
+- errors carry a line, a rule, an RFC reference and a message
+- a missing file is an error
 
 ### `LuminaTest`
 

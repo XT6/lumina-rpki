@@ -35,10 +35,12 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-014](#f-014-two-rfc-3779-errata-change-what-a-decoder-must-accept) | 3779 §2.2.3.9, §3.2.3.8 | erratum | [2537](https://www.rfc-editor.org/errata/eid2537) verified, [7653](https://www.rfc-editor.org/errata/eid7653) held | Both followed (#26) |
 | [F-015](#f-015-two-conforming-validators-can-disagree-on-unknown-extensions) | 6487 §4.1, §4.8, §5; 8897 §3.1, §3.3 | ambiguity | none found (not reported) | Versions settled by 8897; extensions open (#42) |
 | [F-016](#f-016-no-rfc-says-how-a-repository-directory-uri-ends) | 6487 §4.8.8.1 | ambiguity | none found (not reported) | Both forms handled in M3 (#43) |
-| [F-017](#f-017-rfc-6487-still-points-to-the-obsolete-algorithm-profile) | 6487 §4.3, §4.7, §5, §6.1.1 | reference | none found (not reported) | Use RFC 7935 (M4) |
+| [F-017](#f-017-rfc-6487-still-points-to-the-obsolete-algorithm-profile) | 6487 §4.3, §4.7, §5, §6.1.1; also 7935, 8630 | reference | none found (not reported) | Use the current RFCs |
 | [F-018](#f-018-rfc-9582-tells-cas-that-relying-parties-will-change-their-minds) | 9582 §4.3.2.2, §4.3.3 | ambiguity | none (by design) | Reported by `ROA.issues/1`; decide in M7 |
 | [F-019](#f-019-manifest-times-inherit-a-crl-rule-they-cannot-follow) | 9286 §4.2.1 | ambiguity | none found (not reported) | Use RFC 5280 GeneralizedTime rules (#48) |
 | [F-020](#f-020-a-repository-file-extension-for-an-object-banned-from-repositories) | 9323 §2, §9.3; 6481 §7.2 | ambiguity | none found (not reported) | `.sig` recognized; repository policy in M5 |
+| [F-021](#f-021-the-tal-grammar-leaves-whitespace-and-blank-lines-open-and-its-example-is-indented) | 8630 §2.2, §2.4 | ambiguity | none found (not reported) | Strict grammar, whitespace warns (D-002, #54) |
+| [F-022](#f-022-the-whole-rp-procedure-for-tals-is-a-should) | 8630 §3 | ambiguity | none found (not reported) | Lumina performs every step (#56) |
 
 ## Entries
 
@@ -324,6 +326,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Impact:** small in practice, since RFC 7935 keeps the same suite (RSA 2048, SHA-256), but an implementer must know to substitute it. Lumina's library holds RFC 7935 and lists RFC 6485 as obsoleted.
 - **Resolution:** signature and key checks in M4 cite RFC 7935.
 - **Same pattern elsewhere:** RFC 7935 (August 2016) cites RFC 3447 for RSASSA-PKCS1-v1_5 (§2). RFC 8017 obsoleted RFC 3447 three months later (November 2016). Lumina's library holds RFC 8017.
+- **And in RFC 8630 (2019), the TAL specification:** it cites RFC 7230 for HTTPS (obsoleted by RFC 9110 and RFC 9112 in 2022), RFC 6486 for manifests (obsoleted by RFC 9286 in 2022) and RFC 7525 for TLS best practice (obsoleted by RFC 9325). Three of its references are now obsolete, all replaced after it was published.
 - **Talk note:** the same pattern as F-006 and F-009. Obsoleting an RFC updates the metadata of the obsoleted document, not the documents that cite it.
 
 ### F-018: RFC 9582 tells CAs that relying parties will change their minds
@@ -367,6 +370,43 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Impact:** small, but it's another place where relying parties may differ. For Lumina it matters as soon as M5 decides what to do with files of known but unexpected types.
 - **Resolution:** `Lumina.Object` recognizes `.sig` as `:rsc` (#32). How a publication point treats it is decided with the rest of manifest processing in M5.
 - **Talk note:** a registry called "repository name schemes" now includes the one object type that must never be in a repository.
+
+### F-021: the TAL grammar leaves whitespace and blank lines open, and its example is indented
+
+- **Where:** RFC 8630 §2.2 defines a TAL as an ordered sequence: optional comment lines, one or more URI lines, "a line break", then the base64 key, "To avoid long lines, line breaks MAY be inserted into the base64-encoded string."
+- **Kind:** ambiguity.
+- **Official errata:** none found for RFC 8630, RFC 7730 or RFC 6490 (checked 2026-11-12). **Not reported.**
+- **What the grammar doesn't say:**
+  1. Whether trailing whitespace on a line is allowed, and so whether `rsync://…/ta.cer ` is a valid URI line.
+  2. Whether more than one blank line may separate the URIs from the key, or follow the key.
+  3. Whether comments may appear after the first URI, or within the key.
+  4. Whether the file may end with a line break after the key, or must.
+  5. The comment text must conform to "Section 2 of [RFC5198]". That's a normative dependency on a document most RPKI implementers won't have read.
+- **And its own example (§2.4) isn't a valid TAL as printed.** The example is indented by nine spaces, as RFC formatting does. Copied verbatim, the first line starts with spaces instead of `#`, so a strict parser sees an invalid URI on line 1. Test case `invalid-rfc-8630-example-as-printed` shows this, and `valid-rfc-8630-example` is the dedented version.
+- **Impact:** parsers differ on all five points. Tolerant ones accept TALs that strict ones reject, so the same TAL file can work in one validator and fail in another.
+- **Resolution:**
+  - **D-002:** the grammar is followed strictly, and trailing whitespace is accepted with a warning.
+  - **Point 4:** a final line break is optional; it ends the last line.
+  - **Point 5:** comments must be valid UTF-8 without control characters (tab is tolerated). RFC 5198 isn't in the library, so this is a deliberately narrow reading of it.
+  - Every point has a case in the test TAL corpus (#55), and `Lumina.TAL` reports a precise rule and line for each (#54).
+- **Suggested text:**
+  - Add to §2.2: *"Lines MUST NOT contain leading or trailing whitespace. Exactly one empty line separates the URI section from the key. Comment lines MUST NOT appear after the first URI."*
+  - Mark the §2.4 example as indented for presentation only.
+- **Talk note:** the one example in the specification can't be copied into a file and used.
+
+### F-022: the whole RP procedure for TALs is a SHOULD
+
+- **Where:** RFC 8630 §3: "In order to use the TAL to retrieve and validate a (putative) TA, an RP SHOULD: 1. Retrieve the object … 2. Confirm that the retrieved object is a current, self-signed RPKI CA certificate … 3. Confirm that the public key in the TAL matches the public key in the retrieved object. 4. Perform other checks, as deemed appropriate (locally) …"
+- **Kind:** ambiguity.
+- **Official errata:** none found (checked 2026-11-12). **Not reported.**
+- **The problem:**
+  - Every step, including step 3 (the TAL key must match the certificate's key), is a SHOULD.
+  - §2.3 does say "The public key used to verify the TA MUST be the same as the subjectPublicKeyInfo in the CA certificate and in the TAL", but that sentence is about the TA, not about what the relying party must check.
+  - Read literally, an RP that skips the key comparison is still conforming. Yet the key comparison is the only thing that ties a TA certificate to the TAL its operator distributed.
+- **Impact:** in theory, an RP that accepts any self-signed certificate found at a TAL URI conforms to §3. In practice every serious validator checks the key, but the specification doesn't oblige it to.
+- **Resolution:** Lumina performs every step as if it were a MUST. A key mismatch, a non-self-signed certificate, `inherit` or empty resources all make the TA unusable (#56). The "current" check (validity dates) and signature verification are M4.
+- **Suggested text:** *"an RP MUST perform steps 1 to 3; step 4 is at the RP's discretion."*
+- **Talk note:** the security of the whole RPKI starts at the TAL key comparison, and it's a SHOULD.
 
 ## Process notes
 
