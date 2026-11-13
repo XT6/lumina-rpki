@@ -22,14 +22,15 @@ defmodule Lumina.Test.HTTPSServer do
 
   @doc """
   A test CA and a server certificate it signed. Options: `:host` (the
-  certificate's dNSName, default `"localhost"`) and `:validity`
+  certificate's dNSName, or a list of them; default `"localhost"`) and `:validity`
   (`{from_date, to_date}`, default 2020-01-01 to 2100-01-01).
   """
   @spec pki(keyword()) :: pki()
   def pki(opts \\ []) do
     host = Keyword.get(opts, :host, "localhost")
     validity = Keyword.get(opts, :validity, {{2020, 1, 1}, {2100, 1, 1}})
-    san = {:Extension, {2, 5, 29, 17}, false, [dNSName: String.to_charlist(host)]}
+    names = for name <- List.wrap(host), do: {:dNSName, String.to_charlist(name)}
+    san = {:Extension, {2, 5, 29, 17}, false, names}
     # OTP's default test certificates are signed with SHA-1, which TLS 1.3 refuses.
     key = [key: {:namedCurve, :secp256r1}, digest: :sha256]
 

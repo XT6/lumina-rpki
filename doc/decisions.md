@@ -155,3 +155,14 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
   - The walk (#75) works out which publication points are already covered.
   - `Lumina.URI.module/1` stays as a helper but isn't the unit of fetching.
   - The cache layout doesn't change: a publication point lands at its own `cache_path/2`, inside its host's tree.
+
+## D-010: Wildcard server certificates are accepted with a warning
+
+- **Date:** 2026-11-13
+- **Decision:** when an HTTPS server's certificate matches the host only through a wildcard dNSName (`*.example.net`), Lumina accepts it, logs a warning and reports it in the fetch result.
+- **Why:**
+  - RFC 8630 §4 says DNS names in repository server certificates SHOULD NOT contain `*`. That is a rule for servers, not an instruction to relying parties to reject them.
+  - Standard RFC 6125 matching accepts a wildcard in the leftmost label, and rejecting it could lose a TA certificate over a server-side SHOULD.
+  - The warning lets an operator see the deviation.
+- **Where:** PR #81 review, after #73.
+- **Consequences:** `Lumina.HTTPS.fetch/2` returns `:warnings` with `{:wildcard_certificate, uri, name}`; #74 and `lumina sync` (#76) pass them on.

@@ -477,6 +477,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
   - `stream: :self` streams only 200 and 206 responses, so a non-200 body is always buffered whole.
 - **Impact:** a hostile or broken server named in a TAL could make an RP built on `:httpc` hold any amount of data in memory, until the timeout ends it.
 - **Resolution:** `Lumina.HTTPS` speaks a minimal HTTP/1.1 GET over `:ssl` itself. Every body (Content-Length, chunked or close-delimited) is bounded by the D-008 size limit, the head by 64 KiB, and every read by the overall timeout; a non-200 body isn't read at all. A test sends a close-delimited body past the limit.
+- **Also, in `:ssl` (11.7.8):** `server_name_indication: :disable` doesn't only stop sending SNI, it also turns off the host name check, silently. A test connecting to `https://127.0.0.1/` with a certificate for `localhost` succeeded once that option was set. `Lumina.HTTPS` never sets it, and the test stays.
 - **Talk note:** "no third-party dependencies" moves the trust to the standard library, and it needs the same reading.
 
 ## Process notes

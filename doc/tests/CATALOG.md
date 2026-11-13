@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 10 Barry fixtures: 3 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 401 unit tests in 41 modules.
+- 404 unit tests in 41 modules.
 
 ## Barry fixtures
 
@@ -711,6 +711,12 @@ frames the body (Content-Length, chunked, or until it closes, F-026).
   A host given as an IP address must match the certificate too; a dNSName doesn't.
 - *certificate validation:* by default only the system CA store is trusted (RFC [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)))
   Without :cacerts the system CA store is used, and it doesn't trust a test CA.
+- *wildcard certificates (D-010):* a certificate that matches only by wildcard is accepted, logged and reported (RFC [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)))
+  RFC 8630 §4: server names SHOULD NOT contain "*". The fetch succeeds,
+  with a log line and a warning in the result. :address connects to
+  127.0.0.1 while the name checked stays rpki.example.test.
+- *wildcard certificates (D-010):* a certificate that also names the host exactly gives no warning
+- *wildcard certificates (D-010):* a wildcard covers one label only (RFC [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)))
 - *redirects (D-008):* a redirect to another HTTPS URI is followed, and the final URI reported
 - *redirects (D-008):* a redirect to http:// is refused
 - *redirects (D-008):* three redirects are followed, a fourth is refused

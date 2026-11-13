@@ -120,6 +120,45 @@ defmodule Lumina.HTTPSTest do
     end
   end
 
+  describe "wildcard certificates (D-010)" do
+    @tag rfc: "8630#4",
+         doc: """
+         RFC 8630 §4: server names SHOULD NOT contain "*". The fetch succeeds,
+         with a log line and a warning in the result. :address connects to
+         127.0.0.1 while the name checked stays rpki.example.test.
+         """
+    test "a certificate that matches only by wildcard is accepted, logged and reported" do
+      {base, pki} = serve(%{"/ta.cer" => {200, [], @body}}, host: "*.example.test")
+      uri = String.replace(base, "localhost", "rpki.example.test") <> "/ta.cer"
+
+      log =
+        capture_log(fn ->
+          assert {:ok,
+                  %{body: @body, warnings: [{:wildcard_certificate, ^uri, "*.example.test"}]}} =
+                   HTTPS.fetch(uri!(uri), cacerts: pki.cacerts, address: {127, 0, 0, 1})
+        end)
+
+      assert log =~ "only by wildcard (*.example.test)"
+    end
+
+    test "a certificate that also names the host exactly gives no warning" do
+      {base, pki} = serve(%{"/ta.cer" => {200, [], @body}}, host: ["*.example.test", "localhost"])
+
+      assert {:ok, %{warnings: []}} = HTTPS.fetch(uri!(base <> "/ta.cer"), cacerts: pki.cacerts)
+    end
+
+    @tag rfc: "8630#4"
+    test "a wildcard covers one label only" do
+      {base, pki} = serve(%{"/ta.cer" => {200, [], @body}}, host: "*.example.test")
+      uri = String.replace(base, "localhost", "a.b.example.test") <> "/ta.cer"
+
+      capture_log(fn ->
+        assert {:error, %{reason: :tls_hostname}} =
+                 HTTPS.fetch(uri!(uri), cacerts: pki.cacerts, address: {127, 0, 0, 1})
+      end)
+    end
+  end
+
   describe "redirects (D-008)" do
     test "a redirect to another HTTPS URI is followed, and the final URI reported" do
       {base, pki} =

@@ -14,7 +14,9 @@ defmodule Lumina.HTTPS do
     * TLS 1.2 or 1.3 only.
 
   Every TLS validation failure is logged as a warning, with the URI and
-  the reason.
+  the reason. A certificate that matched the host only through a wildcard
+  dNSName is accepted, but logged and reported in `:warnings`: RFC 8630 §4
+  says repository server names SHOULD NOT contain `*` (D-010).
 
   The HTTP side is a minimal HTTP/1.1 GET with `Connection: close`. OTP's
   `:httpc` isn't used: it can't bound a response body that has no
@@ -57,28 +59,34 @@ defmodule Lumina.HTTPS do
   Options: `:connect_timeout` and `:timeout` (seconds; defaults 30 and
   300, the second for the whole fetch, redirects included), `:max_size`
   (bytes; default 20 MiB), `:max_redirects` (default 3), and `:cacerts`
-  (DER CA certificates to trust instead of the system store; for tests).
+  (DER CA certificates to trust instead of the system store) and
+  `:address` (an IP address tuple to connect to instead of resolving the
+  host, which is still the name checked); the last two are for tests.
+
+  `:warnings` lists `{:wildcard_certificate, uri, name}` for each server
+  on the way whose certificate matched only through a wildcard.
   """
-  @spec fetch(URI.t(), keyword()) :: {:ok, %{body: binary(), uri: URI.t()}} | {:error, error()}
+  @spec fetch(URI.t(), keyword()) ::
+          {:ok, %{body: binary(), uri: URI.t(), warnings: [tuple()]}} | {:error, error()}
   def fetch(%URI{scheme: "https"} = uri, opts \\ []) do
     opts = Keyword.merge(@defaults, opts)
     deadline = System.monotonic_time(:millisecond) + opts[:timeout] * 1000
-    follow(uri, opts, deadline, opts[:max_redirects])
+    follow(uri, opts, deadline, opts[:max_redirects], [])
   end
 
-  defp follow(uri, opts, deadline, redirects_left) do
+  defp follow(uri, opts, deadline, redirects_left, warnings) do
     case get(uri, opts, deadline) do
-      {:ok, 200, _headers, body} ->
-        {:ok, %{body: body, uri: uri}}
+      {:ok, 200, _headers, body, new} ->
+        {:ok, %{body: body, uri: uri, warnings: warnings ++ new}}
 
-      {:ok, status, headers, _} when status in @redirects ->
+      {:ok, status, headers, _, new} when status in @redirects ->
         with {:ok, next} <- location(uri, headers) do
           if redirects_left > 0,
-            do: follow(next, opts, deadline, redirects_left - 1),
+            do: follow(next, opts, deadline, redirects_left - 1, warnings ++ new),
             else: error(:too_many_redirects, uri, opts[:max_redirects])
         end
 
-      {:ok, status, _headers, _} ->
+      {:ok, status, _headers, _, _} ->
         error(:http_status, uri, status)
 
       {:error, reason, detail} ->
@@ -120,7 +128,10 @@ defmodule Lumina.HTTPS do
     case connect(uri, opts, deadline) do
       {:ok, socket} ->
         try do
-          request(socket, uri, opts, deadline)
+          warnings = wildcard_warnings(socket, uri)
+
+          with {:ok, status, headers, body} <- request(socket, uri, opts, deadline),
+               do: {:ok, status, headers, body, warnings}
         after
           _ = :ssl.close(socket)
         end
@@ -131,7 +142,8 @@ defmodule Lumina.HTTPS do
   end
 
   defp connect(uri, opts, deadline) do
-    host = connect_host(uri.host)
+    name = connect_host(uri.host)
+    host = Keyword.get(opts, :address, name)
     timeout = min(opts[:connect_timeout] * 1000, remaining(deadline))
     caller = self()
     ref = make_ref()
@@ -161,6 +173,14 @@ defmodule Lumina.HTTPS do
       mode: :binary
     ]
 
+    # With :address, :ssl checks the name given as SNI. Never pass
+    # `server_name_indication: :disable`: :ssl then skips the host name
+    # check altogether (F-026).
+    options =
+      if opts[:address] && not ip_literal?(name),
+        do: [{:server_name_indication, name} | options],
+        else: options
+
     result = :ssl.connect(host, uri.port || 443, options, timeout)
 
     receive do
@@ -171,6 +191,34 @@ defmodule Lumina.HTTPS do
     after
       0 -> connect_result(result)
     end
+  end
+
+  defp ip_literal?(name), do: match?({:ok, _}, :inet.parse_address(name))
+
+  # The host passed the check; warn if no exact dNSName names it, so a
+  # wildcard did (RFC 8630 §4, D-010).
+  defp wildcard_warnings(socket, uri) do
+    with {:ok, der} <- :ssl.peercert(socket),
+         names = dns_names(der),
+         wildcards = Enum.filter(names, &String.contains?(&1, "*")),
+         true <- wildcards != [] and uri.host not in names do
+      Logger.warning(
+        "#{uri}: the server certificate names the host only by wildcard " <>
+          "(#{Enum.join(wildcards, ", ")}); RFC 8630 §4 says it SHOULD NOT"
+      )
+
+      for name <- wildcards, do: {:wildcard_certificate, to_string(uri), name}
+    else
+      _ -> []
+    end
+  end
+
+  defp dns_names(der) do
+    {:OTPCertificate, tbs, _, _} = :public_key.pkix_decode_cert(der, :otp)
+
+    for {:Extension, {2, 5, 29, 17}, _, names} <- List.wrap(elem(tbs, 10)),
+        {:dNSName, name} <- names,
+        do: name |> to_string() |> String.downcase()
   end
 
   # "[::1]" is an IPv6 address literal; :ssl takes it without brackets.
