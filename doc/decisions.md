@@ -20,6 +20,11 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-010](#d-010-wildcard-server-certificates-are-accepted-with-a-warning) | Wildcard-only HTTPS server certificates are accepted with a warning | 2026-11-13 | PR #81, #73 |
 | [D-011](#d-011-publication-points-fetched-in-parallel-capped-per-host) | Each walk level's rsync runs go in parallel, at most 8 at once per host | 2026-11-13 | #77, #85 |
 | [D-012](#d-012-one-rsync-run-per-module-again) | One rsync run per module, as D-006: shared hosts are rare enough | 2026-11-13 | #99 |
+| [D-013](#d-013-unknown-non-critical-extensions-accepted-with-a-warning) | Unknown non-critical certificate extensions are accepted with a warning | 2026-11-13 | #42, M4 plan |
+| [D-014](#d-014-validation-during-the-walk) | Certificates are validated during the walk; only valid CAs are followed | 2026-11-13 | M4 plan |
+| [D-015](#d-015-the-crl-that-decides-revocation-in-m4) | In M4, revocation uses the CRL named by the CRLDP; M5 adds the manifest check (RFC 9829) | 2026-11-13 | M4 plan |
+| [D-016](#d-016-a-stale-crl-is-used-with-a-warning) | A CRL past its nextUpdate is still used, with a warning | 2026-11-13 | M4 plan |
+| [D-017](#d-017-revocation-fixtures-are-re-signed-by-the-tests) | Revocation fixtures: Barry signs with keys we supply, tests re-sign CRLs with revoked entries | 2026-11-13 | M4 plan, #52 |
 
 ## D-001: CLI model
 
@@ -209,3 +214,51 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
   - Fixtures can serve extra modules on `localhost:8873` with `rsync_modules` in `case.exs`; `m3-walk-siblings` puts eight CAs in eight modules to keep testing D-011's cap.
   - A module is fetched again for each TAL in a sync (each TAL is a separate walk); sharing fetches across TALs would be a later improvement.
   - **Measured** (cold cache, 2026-11-13, LACNIC): 10 rsync runs instead of 3,685, and 1 min 52 s instead of 4 min 32 s. About a minute of what remains is three unresponsive delegated hosts waiting out rsync's 30 s connect timeout (#88). The cache holds 82,827 files.
+
+## D-013: Unknown non-critical extensions accepted with a warning
+
+- **Date:** 2026-11-13
+- **Decision:** a resource certificate with a non-critical extension Lumina doesn't recognise is validated as if the extension weren't there. The extension is reported as a warning (its OID and the certificate). Unknown **critical** extensions are rejected, as RFC 6487 §4.8 requires.
+- **Why:**
+  - RFC 6487 §4.8: "a non-critical extension MAY be ignored if it is not recognized", with RFC 5280's general rule behind it.
+  - RFC 8897 §3.1's "any extension excluded by Section 4.8" doesn't say what is excluded (F-015), so rejecting would rest on a reading, not on the text.
+  - The warning keeps the deviation visible to operators, as D-010 does for wildcard certificates.
+- **Where:** M4 plan, #42; resolves the open part of F-015.
+- **Consequences:** the certificate extension checks (M4) list known extensions; anything else non-critical becomes a warning in the validation result, not a rejection.
+
+## D-014: Validation during the walk
+
+- **Date:** 2026-11-13
+- **Completes:** D-005.
+- **Decision:**
+  - Certificates are validated as the walk reaches them (RFC 6481 §5, RFC 6487 §7.2). The walk follows only CA certificates that validate; an invalid CA is reported with its reasons and nothing below it is walked.
+  - The same validation can be run offline over the cache (`lumina validate`), at a given time, without fetching.
+- **Why:** RFC 6481 §5 describes a top-down walk through *valid* certificates. Following invalid CAs fetches repositories that can't contribute anything, and invalid certificates are exactly where an attacker would point a walk.
+- **Where:** M4 plan.
+- **Consequences:** `Walk.repository/1` (D-005's single selection point) takes the validation result. Validation needs the parent's key and CRL, so the walk carries the parent's validated certificate down.
+
+## D-015: The CRL that decides revocation in M4
+
+- **Date:** 2026-11-13
+- **Decision:**
+  - In M4, a certificate is revoked if its serial number is on the CRL its CRLDP names, found in the issuer's publication point, valid and signed with the issuer's key (RFC 6487 §7.2 point 5 as originally written).
+  - M5 adds RFC 9829's requirement: the CRL must also be the one listed on the issuer's current manifest.
+- **Why:** RFC 9829 §3.2 changes RFC 6487 §7.2 point 5 so that the issuer's current CRL is the one "identified by the issuer's current manifest and the CRLDP of the certificate". Manifests are M5. Doing CRLs in M4 without the manifest keeps the milestones apart; the manifest check tightens the rule later without changing the CRL code.
+- **Where:** M4 plan.
+- **Consequences:** M4's chain validation looks up the CRL by CRLDP. An M5 issue adds the manifest cross-check and cites RFC 9829.
+
+## D-016: A stale CRL is used with a warning
+
+- **Date:** 2026-11-13
+- **Decision:** a CRL whose nextUpdate has passed is still used for revocation checks, and a warning is reported. It isn't treated as invalid in M4.
+- **Why:** RFC 6487 and RFC 9829 don't say what a relying party does with a CRL past its nextUpdate. Treating it as invalid would invalidate every certificate it covers because a CA published late. M5's manifest rules (RFC 9286 §6) deal with stale publication points, so this is revisited there.
+- **Where:** M4 plan.
+- **Consequences:** the CRL checks report `stale_crl` as a warning.
+
+## D-017: Revocation fixtures are re-signed by the tests
+
+- **Date:** 2026-11-13
+- **Decision:** fixtures that need revoked CRL entries are generated by Barry with keys Lumina supplies (`barry --keys=DIR`, PEM files). Tests add the revoked entries to the CRL and re-sign it with the issuer's key, so the CRL is valid and only revocation is being tested.
+- **Why:** Barry (pinned `478ee89`) can't write revoked entries (#52). Re-encoding without re-signing, the earlier workaround, tests a broken signature rather than revocation.
+- **Where:** M4 plan, #52.
+- **Consequences:** fixture keys live in the repository (test-only keys). If Barry gains revoked entries, the fixtures can switch to descriptors and these tests stay the same.
