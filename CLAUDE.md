@@ -22,7 +22,7 @@ mix lumina.rfc_coverage [--rfc N]  # which RFC sections the tests and fixtures c
 mix lumina.fixtures.gen [ID...]    # regenerate Barry fixtures (needs scripts/install-barry.sh)
 mix test --only barry              # tests that run the real Barry binary (excluded when it isn't installed)
 mix lumina.test_catalog            # regenerate doc/tests/CATALOG.md after adding or changing a test or fixture
-mix escript.build && ./lumina print [--brief] FILE...   # print RPKI objects (Lumina.CLI, Lumina.Print)
+mix escript.build && ./lumina print [--brief] FILE...   # print RPKI objects and .tal files (Lumina.CLI, Lumina.Print)
 mix lumina.asn1.extract            # regenerate asn1/rfc/ (verbatim from doc/rfc) and asn1/build/ (with asn1/patches/ applied)
 ```
 

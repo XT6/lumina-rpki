@@ -81,6 +81,17 @@ defmodule Lumina.CLITest do
       assert err =~ "lumina print: unknown flag --bogus"
     end
 
+    @tag rfc: "8630#2.2"
+    test "a TAL prints, and a malformed TAL exits 1 with the line number" do
+      {0, out, ""} = run(["print", "test/fixtures/barry/m0-minimal-valid/case.tal"])
+      assert out =~ "type: tal\n"
+
+      {1, "", err} =
+        run(["print", "test/fixtures/tals/cases/invalid-two-blank-lines/case.tal"])
+
+      assert err =~ "invalid-two-blank-lines/case.tal: TAL line 3: "
+    end
+
     test "print --help shows the print usage" do
       {0, out, ""} = run(["print", "--help"])
       assert out =~ "Usage: lumina print [--brief] FILE..."

@@ -55,6 +55,7 @@ jobs:
           mix escript.build
           ./lumina print test/fixtures/barry/m0-minimal-valid/rsync/ca1/roa1.roa test/fixtures/barry/m0-minimal-valid/rsync/ca1/ca1.mft
           ./lumina print --brief test/fixtures/barry/m0-minimal-valid/rsync/ta/ca1.cer
+          ./lumina print test/fixtures/barry/m0-minimal-valid/case.tal
       - run: mix dialyzer --format github
 
   barry:
