@@ -1,6 +1,7 @@
 defmodule Lumina.PrintTest do
   @moduledoc """
-  Tests the human-readable rendering behind `lumina --print` (#34). Expected
+  Tests the human-readable rendering behind `lumina print` (#34), full and
+  `--brief` (D-001 in doc/decisions.md). Expected
   values come from the decoded structs, not hard-coded bytes, so
   regenerating a fixture (fresh keys) doesn't break the tests. The output
   must be stable: the same file always prints the same text.
@@ -116,6 +117,76 @@ defmodule Lumina.PrintTest do
     object = object!("m0-minimal-valid", "ca1/roa1.roa")
     gbr = %Object{object | type: :ghostbusters, value: object.value.object}
     assert Print.render(gbr) =~ ~r/econtent: \d+ bytes, not decoded yet \(M9\)\n/
+  end
+
+  describe "brief" do
+    test "a brief certificate keeps names, validity, URIs and resources, and drops crypto detail" do
+      object = object!("m0-minimal-valid", "ta/ca1.cer")
+      text = Print.render(object, brief: true)
+
+      assert text =~ "type: certificate (CA)\nversion: 3\nserial: #{object.value.serial}\n"
+      assert text =~ "  not before: 2026-01-01T00:00:00Z\n"
+      assert text =~ "    rpki manifest: rsync://localhost:8873/rpki/ca1/ca1.mft\n"
+      assert text =~ "    IPv4: 1.0.0.0/8\n"
+
+      for crypto <- [
+            "signature",
+            "public key",
+            "key identifier",
+            "key usage",
+            "policy",
+            "basic constraints"
+          ] do
+        refute text =~ crypto, "brief output contains #{crypto}"
+      end
+    end
+
+    test "a brief manifest lists file names without hashes" do
+      object = object!("m0-minimal-valid", "ca1/ca1.mft")
+      text = Print.render(object, brief: true)
+
+      assert text =~ "  manifest number: 1\n"
+
+      for %{name: name, hash: hash} <- object.value.files do
+        assert text =~ "    file: #{name}\n"
+        refute text =~ hex(hash)
+      end
+
+      refute text =~ "file hash algorithm"
+      refute text =~ "message digest"
+    end
+
+    test "a brief ROA keeps the signing time, EE validity and prefixes" do
+      text = Print.render(object!("m1-roa-prefixes", "ca1/roa1.roa"), brief: true)
+
+      assert text =~
+               "type: roa (signed object)\nsigning time: 2026-01-01T00:00:00Z\nee certificate validity:\n"
+
+      assert text =~ "    prefix: 1.1.0.0/17 max length 24\n"
+      refute text =~ "signer"
+    end
+
+    test "a brief CRL keeps issuer, dates, number and revocations" do
+      text = Print.render(object!("m0-minimal-valid", "ca1/ca1.crl"), brief: true)
+
+      assert text =~
+               "this update: 2026-01-01T00:00:00Z\nnext update: 2036-01-01T00:00:00Z\ncrl number: 1\nrevoked: none\n"
+
+      refute text =~ "authority key identifier"
+    end
+
+    @tag rfc: "6487#4.8"
+    test "brief still shows unknown extensions, without their bytes" do
+      text =
+        Print.render(object!("m1-cert-unknown-critical-extension", "ta/ca1.cer"), brief: true)
+
+      assert text =~ "  1.3.6.1.4.1.99999.1 (critical): unknown extension\n"
+    end
+
+    test "inherit is kept in brief output" do
+      assert Print.render(object!("m1-resources-inherit", "ca1/ca2.cer"), brief: true) =~
+               "    IPv4: inherit\n"
+    end
   end
 
   describe "error/2" do

@@ -48,12 +48,13 @@ jobs:
       - run: mix test
       - run: mix lumina.test_catalog --check
       - run: mix lumina.asn1.extract --check
-      # lumina --print (#34): the escript must build and run against the
+      # lumina print (#34): the escript must build and run against the
       # host's OTP (asn1 runtime, crypto).
-      - name: lumina --print smoke test
+      - name: lumina print smoke test
         run: |
           mix escript.build
-          ./lumina --print test/fixtures/barry/m0-minimal-valid/rsync/ca1/roa1.roa test/fixtures/barry/m0-minimal-valid/rsync/ca1/ca1.mft
+          ./lumina print test/fixtures/barry/m0-minimal-valid/rsync/ca1/roa1.roa test/fixtures/barry/m0-minimal-valid/rsync/ca1/ca1.mft
+          ./lumina print --brief test/fixtures/barry/m0-minimal-valid/rsync/ta/ca1.cer
       - run: mix dialyzer --format github
 
   barry:
