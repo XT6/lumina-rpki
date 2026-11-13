@@ -4,26 +4,27 @@ defmodule Lumina.Walk do
   publication point it reaches into the cache (RFC 6481 §5, #75).
 
   Starting with the TA, each CA certificate's SIA `caRepository` is a
-  publication point. It's fetched recursively with `Lumina.Rsync.fetch_dir/3`
-  (D-009), the CA certificates directly in it are found, and their
-  publication points are walked the same way, breadth first.
+  publication point. The rsync module holding it is fetched recursively
+  with `Lumina.Rsync.fetch_dir/3` (D-012), the CA certificates directly in
+  the publication point are found, and their publication points are walked
+  the same way, breadth first.
 
   **Which certificates are followed** is decided in one place,
   `repository/1`: in M3 every CA certificate that *decodes*, with cA true
   and an rsync `caRepository` (D-005). M4 replaces "decodes" with
   "validates".
 
-  **Fetching once:** a publication point inside a directory already
-  fetched in this run (same host, and its path below that directory) isn't
-  fetched again; it's read from the copy that fetch brought (D-009). Each
+  **Fetching once:** a publication point in a module already fetched in
+  this run (same host and port, same module) isn't fetched again; it's
+  read from the copy that fetch brought (D-012). Each
   fetch is staged and committed with `Lumina.Cache`, so a failed fetch
   keeps the last good copy (RFC 8897 §7); the walk then continues from that
   copy, marked stale, and the failure is reported. A failed fetch also
-  covers the directories below it for the rest of the run, so they aren't
-  retried one by one.
+  covers the rest of its module for the rest of the run, so it isn't
+  retried for each publication point.
 
   **In parallel (D-011):** the walk goes one level at a time. A level's
-  new publication points are fetched concurrently, at most `:per_host`
+  new modules are fetched concurrently, at most `:per_host`
   (default 8) rsync runs at once on each host, and the results are
   reported in walk order, as a sequential walk would give them.
 
@@ -37,7 +38,7 @@ defmodule Lumina.Walk do
 
     * `:points`: each publication point walked, with its depth, its cache
       path, the fetch that covered it and whether the copy is `stale`;
-    * `:fetches`: each rsync run, with its outcome (their number is the
+    * `:fetches`: each rsync run, by module URI, with its outcome (their number is the
       number of rsync runs);
     * `:issues`: everything reported, as `%{kind, uri, detail}`, `kind` one
       of `:fetch_failed`, `:loop`, `:duplicate`, `:depth_exceeded`,
@@ -134,7 +135,7 @@ defmodule Lumina.Walk do
 
   defp walk(level, state) do
     {plans, state} = Enum.map_reduce(level, state, &plan/2)
-    to_fetch = for {:point, _entry, pp, :fetch} <- plans, do: pp
+    to_fetch = for {:point, _entry, _pp, {:fetch, module}} <- plans, do: module
     depth = level |> hd() |> elem(2)
     points = Enum.count(plans, &match?({:point, _, _, _}, &1))
 
@@ -188,14 +189,18 @@ defmodule Lumina.Walk do
           true ->
             state = %{state | visited: MapSet.put(state.visited, key)}
 
-            case covering(pp, state.fetched) do
-              nil ->
-                # Planned fetches of this level cover later points too.
-                {{:point, entry, pp, :fetch},
-                 %{state | fetched: Map.put(state.fetched, pp, :planned)}}
-
-              {dir, _outcome} ->
+            case {covering(pp, state.fetched), URI.module(pp)} do
+              {{dir, _outcome}, _} ->
                 {{:point, entry, pp, dir}, state}
+
+              {nil, {:ok, module}} ->
+                # The whole module is fetched (D-012). Planned fetches of
+                # this level cover later points too.
+                {{:point, entry, pp, {:fetch, module}},
+                 %{state | fetched: Map.put(state.fetched, module, :planned)}}
+
+              {nil, {:error, error}} ->
+                {{:issue, :bad_uri, key, error}, state}
             end
         end
     end
@@ -211,19 +216,20 @@ defmodule Lumina.Walk do
 
     {covered_by, outcome, state} =
       case covered do
-        :fetch ->
-          result = Map.fetch!(results, pp)
+        {:fetch, module} ->
+          result = Map.fetch!(results, module)
+          fetched = to_string(module)
 
           state =
             Enum.reduce(result.issues, state, fn {kind, uri}, st -> issue(st, kind, uri, nil) end)
 
           state =
             if result.outcome == :error,
-              do: issue(state, :fetch_failed, key, result.detail),
+              do: issue(state, :fetch_failed, fetched, result.detail),
               else: state
 
-          fetch = %{uri: key, outcome: result.outcome, detail: result.detail}
-          {key, result.outcome, %{state | fetches: [fetch | state.fetches]}}
+          fetch = %{uri: fetched, outcome: result.outcome, detail: result.detail}
+          {fetched, result.outcome, %{state | fetches: [fetch | state.fetches]}}
 
         %URI{} = dir ->
           {to_string(dir), Map.fetch!(state.fetched, dir), state}

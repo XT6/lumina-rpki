@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 16 Barry fixtures: 9 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 462 unit tests in 46 modules.
+- 463 unit tests in 46 modules.
 
 ## Barry fixtures
 
@@ -221,22 +221,24 @@ well formed; the loop is a property of the walk.
 #### `m3-walk-nested`: A CA publication point nested inside the TA's
 
 ca1's caRepository is a subdirectory of the TA's publication point
-(rpki/ta/ca1). The recursive fetch of the TA's publication point already
-brings it, so the walk must read it from that copy and make no rsync run
-of its own (D-009). This is the common shape of RIR repositories, where
-one fetch covers most of the tree.
+(rpki/ta/ca1). The fetch of the TA's module (D-012) already brings it, so
+the walk must read it from that copy and make no rsync run of its own.
+This is the common shape of RIR repositories, where one fetch covers
+most of the tree.
 
 - **Expected:** valid
 - **RFC:** [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [6481 §2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2))
 - **Files:** [descriptor](../../test/fixtures/barry/m3-walk-nested/case.repo) · [metadata](../../test/fixtures/barry/m3-walk-nested/case.exs) · [rsync tree](../../test/fixtures/barry/m3-walk-nested/rsync)
 
-#### `m3-walk-siblings`: Eight sibling CAs, each with its own publication point on one host
+#### `m3-walk-siblings`: Eight CAs, each publishing in its own rsync module on one host
 
-The TA certifies eight CAs, each publishing in its own directory beside
-the TA's, so no fetched directory covers another: each needs its own
-rsync run. This is how registro.br publishes under LACNIC, with
-thousands of member CAs (#85). The walk fetches them concurrently, at
-most a fixed number at once per host (D-011).
+The TA certifies eight CAs, each publishing in a module of its own on the
+TA's host (s1 to s8), so each needs its own rsync run even though whole
+modules are fetched (D-012). This is the shape where per-host parallelism
+still matters: many separately fetched units on one server, as
+registro.br's thousands of member CAs were under D-009 (#85). The walk
+fetches them concurrently, at most a fixed number at once per host
+(D-011).
 
 - **Expected:** valid
 - **RFC:** [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5))
@@ -1075,9 +1077,10 @@ StringIO devices, which aren't terminals, so `lumina sync` shows
 progress only with `--progress`, as timestamped lines.
 
 - *events:* a walk emits level and fetch events, in order, with outcomes and file counts
-  m0-minimal-valid: the TA's level fetches its publication point, the
-  next level ca1's. Each level is started, its fetches run, and it is
-  finished, with the running totals of the walk.
+  m0-minimal-valid: the TA's level fetches the module rpki (all 7
+  files), which already holds ca1's publication point, so the next
+  level fetches nothing. Each level is started, its fetches run, and
+  it is finished, with the running totals of the walk.
 - *events:* emit/2 without a listener does nothing
 - *status text:* the TA being tried shows before the walk starts
 - *status text:* a walk in progress shows its level, points, rsync runs and files
@@ -1422,47 +1425,53 @@ Barry fixtures and the RIR TALs, must parse and map as expected.
 
 Tests the repository walk (`Lumina.Walk`, #75) against real rsync
 daemons serving Barry fixtures: from the TA, every publication point
-reached through CA certificates is mirrored into the cache (RFC 6481 §5),
-each fetched at most once per run, with publication points nested in a
-fetched directory read from that copy (D-009).
+reached through CA certificates is mirrored into the cache (RFC 6481 §5).
+The unit of fetching is the rsync module of a publication point, fetched
+at most once per run; publication points in a module already fetched
+are read from that copy (D-012).
 
 The `m3-walk-*` fixtures each exercise one part of the walk: a
 delegation to a second rsync host, a nested publication point, an SIA
-loop, a deep chain and an unreachable host. The fixtures name
-`localhost:8873` (and `other.example:8873`), so each test remaps those
-to its own daemons with `:remap`; cache paths and reports keep the names
-from the certificates.
+loop, a deep chain, an unreachable host and CAs in separate modules of
+one host. The fixtures name `localhost:8873` (and `other.example:8873`),
+so each test remaps those to its own daemons with `:remap`; cache paths
+and reports keep the names from the certificates.
 
 - *mirroring:* every Barry fixture mirrors completely from the local daemon (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [6481 §2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2)))
-  Every file of the fixture except the TA certificate (fetched by TA
-  retrieval, #74) lies in a publication point, so all of them must
-  arrive. Fixtures that need a second host, or that are built to be
+  Each module a fixture serves on localhost:8873 must arrive byte for
+  byte. Fixtures that need a second host, or that are built to be
   unreachable, have their own tests; so do the m2-ta-* fixtures,
   whose TA is never accepted.
+- *mirroring:* publication points in sibling directories of one module take one rsync run (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [5781 §2](../rfc/rfc5781.txt) ([html](https://www.rfc-editor.org/rfc/rfc5781.html#section-2)))
+  D-012: the TA's and ca1's publication points are sibling
+  directories of module rpki. Under D-009 they took two runs; the
+  module takes one.
 - *mirroring:* a CA whose publication point is on a second rsync host is fetched there (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [6487 §4.8.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.1)))
-  D-009: like LACNIC's delegations to registro.br and Amazon, fetched where the certificate says.
+  Like LACNIC's delegations to registro.br and Amazon, fetched where the certificate says.
 - *mirroring:* a publication point nested in one already fetched causes no extra rsync run (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
-  D-009: the TA's recursive fetch already brought ca1's directory; one rsync run in all.
+  The fetch of the TA's module already brought ca1's directory; one rsync run in all.
 - *mirroring:* each fetch's outcome is recorded in the cache status
 - *limits (D-008):* an SIA loop terminates, with the loop reported (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
 - *limits (D-008):* a chain deeper than the limit stops there, reported (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
-  RFC 6481 §5's locally configured maximum chain length, set to 2 here: ca3 is depth 3.
+  RFC 6481 §5's locally configured maximum chain length, set to 2
+  here: ca3 is depth 3. Its files arrive with the module, but it isn't
+  walked.
 - *limits (D-008):* the default depth limit lets a five-level chain through
 - *failures:* a child CA on an unreachable host is reported, and the rest is mirrored (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
 - *failures:* an unreachable publication point keeps its last good copy, walked as stale (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [8897 §7](../rfc/rfc8897.txt) ([html](https://www.rfc-editor.org/rfc/rfc8897.html#section-7)))
   First run: the host is reachable (remapped to a daemon). Second run:
   it isn't. The last good copy stays byte-identical, and the walk
   continues from it, marked stale.
-- *concurrent fetches (D-011):* sibling publication points on one host are fetched at most :per_host at a time (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
-  Eight sibling publication points, as registro.br publishes thousands
-  (#85). The daemon refuses a third connection, so a single refusal
-  would show the cap was exceeded.
-- *concurrent fetches (D-011):* sibling publication points on one host are fetched concurrently
+- *concurrent fetches (D-011):* modules on one host are fetched at most :per_host at a time (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  Eight modules on one host, fetched in one level. The daemon refuses
+  a third connection, so a single refusal would show the cap was
+  exceeded.
+- *concurrent fetches (D-011):* modules on one host are fetched concurrently
   The converse of the test above: with :per_host above what the daemon
-  accepts, it refuses some of the eight sibling fetches, which shows
+  accepts, it refuses some of the eight module fetches, which shows
   they really run at the same time.
 - *concurrent fetches (D-011):* points and fetches are reported in walk order, whatever order the fetches finish in (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
-  The order a sequential walk gives: TA first, then ca1 to ca8 as listed.
+  The order a sequential walk gives: the TA's module first, then s1 to s8 as listed.
 - *selecting CAs (D-005):* a certificate that isn't a CA isn't followed (RFC [6487 §4.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.1)))
 - *selecting CAs (D-005):* a CA is followed to its rsync caRepository (RFC [6487 §4.8.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.1)))
 

@@ -3,7 +3,7 @@ ta.cer
 		roa1.roa
 
 [node: ca1.cer]
-# ca1's publication point is a subdirectory of the TA's, so the recursive
-# fetch of the TA's publication point already brings it (D-009).
+# ca1's publication point is a subdirectory of the TA's, so the fetch of
+# the TA's module already brings it (D-012).
 rpp.uri = rsync://localhost:8873/rpki/ta/ca1
 rpp.path = ta/ca1

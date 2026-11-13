@@ -26,7 +26,10 @@ defmodule Mix.Lumina.Fixtures do
 
   `expected` is `:valid`, or `{:invalid, rejects}` where each reject names an
   object (a path under `rsync/`) and the reason it must be rejected. `barry`
-  is optional and overrides the default validity period.
+  is optional and overrides the default validity period. `rsync_modules` is
+  optional: rsync modules on `localhost:8873` besides `rpki` (which serves
+  all of `rsync/`), each mapped to the directory under `rsync/` it serves,
+  for fixtures whose CAs publish in separate modules (D-012).
 
   `case.exs` is read as data: anything but literal values (maps, lists,
   tuples, strings, atoms, numbers) is rejected, and nothing in it is run.
@@ -41,7 +44,8 @@ defmodule Mix.Lumina.Fixtures do
   def default_barry_opts, do: [now: "2026-01-01T00:00:00Z", later: "2036-01-01T00:00:00Z"]
 
   @required [:id, :title, :milestone, :rationale, :rfc, :expected]
-  @optional [:barry]
+  @optional [:barry, :rsync_modules]
+  @module_regex ~r/\A[a-z0-9][a-z0-9-]*\z/
   @milestones Enum.map(0..9, &"M#{&1}")
   @id_regex ~r/\Am[0-9]-[a-z0-9]+(?:-[a-z0-9]+)*\z/
 
@@ -53,7 +57,8 @@ defmodule Mix.Lumina.Fixtures do
           required(:rfc) => [String.t()],
           required(:expected) => :valid | {:invalid, [%{object: String.t(), reason: String.t()}]},
           required(:dir) => Path.t(),
-          optional(:barry) => keyword(String.t())
+          optional(:barry) => keyword(String.t()),
+          optional(:rsync_modules) => %{String.t() => String.t()}
         }
   @type problem :: %{file: Path.t(), message: String.t()}
 
@@ -222,7 +227,8 @@ defmodule Mix.Lumina.Fixtures do
           ["rfc must be a non-empty list of RFC references such as \"6487#4.8.9\""]
       end) ++
       check(meta, :expected, &check_expected/1) ++
-      check(meta, :barry, &check_barry/1)
+      check(meta, :barry, &check_barry/1) ++
+      check(meta, :rsync_modules, &check_modules/1)
   end
 
   defp check(meta, key, fun) do
@@ -286,6 +292,33 @@ defmodule Mix.Lumina.Fixtures do
       ["barry must be a keyword list, got: #{inspect(opts)}"]
     end
   end
+
+  defp check_modules(%{} = modules) when map_size(modules) > 0 do
+    Enum.flat_map(modules, fn
+      {"rpki", _} ->
+        ["rsync_modules: \"rpki\" is always the whole rsync/ tree"]
+
+      {name, dir} when is_binary(name) and is_binary(dir) ->
+        cond do
+          not Regex.match?(@module_regex, name) ->
+            [
+              "rsync_modules: module name #{inspect(name)} must be lowercase letters, digits, hyphens"
+            ]
+
+          Path.type(dir) != :relative or ".." in Path.split(dir) ->
+            ["rsync_modules: #{inspect(dir)} must be a relative path under rsync/"]
+
+          true ->
+            []
+        end
+
+      other ->
+        ["rsync_modules: entries must be \"module\" => \"dir\", got: #{inspect(other)}"]
+    end)
+  end
+
+  defp check_modules(other),
+    do: ["rsync_modules must be a non-empty map of module => dir, got: #{inspect(other)}"]
 
   defp check_files(case_dir, :descriptor) do
     if File.regular?(Path.join(case_dir, "case.repo")), do: [], else: ["missing case.repo"]

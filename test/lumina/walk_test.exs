@@ -2,16 +2,17 @@ defmodule Lumina.WalkTest do
   @moduledoc """
   Tests the repository walk (`Lumina.Walk`, #75) against real rsync
   daemons serving Barry fixtures: from the TA, every publication point
-  reached through CA certificates is mirrored into the cache (RFC 6481 §5),
-  each fetched at most once per run, with publication points nested in a
-  fetched directory read from that copy (D-009).
+  reached through CA certificates is mirrored into the cache (RFC 6481 §5).
+  The unit of fetching is the rsync module of a publication point, fetched
+  at most once per run; publication points in a module already fetched
+  are read from that copy (D-012).
 
   The `m3-walk-*` fixtures each exercise one part of the walk: a
   delegation to a second rsync host, a nested publication point, an SIA
-  loop, a deep chain and an unreachable host. The fixtures name
-  `localhost:8873` (and `other.example:8873`), so each test remaps those
-  to its own daemons with `:remap`; cache paths and reports keep the names
-  from the certificates.
+  loop, a deep chain, an unreachable host and CAs in separate modules of
+  one host. The fixtures name `localhost:8873` (and `other.example:8873`),
+  so each test remaps those to its own daemons with `:remap`; cache paths
+  and reports keep the names from the certificates.
   """
   use ExUnit.Case, async: true
 
@@ -22,7 +23,7 @@ defmodule Lumina.WalkTest do
   @moduletag :rsync
   @moduletag :tmp_dir
   @now ~U[2026-11-13 12:00:00Z]
-  @base "rsync://localhost:8873/rpki"
+  @module "rsync://localhost:8873/rpki"
 
   defp ta!(id) do
     {:ok, %Object{value: %Certificate{} = cert}} =
@@ -36,14 +37,16 @@ defmodule Lumina.WalkTest do
     "127.0.0.1:#{daemon.port}"
   end
 
-  # Serves the fixture's rsync tree as localhost:8873/rpki, and walks it.
+  # Serves the fixture's modules as localhost:8873, and walks it.
   defp walk!(tmp, id, opts \\ []) do
-    remap = Map.put(opts[:remap] || %{}, "localhost:8873", serve(tmp, "rpki", rsync_root(id)))
+    daemon = RsyncDaemon.start!(Path.join(tmp, "localhost"), Fixture.load!(id).modules)
+    remap = Map.put(opts[:remap] || %{}, "localhost:8873", "127.0.0.1:#{daemon.port}")
     Walk.run(ta!(id), cache(tmp), [now: @now, remap: remap] ++ Keyword.delete(opts, :remap))
   end
 
   defp rsync_root(id), do: Fixture.load!(id).rsync_root
   defp cache(tmp), do: Path.join(tmp, "cache")
+  defp mirror(tmp, path), do: tree(Path.join([cache(tmp), "rsync", path]))
 
   defp tree(dir) do
     for path <- Path.wildcard(Path.join(dir, "**/*"), match_dot: true),
@@ -57,9 +60,8 @@ defmodule Lumina.WalkTest do
   describe "mirroring" do
     @tag rfc: ["6481#5", "6481#2"],
          doc: """
-         Every file of the fixture except the TA certificate (fetched by TA
-         retrieval, #74) lies in a publication point, so all of them must
-         arrive. Fixtures that need a second host, or that are built to be
+         Each module a fixture serves on localhost:8873 must arrive byte for
+         byte. Fixtures that need a second host, or that are built to be
          unreachable, have their own tests; so do the m2-ta-* fixtures,
          whose TA is never accepted.
          """
@@ -73,46 +75,59 @@ defmodule Lumina.WalkTest do
 
         assert Enum.filter(result.issues, &(&1.kind == :fetch_failed)) == [], id
 
-        assert tree(Path.join(cache(tmp), "rsync/localhost:8873/rpki")) ==
-                 Map.delete(tree(rsync_root(id)), "ta.cer"),
-               id
+        for {name, path} <- Fixture.load!(id).modules,
+            do: assert(mirror(tmp, "localhost:8873/" <> name) == tree(path), "#{id} #{name}")
       end
+    end
+
+    @tag rfc: ["6481#5", "5781#2"],
+         doc: """
+         D-012: the TA's and ca1's publication points are sibling
+         directories of module rpki. Under D-009 they took two runs; the
+         module takes one.
+         """
+    test "publication points in sibling directories of one module take one rsync run", %{
+      tmp_dir: tmp
+    } do
+      result = walk!(tmp, "m0-minimal-valid")
+
+      assert [%{uri: @module, outcome: :ok}] = result.fetches
+
+      assert [
+               %{uri: @module <> "/ta", depth: 0, covered_by: @module},
+               %{uri: @module <> "/ca1", depth: 1, covered_by: @module, stale: false}
+             ] = result.points
     end
 
     @tag rfc: ["6481#5", "6487#4.8.8.1"],
          doc:
-           "D-009: like LACNIC's delegations to registro.br and Amazon, fetched where the certificate says."
+           "Like LACNIC's delegations to registro.br and Amazon, fetched where the certificate says."
     test "a CA whose publication point is on a second rsync host is fetched there", %{
       tmp_dir: tmp
     } do
       other = serve(tmp, "repo", Path.join(rsync_root("m3-walk-delegation"), "other"))
       result = walk!(tmp, "m3-walk-delegation", remap: %{"other.example:8873" => other})
 
-      assert Enum.map(result.fetches, & &1.uri) == [
-               @base <> "/ta",
-               @base <> "/ca1",
-               "rsync://other.example:8873/repo/ca2"
-             ]
-
+      assert Enum.map(result.fetches, & &1.uri) == [@module, "rsync://other.example:8873/repo"]
       assert result.issues == []
 
-      assert tree(Path.join(cache(tmp), "rsync/other.example:8873/repo/ca2")) ==
-               tree(Path.join(rsync_root("m3-walk-delegation"), "other/ca2"))
+      assert mirror(tmp, "other.example:8873/repo") ==
+               tree(Path.join(rsync_root("m3-walk-delegation"), "other"))
     end
 
     @tag rfc: "6481#5",
          doc:
-           "D-009: the TA's recursive fetch already brought ca1's directory; one rsync run in all."
+           "The fetch of the TA's module already brought ca1's directory; one rsync run in all."
     test "a publication point nested in one already fetched causes no extra rsync run", %{
       tmp_dir: tmp
     } do
       result = walk!(tmp, "m3-walk-nested")
 
-      assert [%{uri: @base <> "/ta", outcome: :ok}] = result.fetches
+      assert [%{uri: @module, outcome: :ok}] = result.fetches
 
       assert [
-               %{uri: @base <> "/ta", depth: 0},
-               %{uri: @base <> "/ta/ca1", depth: 1, covered_by: @base <> "/ta", stale: false}
+               %{uri: @module <> "/ta", depth: 0},
+               %{uri: @module <> "/ta/ca1", depth: 1, covered_by: @module, stale: false}
              ] = result.points
 
       assert File.read!(Path.join(cache(tmp), "rsync/localhost:8873/rpki/ta/ca1/roa1.roa")) ==
@@ -121,9 +136,9 @@ defmodule Lumina.WalkTest do
 
     test "each fetch's outcome is recorded in the cache status", %{tmp_dir: tmp} do
       walk!(tmp, "m0-minimal-valid")
-      {:ok, ca1} = URI.parse(@base <> "/ca1")
+      {:ok, module} = URI.parse(@module)
 
-      assert %{outcome: :ok, last_success: @now} = Cache.status(cache(tmp), ca1)
+      assert %{outcome: :ok, last_success: @now} = Cache.status(cache(tmp), module)
     end
   end
 
@@ -132,25 +147,27 @@ defmodule Lumina.WalkTest do
     test "an SIA loop terminates, with the loop reported", %{tmp_dir: tmp} do
       result = walk!(tmp, "m3-walk-loop")
 
-      assert kinds(result) == [{:loop, @base <> "/ca1"}]
-      assert [%{certificate: @base <> "/ca1/ca2.cer"}] = Enum.map(result.issues, & &1.detail)
-      assert Enum.map(result.points, & &1.uri) == [@base <> "/ta", @base <> "/ca1"]
+      assert kinds(result) == [{:loop, @module <> "/ca1"}]
+      assert [%{certificate: @module <> "/ca1/ca2.cer"}] = Enum.map(result.issues, & &1.detail)
+      assert Enum.map(result.points, & &1.uri) == [@module <> "/ta", @module <> "/ca1"]
     end
 
     @tag rfc: "6481#5",
-         doc:
-           "RFC 6481 §5's locally configured maximum chain length, set to 2 here: ca3 is depth 3."
+         doc: """
+         RFC 6481 §5's locally configured maximum chain length, set to 2
+         here: ca3 is depth 3. Its files arrive with the module, but it isn't
+         walked.
+         """
     test "a chain deeper than the limit stops there, reported", %{tmp_dir: tmp} do
       result = walk!(tmp, "m3-walk-deep", max_depth: 2)
 
       assert Enum.map(result.points, &{&1.uri, &1.depth}) == [
-               {@base <> "/ta", 0},
-               {@base <> "/ca1", 1},
-               {@base <> "/ca2", 2}
+               {@module <> "/ta", 0},
+               {@module <> "/ca1", 1},
+               {@module <> "/ca2", 2}
              ]
 
-      assert kinds(result) == [{:depth_exceeded, @base <> "/ca3"}]
-      refute File.exists?(Path.join(cache(tmp), "rsync/localhost:8873/rpki/ca3"))
+      assert kinds(result) == [{:depth_exceeded, @module <> "/ca3"}]
     end
 
     test "the default depth limit lets a five-level chain through", %{tmp_dir: tmp} do
@@ -167,12 +184,15 @@ defmodule Lumina.WalkTest do
       tmp_dir: tmp
     } do
       result = walk!(tmp, "m3-walk-unreachable")
-      unreachable = "rsync://unreachable.invalid/repo/ca1"
 
-      assert [{:fetch_failed, ^unreachable}, {:missing, ^unreachable}] = kinds(result)
+      assert kinds(result) == [
+               {:fetch_failed, "rsync://unreachable.invalid/repo"},
+               {:missing, "rsync://unreachable.invalid/repo/ca1"}
+             ]
+
       assert [%{detail: %{reason: :unknown_host}} | _] = result.issues
 
-      assert tree(Path.join(cache(tmp), "rsync/localhost:8873/rpki/ca2")) ==
+      assert mirror(tmp, "localhost:8873/rpki/ca2") ==
                tree(Path.join(rsync_root("m3-walk-unreachable"), "ca2"))
     end
 
@@ -195,21 +215,22 @@ defmodule Lumina.WalkTest do
 
       result = walk!(tmp, id)
 
-      assert kinds(result) == [{:fetch_failed, "rsync://unreachable.invalid/repo/ca1"}]
+      assert kinds(result) == [{:fetch_failed, "rsync://unreachable.invalid/repo"}]
       assert %{stale: true, path: ^copy} = Enum.find(result.points, &(&1.uri =~ "unreachable"))
       assert tree(copy) == before
     end
   end
 
   describe "concurrent fetches (D-011)" do
-    # Serves m3-walk-siblings from a daemon that accepts at most
-    # `max_connections` at once per module, refusing the rest, and walks
-    # it with at most `per_host` rsync runs at once.
+    # Serves m3-walk-siblings (eight CAs, each in a module of its own) from
+    # a daemon that accepts at most `max_connections` at once over all its
+    # modules, refusing the rest, and walks it with at most `per_host`
+    # rsync runs at once.
     defp siblings!(tmp, max_connections, per_host) do
       id = "m3-walk-siblings"
 
       daemon =
-        RsyncDaemon.start!(tmp, %{"rpki" => rsync_root(id)}, max_connections: max_connections)
+        RsyncDaemon.start!(tmp, Fixture.load!(id).modules, max_connections: max_connections)
 
       Walk.run(ta!(id), cache(tmp),
         now: @now,
@@ -220,44 +241,48 @@ defmodule Lumina.WalkTest do
 
     @tag rfc: "6481#5",
          doc: """
-         Eight sibling publication points, as registro.br publishes thousands
-         (#85). The daemon refuses a third connection, so a single refusal
-         would show the cap was exceeded.
+         Eight modules on one host, fetched in one level. The daemon refuses
+         a third connection, so a single refusal would show the cap was
+         exceeded.
          """
-    test "sibling publication points on one host are fetched at most :per_host at a time", %{
-      tmp_dir: tmp
-    } do
+    test "modules on one host are fetched at most :per_host at a time", %{tmp_dir: tmp} do
       result = siblings!(tmp, 2, 2)
 
       assert result.issues == []
       assert length(result.fetches) == 9
       assert Enum.all?(result.fetches, &(&1.outcome == :ok))
 
-      assert tree(Path.join(cache(tmp), "rsync/localhost:8873/rpki")) ==
-               Map.delete(tree(rsync_root("m3-walk-siblings")), "ta.cer")
+      for i <- 1..8,
+          do:
+            assert(
+              mirror(tmp, "localhost:8873/s#{i}") ==
+                tree(Path.join(rsync_root("m3-walk-siblings"), "s#{i}"))
+            )
     end
 
     @tag doc: """
          The converse of the test above: with :per_host above what the daemon
-         accepts, it refuses some of the eight sibling fetches, which shows
+         accepts, it refuses some of the eight module fetches, which shows
          they really run at the same time.
          """
-    test "sibling publication points on one host are fetched concurrently", %{tmp_dir: tmp} do
+    test "modules on one host are fetched concurrently", %{tmp_dir: tmp} do
       result = siblings!(tmp, 1, 8)
 
       assert Enum.any?(result.fetches, &(&1.outcome == :error))
-      assert [%{uri: @base <> "/ta", outcome: :ok} | _] = result.fetches
+      assert [%{uri: @module, outcome: :ok} | _] = result.fetches
     end
 
     @tag rfc: "6481#5",
-         doc: "The order a sequential walk gives: TA first, then ca1 to ca8 as listed."
+         doc: "The order a sequential walk gives: the TA's module first, then s1 to s8 as listed."
     test "points and fetches are reported in walk order, whatever order the fetches finish in",
          %{tmp_dir: tmp} do
       result = siblings!(tmp, 8, 8)
-      expected = [@base <> "/ta" | for(i <- 1..8, do: @base <> "/ca#{i}")]
+      base = "rsync://localhost:8873"
 
-      assert Enum.map(result.fetches, & &1.uri) == expected
-      assert Enum.map(result.points, & &1.uri) == expected
+      assert Enum.map(result.fetches, & &1.uri) == [@module | for(i <- 1..8, do: "#{base}/s#{i}")]
+
+      assert Enum.map(result.points, & &1.uri) ==
+               [@module <> "/ta" | for(i <- 1..8, do: "#{base}/s#{i}/ca#{i}")]
     end
   end
 
@@ -270,7 +295,7 @@ defmodule Lumina.WalkTest do
     @tag rfc: "6487#4.8.8.1"
     test "a CA is followed to its rsync caRepository" do
       {:ok, uri} = Walk.repository(ta!("m0-minimal-valid"))
-      assert to_string(uri) == @base <> "/ta"
+      assert to_string(uri) == @module <> "/ta"
     end
   end
 end

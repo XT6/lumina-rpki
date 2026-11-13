@@ -53,16 +53,6 @@ defmodule Lumina.M3DoneTest do
         do: {Path.relative_to(path, dir), File.read!(path)}
   end
 
-  defp without(tree, dir),
-    do: Map.reject(tree, fn {path, _} -> String.starts_with?(path, dir <> "/") end)
-
-  defp under(tree, dir) do
-    for {path, bytes} <- tree,
-        String.starts_with?(path, dir <> "/"),
-        into: %{},
-        do: {String.replace_prefix(path, dir <> "/", ""), bytes}
-  end
-
   defp ta_invalid?(%{expected: {:invalid, problems}}),
     do: Enum.any?(problems, &(&1.object == "ta.cer"))
 
@@ -75,7 +65,7 @@ defmodule Lumina.M3DoneTest do
     ta = File.read!(Path.join(fixture.rsync_root, "ta.cer"))
     pki = HTTPSServer.pki()
     https = "localhost:#{HTTPSServer.start!(pki, %{"/rrdp/ta.cer" => {200, [], ta}})}"
-    daemon = RsyncDaemon.start!(Path.join(work, "rpki"), %{"rpki" => fixture.rsync_root})
+    daemon = RsyncDaemon.start!(Path.join(work, "rpki"), fixture.modules)
     rsync = "127.0.0.1:#{daemon.port}"
 
     remap =
@@ -145,24 +135,23 @@ defmodule Lumina.M3DoneTest do
           assert [ta] = Path.wildcard(Path.join(cache, ".ta/*.cer")), fixture.id
           assert File.read!(ta) == source["ta.cer"], fixture.id
 
-          local = Map.delete(source, "ta.cer")
+          # Whole modules are mirrored (D-012): rpki is all of rsync/.
+          for {name, path} <- fixture.modules do
+            assert tree(Path.join(cache, "rsync/localhost:8873/" <> name)) == tree(path),
+                   "#{fixture.id} #{name}"
+          end
 
-          local =
-            case @elsewhere[fixture.id] do
-              {dir, authority, module, reachable} ->
-                mirror = tree(Path.join([cache, "rsync", authority, module]))
+          case @elsewhere[fixture.id] do
+            {dir, authority, module, reachable} ->
+              mirror = tree(Path.join([cache, "rsync", authority, module]))
 
-                if reachable == :served,
-                  do: assert(mirror == under(source, dir), fixture.id),
-                  else: assert(mirror == %{}, fixture.id)
+              if reachable == :served,
+                do: assert(mirror == tree(Path.join(fixture.rsync_root, dir)), fixture.id),
+                else: assert(mirror == %{}, fixture.id)
 
-                without(local, dir)
-
-              nil ->
-                local
-            end
-
-          assert tree(Path.join(cache, "rsync/localhost:8873/rpki")) == local, fixture.id
+            nil ->
+              :ok
+          end
 
           for path <- Path.wildcard(Path.join(cache, "rsync/**/*")), File.regular?(path) do
             assert {:ok, %Object{}} = Object.decode_file(path), path

@@ -5,6 +5,8 @@ defmodule Lumina.Test.Fixture do
       fixture = Lumina.Test.Fixture.load!("m0-minimal-valid")
       fixture.tal_path    # path to case.tal
       fixture.rsync_root  # local copy of the rsync tree
+      fixture.modules     # rsync modules to serve as localhost:8873: "rpki" => the
+                          # whole tree, plus the fixture's :rsync_modules
 
   The result also holds the fixture's metadata (`:id`, `:title`,
   `:rationale`, `:rfc`, `:expected`, ...).
@@ -18,6 +20,7 @@ defmodule Lumina.Test.Fixture do
           required(:tal_path) => Path.t(),
           required(:rsync_root) => Path.t(),
           required(:rrdp_root) => Path.t(),
+          required(:modules) => %{String.t() => Path.t()},
           optional(atom()) => term()
         }
 
@@ -38,6 +41,12 @@ defmodule Lumina.Test.Fixture do
         Map.merge(fixture, %{
           tal_path: Path.join(case_dir, "case.tal"),
           rsync_root: Path.join(case_dir, "rsync"),
+          # The rsync modules a test daemon serves as localhost:8873.
+          modules:
+            Map.new(
+              [{"rpki", "."} | Map.to_list(Map.get(fixture, :rsync_modules, %{}))],
+              fn {name, dir} -> {name, Path.join([case_dir, "rsync", dir])} end
+            ),
           rrdp_root: Path.join(case_dir, "rrdp")
         })
 

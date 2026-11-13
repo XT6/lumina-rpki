@@ -3,7 +3,7 @@ defmodule Lumina.Cache do
   The local cache of repository content (#71), laid out like the
   repositories (RFC 6481 §5):
 
-      <root>/rsync/<host[:port]>/<path>/...      publication points, fetched by rsync (D-009)
+      <root>/rsync/<host[:port]>/<path>/...      rsync modules, fetched by rsync (D-012)
       <root>/https/<host[:port]>/<path>          single files, such as TA certificates
 
   Paths come from `Lumina.URI.cache_path/2`, so they never leave `root`.
