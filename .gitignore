@@ -30,3 +30,6 @@ lumina-*.tar
 
 # Erlang generated from asn1/build/ at compile time.
 /gen/
+
+# The lumina escript (mix escript.build).
+/lumina

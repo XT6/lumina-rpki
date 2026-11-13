@@ -127,7 +127,8 @@ defmodule Lumina.MixProject do
       aliases: aliases(),
       # Fixture metadata (case.exs) is data, not tests.
       test_ignore_filters: [&String.starts_with?(&1, "test/fixtures/")],
-      dialyzer: dialyzer()
+      dialyzer: dialyzer(),
+      escript: [main_module: Lumina.CLI, name: "lumina"]
     ]
   end
 

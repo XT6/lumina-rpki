@@ -5,7 +5,7 @@
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
 - 7 Barry fixtures: 3 valid, 4 invalid.
-- 240 unit tests in 26 modules.
+- 257 unit tests in 28 modules.
 
 ## Barry fixtures
 
@@ -199,6 +199,21 @@ and only non-DER or unparseable input fails.
 - *malformed content:* a validity time that isn't a real date is an error (RFC [5280 §4.1.2.5.1](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.5.1)))
 - *malformed content:* non-DER, truncated and non-certificate input are errors naming the layer (RFC [6487 §4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4)), [6481 §2.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2.2)))
 
+### `Lumina.CLITest`
+
+[test/lumina/cli_test.exs](../../test/lumina/cli_test.exs)
+
+Tests the `lumina` command line through `Lumina.CLI.run/3`, which returns
+the exit code instead of halting: 0 when every file printed, 1 when any
+failed to decode, 2 for usage errors. Output goes to StringIO devices.
+
+- --print prints one file and exits 0
+- several files print one section each, with a header
+- a file that doesn't decode is reported on stderr and the exit code is 1
+- an unknown file type and a missing file are decode failures
+- --help prints usage to stdout and exits 0
+- missing arguments and unknown options print usage to stderr and exit 2
+
 ### `Lumina.CRLTest`
 
 [test/lumina/crl_test.exs](../../test/lumina/crl_test.exs)
@@ -364,6 +379,27 @@ layer that failed.
 - *errors name the layer:* envelope
 - *errors name the layer:* eContent
 - *errors name the layer:* type and file
+
+### `Lumina.PrintTest`
+
+[test/lumina/print_test.exs](../../test/lumina/print_test.exs)
+
+Tests the human-readable rendering behind `lumina --print` (#34). Expected
+values come from the decoded structs, not hard-coded bytes, so
+regenerating a fixture (fresh keys) doesn't break the tests. The output
+must be stable: the same file always prints the same text.
+
+- a CA certificate prints its fields, extensions and resources
+- the TA certificate is marked self-issued
+- printing the same file twice gives identical text
+- a ROA prints its envelope, EE certificate and prefixes with max lengths
+- a manifest prints its number, times and each file with its hash
+- a CRL prints its dates, revocations and CRL number
+- an unknown extension prints its OID, criticality and hex (RFC [6487 §4.8](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8)))
+- inherited resources print as inherit
+- profile violations print like anything else
+- a signed object whose eContent isn't decoded yet prints its envelope and size
+- *error/2:* names the layer for each kind of failure
 
 ### `Lumina.ResourcesTest`
 
