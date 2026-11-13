@@ -41,6 +41,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-020](#f-020-a-repository-file-extension-for-an-object-banned-from-repositories) | 9323 §2, §9.3; 6481 §7.2 | ambiguity | none found (not reported) | `.sig` recognized; repository policy in M5 |
 | [F-021](#f-021-the-tal-grammar-leaves-whitespace-and-blank-lines-open-and-its-example-is-indented) | 8630 §2.2, §2.4 | ambiguity | none found (not reported) | Strict grammar, whitespace warns (D-002, #54) |
 | [F-022](#f-022-the-whole-rp-procedure-for-tals-is-a-should) | 8630 §3 | ambiguity | none found (not reported) | Lumina performs every step (#56) |
+| [F-023](#f-023-a-non-empty-set-of-resources-across-one-or-two-extensions) | 8630 §2.3; 3779 App. A | ambiguity | none found (not reported) | Each present extension must be non-empty (#56) |
 
 ## Entries
 
@@ -407,6 +408,20 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Resolution:** Lumina performs every step as if it were a MUST. A key mismatch, a non-self-signed certificate, `inherit` or empty resources all make the TA unusable (#56). The "current" check (validity dates) and signature verification are M4.
 - **Suggested text:** *"an RP MUST perform steps 1 to 3; step 4 is at the RP's discretion."*
 - **Talk note:** the security of the whole RPKI starts at the TAL key comparison, and it's a SHOULD.
+
+### F-023: "a non-empty set" of resources across one or two extensions
+
+- **Where:** RFC 8630 §2.3: "The INR extension(s) of this TA MUST contain a non-empty set of number resources. It MUST NOT use the "inherit" form of the INR extension(s)."
+- **Kind:** ambiguity.
+- **Official errata:** none found (checked 2026-11-12). **Not reported.**
+- **The problem:**
+  - A TA can carry two INR extensions, IP addresses and AS numbers. "a non-empty set" is singular. Does the union of both have to be non-empty, or each extension that is present?
+  - Take a TA with a present but empty IP extension (an `IPAddrBlocks` with no families) and a full AS extension. It passes the first reading and fails the second.
+  - RFC 3779's ASN.1 makes such certificates possible: `IPAddrBlocks ::= SEQUENCE OF IPAddressFamily` has no `SIZE (1..MAX)`, and neither does `ASIdentifiers`, whose fields are both OPTIONAL. So an empty extension is valid DER.
+  - Barry produces one with a single override.
+- **Impact:** relying parties that read the rule differently disagree on such a TA, and so on its entire tree.
+- **Resolution:** Lumina requires **each present** INR extension to be non-empty. An extension that is present but empty says nothing, and nothing legitimate needs it. Fixture `m2-ta-empty-ip` and `Lumina.TAL.check_ta/2` (#56) implement this.
+- **Suggested text:** *"Each INR extension present in the TA MUST contain a non-empty set of number resources."*
 
 ## Process notes
 

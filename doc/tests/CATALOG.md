@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 7 Barry fixtures: 3 valid, 4 invalid.
+- 10 Barry fixtures: 3 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 287 unit tests in 31 modules.
+- 297 unit tests in 32 modules.
 
 ## Barry fixtures
 
@@ -127,6 +127,55 @@ is explicitly encoded (it isn't the DEFAULT), so the object is still DER.
   - `ca1/roa1.roa`: version is 2; RFC 9582 section 4.1 requires 0
 - **RFC:** [9582 §4.1](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.1))
 - **Files:** [descriptor](../../test/fixtures/barry/m1-roa-version-2/case.repo) · [metadata](../../test/fixtures/barry/m1-roa-version-2/case.exs) · [rsync tree](../../test/fixtures/barry/m1-roa-version-2/rsync)
+
+### M2
+
+#### `m2-ta-empty-ip`: Trust anchor certificate with an empty IP resource extension
+
+A TA certificate whose IP Address Delegation extension is present but
+empty: an IPAddrBlocks with no address families. Its AS resources are
+normal. RFC 8630 section 2.3 requires the TA's INR extension(s) to
+contain a non-empty set of resources.
+
+Whether "a non-empty set" means the union of both extensions or each
+extension is ambiguous (F-023 in doc/rfc-findings.md). Lumina reads it as
+each present extension, so this TA is rejected even though its AS set
+is not empty.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta.cer`: the IP resource extension is empty; RFC 8630 section 2.3
+- **RFC:** [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)), [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10))
+- **Files:** [descriptor](../../test/fixtures/barry/m2-ta-empty-ip/case.repo) · [metadata](../../test/fixtures/barry/m2-ta-empty-ip/case.exs) · [rsync tree](../../test/fixtures/barry/m2-ta-empty-ip/rsync)
+
+#### `m2-ta-inherit`: Trust anchor certificate that inherits its IP resources
+
+A TA certificate whose IP Address Delegation extension uses "inherit"
+for both address families. RFC 8630 section 2.3 says the TA's INR
+extensions MUST NOT use the inherit form: a self-signed certificate has
+no issuer to inherit from. The TA, and so everything under it, must be
+rejected.
+
+It checks that the TA check looks at the resources and not just the key:
+the TAL key matches this certificate exactly.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta.cer`: IP resources are inherit; RFC 8630 section 2.3 forbids it in a TA
+- **RFC:** [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)), [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5))
+- **Files:** [descriptor](../../test/fixtures/barry/m2-ta-inherit/case.repo) · [metadata](../../test/fixtures/barry/m2-ta-inherit/case.exs) · [rsync tree](../../test/fixtures/barry/m2-ta-inherit/rsync)
+
+#### `m2-ta-not-ca`: Trust anchor certificate that is not a CA (cA = false)
+
+A TA certificate whose Basic Constraints say cA = false. RFC 8630
+section 2.3 requires the TA to be a self-signed CA certificate; a
+certificate that isn't a CA can't issue the rest of the tree, whatever
+key it carries.
+
+The key matches the TAL exactly, so only the CA check catches it.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta.cer`: Basic Constraints cA is false; RFC 8630 section 2.3 requires a CA certificate
+- **RFC:** [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)), [6487 §4.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.1))
+- **Files:** [descriptor](../../test/fixtures/barry/m2-ta-not-ca/case.repo) · [metadata](../../test/fixtures/barry/m2-ta-not-ca/case.exs) · [rsync tree](../../test/fixtures/barry/m2-ta-not-ca/rsync)
 
 ## Test TALs
 
@@ -797,6 +846,29 @@ Profile violations decode; only non-DER or unparseable input fails.
   see its order (X.690 11.6). Only re-encoding catches unsorted
   attributes, and the signature covers these exact bytes.
 - *structural decoding:* non-DER, truncated and unrelated input are errors naming the layer
+
+### `Lumina.TALCheckTest`
+
+[test/lumina/tal_check_test.exs](../../test/lumina/tal_check_test.exs)
+
+Tests checking a trust anchor certificate against its TAL (RFC 8630
+§2.3, §3; #56). Everything the validator trusts hangs off the TA, so a
+certificate must be refused if its key isn't the TAL's, if it isn't a
+self-signed CA, or if its resources are missing, empty or inherited.
+Signature and validity checks are M4.
+
+- every Barry TA passes against its own TAL, except the ones built to fail (RFC [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)), [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)))
+- the TA fixtures built to fail give exactly their problem (RFC [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)), [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [6487 §4.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.1)))
+- a TA certificate whose key isn't the TAL's is rejected (RFC [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)), [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)))
+  Two well-formed TAs from different fixtures: only the key ties a certificate to its TAL.
+- a CA certificate that isn't self-issued can't be a TA, even with a matching TAL (RFC [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)), [6487 §4.8.3](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.3)))
+- an EE certificate can't be a TA (RFC [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)), [6487 §4.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.1)))
+- *resources:* an inherited AS number set is rejected (RFC [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)))
+- *resources:* an AS extension with no identifiers is rejected (RFC [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)))
+  Each present resource extension must hold resources (F-023); an empty AS extension fails even with IP resources.
+- *resources:* a TA with no resource extensions at all is rejected (RFC [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)), [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10)), [6487 §4.8.11](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.11)))
+- *resources:* a resource extension that doesn't decode is reported, not ignored
+- each problem names its rule, RFC section and reason
 
 ### `Lumina.TALTest`
 

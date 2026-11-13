@@ -1,0 +1,5 @@
+ta.cer
+
+[node: ta.cer]
+# Basic Constraints present but cA = false.
+obj.tbsCertificate.extensions.bc.extnValue.cA = false

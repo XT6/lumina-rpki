@@ -1,0 +1,5 @@
+ta.cer
+
+[node: ta.cer]
+# A TA may not inherit: it has no issuer to inherit from.
+obj.tbsCertificate.extensions.ip.extnValue = inherit

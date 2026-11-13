@@ -255,6 +255,119 @@ defmodule Lumina.TAL do
   end
 
   @doc """
+  Checks a trust anchor certificate against its TAL, per RFC 8630 §2.3 and
+  §3. Returns `:ok`, or `{:error, problems}` where each problem is
+  `%{rule:, rfc:, message:}`:
+
+    * `:key_mismatch`: the certificate's SubjectPublicKeyInfo isn't
+      byte-identical to the TAL's key (§2.3, §3 step 3)
+    * `:not_self_issued`: issuer and subject differ (§2.3, "self-signed")
+    * `:not_ca`: no Basic Constraints with cA=true (§2.3, RFC 6487 §4.8.1)
+    * `:aki_mismatch`: an AKI that isn't equal to the SKI (RFC 6487 §4.8.3)
+    * `:no_resources`: neither IP nor AS resources (§2.3)
+    * `:inherit_resources`: an `inherit` IP family, asnum or rdi (§2.3)
+    * `:empty_resources`: a present resource extension that holds no
+      resources (§2.3; each extension must be non-empty, F-023)
+    * `:malformed_resources`: a resource extension that doesn't decode
+
+  Lumina treats every §3 step as a MUST (F-022). Verifying the
+  self-signature (RFC 7935) and checking that the certificate is current
+  (validity dates) are left to certificate validation (M4).
+  """
+  @spec check_ta(t(), Lumina.Certificate.t()) :: :ok | {:error, [map()]}
+  def check_ta(%__MODULE__{} = tal, %Lumina.Certificate{} = cert) do
+    alias Lumina.Certificate
+
+    ip = Certificate.extension_value(cert, :ip_resources)
+    as = Certificate.extension_value(cert, :as_resources)
+    ski = Certificate.extension_value(cert, :subject_key_identifier)
+    aki = Certificate.extension_value(cert, :authority_key_identifier)
+
+    problems =
+      [
+        if(tal.public_key != cert.public_key.der,
+          do:
+            problem(
+              :key_mismatch,
+              "8630#2.3",
+              "the certificate's public key is not the TAL's key"
+            )
+        ),
+        if(cert.issuer_der != cert.subject_der,
+          do:
+            problem(
+              :not_self_issued,
+              "8630#2.3",
+              "issuer and subject differ; a TA certificate is self-signed"
+            )
+        ),
+        if(not match?(%{ca: true}, Certificate.extension_value(cert, :basic_constraints)),
+          do:
+            problem(
+              :not_ca,
+              "8630#2.3",
+              "the certificate is not a CA certificate (Basic Constraints cA=true)"
+            )
+        ),
+        if(match?(%{key_identifier: kid} when kid != nil, aki) and aki.key_identifier != ski,
+          do:
+            problem(
+              :aki_mismatch,
+              "6487#4.8.3",
+              "the AKI of a self-signed certificate must equal its SKI"
+            )
+        ),
+        if(ip == nil and as == nil,
+          do: problem(:no_resources, "8630#2.3", "the certificate has no IP or AS resources")
+        )
+      ] ++ resource_problems(:ip, ip) ++ resource_problems(:as, as)
+
+    case Enum.reject(problems, &is_nil/1) do
+      [] -> :ok
+      found -> {:error, found}
+    end
+  end
+
+  defp resource_problems(_kind, nil), do: []
+
+  defp resource_problems(kind, {:malformed, reason}),
+    do: [
+      problem(
+        :malformed_resources,
+        "8630#2.3",
+        "the #{kind} resource extension doesn't decode: #{inspect(reason)}"
+      )
+    ]
+
+  defp resource_problems(:ip, families) do
+    cond do
+      Enum.any?(families, &(&1.resources == :inherit)) ->
+        [problem(:inherit_resources, "8630#2.3", "a TA must not inherit IP resources")]
+
+      families == [] or Enum.any?(families, &(&1.resources == [])) ->
+        [problem(:empty_resources, "8630#2.3", "the IP resource extension holds no resources")]
+
+      true ->
+        []
+    end
+  end
+
+  defp resource_problems(:as, %{asnum: asnum, rdi: rdi}) do
+    cond do
+      :inherit in [asnum, rdi] ->
+        [problem(:inherit_resources, "8630#2.3", "a TA must not inherit AS resources")]
+
+      asnum in [nil, []] and rdi in [nil, []] ->
+        [problem(:empty_resources, "8630#2.3", "the AS resource extension holds no resources")]
+
+      true ->
+        []
+    end
+  end
+
+  defp problem(rule, rfc, message), do: %{rule: rule, rfc: rfc, message: message}
+
+  @doc """
   The size in bits of an RSA key's modulus, or `nil` if the key isn't RSA
   or can't be read.
   """
