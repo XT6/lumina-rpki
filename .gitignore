@@ -1,3 +1,7 @@
+# Local copies of real RPKI repositories (rsynced by hand). Not committed:
+# large, and only useful until their objects expire.
+test/realrepos
+
 # The directory Mix will write compiled artifacts to.
 /_build/
 
