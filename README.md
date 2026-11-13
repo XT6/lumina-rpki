@@ -22,7 +22,7 @@ Fetches the trust anchors and repositories into a local cache. Nothing is valida
 ```sh
 ./lumina sync                          # every TAL in ./tals/ (the five RIRs)
 ./lumina sync --tal tals/lacnic.tal    # one TAL
-./lumina help sync                     # flags: --cache, --timeout, --max-depth, --rsync, --progress, --quiet
+./lumina help sync                     # flags: --cache, --timeout, --max-depth, --per-host, --rsync, --progress, --quiet
 ```
 
 On a terminal, a status line on stderr shows progress: the TAL, the walk level, publication points, rsync runs (done, running, failed), files mirrored, and the slowest fetch in progress. `--progress` writes timestamped lines instead when stderr isn't a terminal (logs, CI); `--quiet` turns progress off. The summary on stdout is the same either way.

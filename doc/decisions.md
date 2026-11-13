@@ -186,4 +186,5 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Consequences:**
   - `Lumina.Walk` plans a level in order, fetches its new publication points with `Task.async_stream`, then reports in order. A point nested in another fetched in the same level isn't fetched again.
   - Fixture `m3-walk-siblings` (eight sibling CAs) and the test daemon's `:max_connections` option check the cap.
+  - The cap is configurable: `lumina sync --per-host N` (#98), for slow links where each rsync run costs more.
   - Live result (2026-11-13, #77): the LACNIC tree took 3,685 rsync runs to 8 hosts and 7,195 publication points; fetching took about 4.5 minutes, against over 28 minutes unfinished sequentially. A level waits for its slowest fetch, so one unresponsive host (rsync connect timeout, 30 s) delays the next level.
