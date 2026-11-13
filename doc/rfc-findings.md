@@ -318,6 +318,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
   - A reader of RFC 6487 follows the citation to an obsolete document, and the RFC index entry for RFC 6487 gives no hint of RFC 7935.
 - **Impact:** small in practice, since RFC 7935 keeps the same suite (RSA 2048, SHA-256), but an implementer must know to substitute it. Lumina's library holds RFC 7935 and lists RFC 6485 as obsoleted.
 - **Resolution:** signature and key checks in M4 cite RFC 7935.
+- **Same pattern elsewhere:** RFC 7935 (August 2016) cites RFC 3447 for RSASSA-PKCS1-v1_5 (§2). RFC 8017 obsoleted RFC 3447 three months later (November 2016). Lumina's library holds RFC 8017.
 - **Talk note:** the same pattern as F-006 and F-009. Obsoleting an RFC updates the metadata of the obsoleted document, not the documents that cite it.
 
 ## Process notes
