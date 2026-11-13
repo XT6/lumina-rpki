@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 16 Barry fixtures: 9 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 448 unit tests in 45 modules.
+- 450 unit tests in 45 modules.
 
 ## Barry fixtures
 
@@ -664,12 +664,17 @@ repository's certificates to it (`:remap`, see `Lumina.Walk`).
 - *the cache lock:* a cache held by a running process isn't touched, and the sync exits 1
 - *the cache lock:* a lock whose process is gone is taken over
   A lock left by a crashed run (its process is gone) is taken over and released.
-- *rsync (#89):* an rsync older than 3.1.0 stops the sync before anything is fetched, exit 1
+- *rsync (#89, #93):* an rsync older than 3.1.0 stops the sync before anything is fetched, exit 1
   The cache isn't created: nothing is fetched and no lock is taken.
-- *rsync (#89):* openrsync is recognised as too old
+- *rsync (#89, #93):* openrsync is recognised as too old
   macOS's /usr/bin/rsync is openrsync, which reports itself as 2.6.9 compatible.
-- *rsync (#89):* a missing rsync stops the sync before anything is fetched, exit 1
-- *rsync (#89):* an rsync that rejects its arguments is reported with rsync's message
+- *rsync (#89, #93):* --rsync naming a missing file stops the sync, naming the path, exit 1
+- *rsync (#89, #93):* --rsync naming a file that isn't executable stops the sync, exit 1
+- *rsync (#89, #93):* --rsync is the binary used for every rsync run (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  The binary given is a wrapper that logs each call and runs the real
+  rsync. The sync must succeed, and every rsync run (version check,
+  TA retrieval and walk) must have gone through the wrapper.
+- *rsync (#89, #93):* an rsync that rejects its arguments is reported with rsync's message
   An rsync that passes the version check but rejects an argument
   (exit 1): the fetch fails as usage_error, and rsync's own message
   is in the summary.

@@ -170,7 +170,7 @@ defmodule Lumina.CLISyncTest do
     end
   end
 
-  describe "rsync (#89)" do
+  describe "rsync (#89, #93)" do
     # A fake rsync: prints `version_text` for --version, otherwise writes
     # `message` to stderr and exits `status`.
     defp fake_rsync(tmp, version_text, status \\ 0, message \\ "") do
@@ -195,7 +195,7 @@ defmodule Lumina.CLISyncTest do
       dead = dead_tal("m0-minimal-valid", Path.join(tmp, "tals"))
       cache = Path.join(tmp, "cache")
 
-      assert {1, "", err} = run(["sync", "--cache", cache, "--tal", dead], rsync: [rsync: rsync])
+      assert {1, "", err} = run(["sync", "--cache", cache, "--tal", dead, "--rsync", rsync])
       assert err =~ "lumina sync: #{rsync} is rsync 2.6.9; Lumina needs 3.1.0 or later"
       assert err =~ "openrsync"
       refute File.exists?(cache)
@@ -207,24 +207,63 @@ defmodule Lumina.CLISyncTest do
       dead = dead_tal("m0-minimal-valid", Path.join(tmp, "tals"))
 
       assert {1, "", err} =
-               run(["sync", "--cache", Path.join(tmp, "cache"), "--tal", dead],
-                 rsync: [rsync: rsync]
-               )
+               run(["sync", "--cache", Path.join(tmp, "cache"), "--tal", dead, "--rsync", rsync])
 
       assert err =~ "is rsync 2.6.9; Lumina needs 3.1.0 or later"
     end
 
-    test "a missing rsync stops the sync before anything is fetched, exit 1", %{tmp_dir: tmp} do
+    test "--rsync naming a missing file stops the sync, naming the path, exit 1", %{
+      tmp_dir: tmp
+    } do
       dead = dead_tal("m0-minimal-valid", Path.join(tmp, "tals"))
       cache = Path.join(tmp, "cache")
+      missing = Path.join(tmp, "no-such-rsync")
+
+      assert {1, "", err} = run(["sync", "--cache", cache, "--tal", dead, "--rsync", missing])
+      assert err =~ "lumina sync: #{missing} not found or not executable"
+      refute File.exists?(cache)
+    end
+
+    test "--rsync naming a file that isn't executable stops the sync, exit 1", %{tmp_dir: tmp} do
+      dead = dead_tal("m0-minimal-valid", Path.join(tmp, "tals"))
+      plain = Path.join(tmp, "plain-file")
+      File.write!(plain, "#!/bin/sh\n")
 
       assert {1, "", err} =
-               run(["sync", "--cache", cache, "--tal", dead],
-                 rsync: [rsync: Path.join(tmp, "no-such-rsync")]
+               run(["sync", "--cache", Path.join(tmp, "cache"), "--tal", dead, "--rsync", plain])
+
+      assert err =~ "#{plain} not found or not executable"
+    end
+
+    @tag :rsync
+    @tag rfc: ["8630#3", "6481#5"],
+         doc: """
+         The binary given is a wrapper that logs each call and runs the real
+         rsync. The sync must succeed, and every rsync run (version check,
+         TA retrieval and walk) must have gone through the wrapper.
+         """
+    test "--rsync is the binary used for every rsync run", %{tmp_dir: tmp} do
+      {tal, remap} = served_tal(tmp, "m0-minimal-valid", Path.join(tmp, "tals"))
+      log = Path.join(tmp, "calls.log")
+      wrapper = Path.join(tmp, "logging-rsync")
+
+      File.write!(wrapper, """
+      #!/bin/sh
+      echo "$*" >> '#{log}'
+      exec '#{System.find_executable("rsync")}' "$@"
+      """)
+
+      File.chmod!(wrapper, 0o755)
+
+      assert {0, _out, ""} =
+               run(["sync", "--cache", Path.join(tmp, "cache"), "--tal", tal, "--rsync", wrapper],
+                 remap: remap
                )
 
-      assert err =~ "lumina sync: rsync not found; Lumina needs rsync 3.1.0 or later"
-      refute File.exists?(cache)
+      calls = log |> File.read!() |> String.split("\n", trim: true)
+      assert ["--version" | fetches] = calls
+      assert Enum.any?(fetches, &(&1 =~ "/rpki/./ta.cer"))
+      assert Enum.count(fetches, &(&1 =~ ~r"/rpki/\./(ta|ca1)/")) == 2
     end
 
     @tag doc: """
@@ -246,9 +285,7 @@ defmodule Lumina.CLISyncTest do
       dead = dead_tal("m0-minimal-valid", Path.join(tmp, "tals"))
 
       assert {1, out, ""} =
-               run(["sync", "--cache", Path.join(tmp, "cache"), "--tal", dead],
-                 rsync: [rsync: rsync]
-               )
+               run(["sync", "--cache", Path.join(tmp, "cache"), "--tal", dead, "--rsync", rsync])
 
       assert out =~ "fetch_failed (usage_error: rsync: unrecognized option `--info=skip1`)"
     end
@@ -295,7 +332,13 @@ defmodule Lumina.CLISyncTest do
       assert {0, out, ""} = run(["help", "sync"])
       assert out =~ "Usage: lumina sync [--cache DIR] [--tal FILE]..."
 
-      for flag <- ["--cache DIR", "--tal FILE", "--timeout SECONDS", "--max-depth N"],
+      for flag <- [
+            "--cache DIR",
+            "--tal FILE",
+            "--timeout SECONDS",
+            "--max-depth N",
+            "--rsync PATH"
+          ],
           do: assert(out =~ flag)
 
       assert out =~ "Exit codes: 0 everything fetched, 1 some fetch failed"

@@ -153,9 +153,13 @@ defmodule Lumina.Rsync do
   defp executable(opts) do
     path = opts[:rsync] || System.find_executable("rsync")
 
-    if is_binary(path) and File.regular?(path),
-      do: {:ok, path},
-      else: {:error, :rsync_not_found}
+    case is_binary(path) && File.stat(path) do
+      {:ok, %File.Stat{type: :regular, mode: mode}} when Bitwise.band(mode, 0o111) != 0 ->
+        {:ok, path}
+
+      _ ->
+        {:error, :rsync_not_found}
+    end
   end
 
   defp run(args, opts) do
