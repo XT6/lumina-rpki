@@ -48,12 +48,13 @@ defmodule Lumina.CLI do
 
   @sync_usage """
   Usage: lumina sync [--cache DIR] [--tal FILE]... [--timeout SECONDS] [--max-depth N]
+                     [--rsync PATH]
 
   For each TAL, fetch its trust anchor certificate (HTTPS first, then
   rsync) and check it against the TAL, then walk the repository from it
   and mirror every publication point into the cache with rsync. A failed
   fetch keeps the last good copy. Nothing is validated yet: this only
-  fetches. Needs rsync 3.1.0 or later on PATH.
+  fetches. Needs rsync 3.1.0 or later, on PATH or given with --rsync.
 
   Flags:
     --cache DIR        the cache directory (default: the user cache
@@ -65,6 +66,8 @@ defmodule Lumina.CLI do
                        HTTPS fetch (default: 300)
     --max-depth N      the deepest CA certificate followed below the trust
                        anchor (default: 32)
+    --rsync PATH       the rsync binary to use, 3.1.0 or later (default: the
+                       first rsync on PATH)
 
   Prints one summary per TAL: the TA URI used, the publication points
   and rsync fetches, and every failure with its reason.
@@ -74,7 +77,7 @@ defmodule Lumina.CLI do
   too old, 2 usage error.
   """
 
-  @rsync_hint " (on macOS, /usr/bin/rsync is openrsync: install rsync with Homebrew and put it first in PATH)"
+  @rsync_hint " (on macOS, /usr/bin/rsync is openrsync: install rsync with Homebrew and put it first in PATH, or give it with --rsync PATH)"
 
   @help %{"print" => @print_usage, "sync" => @sync_usage}
 
@@ -135,6 +138,7 @@ defmodule Lumina.CLI do
     tal: :keep,
     timeout: :integer,
     max_depth: :integer,
+    rsync: :string,
     help: :boolean
   ]
 
@@ -147,6 +151,8 @@ defmodule Lumina.CLI do
         with {:ok, paths} <- tal_paths(opts, internal),
              {:ok, tals} <- read_tals(paths),
              {:ok, limits} <- limits(opts) do
+          internal = rsync_flag(opts[:rsync], internal)
+
           case rsync_check(internal) do
             :ok -> sync(tals, opts[:cache] || default_cache(), limits ++ internal, out, err)
             {:error, message} -> written(err, "lumina sync: #{message}\n", 1)
@@ -204,16 +210,28 @@ defmodule Lumina.CLI do
 
   # Repositories need rsync 3.1.0 or later. Checked before anything is
   # fetched, so an old rsync fails clearly instead of every fetch failing.
+  # --rsync PATH: the binary for every rsync run, TA retrieval included.
+  defp rsync_flag(nil, internal), do: internal
+
+  defp rsync_flag(path, internal) do
+    path = Path.expand(path)
+    Keyword.update(internal, :rsync, [rsync: path], &Keyword.put(&1, :rsync, path))
+  end
+
   defp rsync_check(internal) do
     rsync_opts = Keyword.get(internal, :rsync, [])
-    path = rsync_opts[:rsync] || System.find_executable("rsync")
+    given = rsync_opts[:rsync]
+    path = given || System.find_executable("rsync")
 
     case Rsync.check(rsync_opts) do
       {:ok, _} ->
         :ok
 
+      {:error, :rsync_not_found} when given != nil ->
+        {:error, "#{path} not found or not executable; Lumina needs rsync 3.1.0 or later"}
+
       {:error, :rsync_not_found} ->
-        {:error, "rsync not found; Lumina needs rsync 3.1.0 or later#{@rsync_hint}"}
+        {:error, "rsync not found on PATH; Lumina needs rsync 3.1.0 or later#{@rsync_hint}"}
 
       {:error, {:rsync_too_old, version}} ->
         {:error, "#{path} is rsync #{version}; Lumina needs 3.1.0 or later#{@rsync_hint}"}
