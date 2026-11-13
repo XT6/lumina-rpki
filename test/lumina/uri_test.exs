@@ -158,7 +158,7 @@ defmodule Lumina.URITest do
     end
   end
 
-  describe "modules (D-006)" do
+  describe "modules" do
     @tag rfc: "5781#2"
     test "an rsync URI's module is its first path segment" do
       {:ok, uri} = URI.parse("rsync://repository.lacnic.net/rpki/lacnic/rta-lacnic-rpki.cer")

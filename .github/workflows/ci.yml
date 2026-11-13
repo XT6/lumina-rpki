@@ -18,6 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       MIX_ENV: test
+      # The :rsync tests must run in CI, not be skipped (#72).
+      LUMINA_REQUIRE_RSYNC: "1"
     steps:
       # Actions are pinned to commit SHAs; the tag is noted alongside.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -42,6 +44,10 @@ jobs:
           path: priv/plts
           key: plt-${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
 
+      - name: Install rsync
+        run: |
+          command -v rsync || (sudo apt-get update && sudo apt-get install -y rsync)
+          rsync --version | head -1
       - run: mix deps.get
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted

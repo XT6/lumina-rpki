@@ -29,8 +29,9 @@ defmodule Lumina.URI do
       credentials in a URI are sensitive information (RFC 3986 §7.5);
     * queries and fragments are rejected. A repository object is a file.
 
-  An rsync URI's first path segment is its module, the unit of fetching
-  (D-006). RFC 5781 doesn't name this structure (F-024).
+  An rsync URI's first path segment is its module (`module/1`). RFC 5781
+  doesn't name this structure (F-024). Fetching is per publication point,
+  not per module (D-009).
   """
 
   @enforce_keys [:scheme, :host]
@@ -79,7 +80,7 @@ defmodule Lumina.URI do
 
   @doc """
   The rsync module a URI belongs to: `rsync://host[:port]/module`, its
-  first path segment (D-006).
+  first path segment.
 
   ## Examples
 
