@@ -28,7 +28,7 @@ defmodule Lumina.Sync do
   Returns one report per TAL, in order, or `{:error, {:locked, pid}}`.
 
   Options are passed on: `:timeout` (seconds, rsync I/O and the whole
-  HTTPS fetch), `:max_depth`, `:now`, `:progress` (a `Lumina.Progress`
+  HTTPS fetch), `:max_depth`, `:per_host`, `:now`, `:progress` (a `Lumina.Progress`
   listener), and for tests `:https`, `:rsync` and `:remap`.
   """
   @spec run([{Path.t(), TAL.t()}], Path.t(), keyword()) ::

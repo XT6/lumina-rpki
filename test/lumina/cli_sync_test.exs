@@ -27,9 +27,16 @@ defmodule Lumina.CLISyncTest do
 
   # Serves fixture `id` and writes a TAL for it into `dir`, with only an
   # rsync URI, at the daemon. Returns the TAL's path and the remap entry.
-  defp served_tal(tmp, id, dir) do
+  defp served_tal(tmp, id, dir, daemon_opts \\ []) do
     fixture = Fixture.load!(id)
-    daemon = RsyncDaemon.start!(Path.join(tmp, "daemon-" <> id), %{"rpki" => fixture.rsync_root})
+
+    daemon =
+      RsyncDaemon.start!(
+        Path.join(tmp, "daemon-" <> id),
+        %{"rpki" => fixture.rsync_root},
+        daemon_opts
+      )
+
     authority = "127.0.0.1:#{daemon.port}"
 
     text =
@@ -138,6 +145,49 @@ defmodule Lumina.CLISyncTest do
       assert out =~ "ta: FAILED, every URI"
       assert out =~ "fetch_failed (connection_refused)"
       assert out =~ "no earlier copy; repository not walked"
+    end
+  end
+
+  describe "--per-host (#98)" do
+    @tag :rsync
+    @tag doc: """
+         m3-walk-siblings (eight sibling publication points) from a daemon
+         that refuses a second connection: with --per-host 1 every fetch
+         gets through, so the flag reaches the walk.
+         """
+    test "--per-host 1 makes at most one rsync run at a time per host", %{tmp_dir: tmp} do
+      {tal, remap} =
+        served_tal(tmp, "m3-walk-siblings", Path.join(tmp, "tals"), max_connections: 1)
+
+      assert {0, out, ""} =
+               run(["sync", "--cache", Path.join(tmp, "cache"), "--tal", tal, "--per-host", "1"],
+                 remap: remap
+               )
+
+      assert out =~ ", 0 failed\n"
+    end
+
+    @tag :rsync
+    @tag doc: "The converse: with --per-host 8 the same daemon refuses some fetches."
+    test "--per-host above what the server accepts gets fetches refused", %{tmp_dir: tmp} do
+      {tal, remap} =
+        served_tal(tmp, "m3-walk-siblings", Path.join(tmp, "tals"), max_connections: 1)
+
+      assert {1, out, ""} =
+               run(["sync", "--cache", Path.join(tmp, "cache"), "--tal", tal, "--per-host", "8"],
+                 remap: remap
+               )
+
+      assert out =~ "fetch_failed"
+    end
+
+    test "--per-host must be a number of at least 1", %{tmp_dir: tmp} do
+      cache = Path.join(tmp, "cache")
+
+      assert {2, "", err} = run(["sync", "--cache", cache, "--per-host", "0"])
+      assert err =~ "--per-host must be at least 1"
+      assert {2, "", err} = run(["sync", "--cache", cache, "--per-host", "x"])
+      assert err =~ "unknown or invalid flag --per-host"
     end
   end
 
@@ -337,6 +387,7 @@ defmodule Lumina.CLISyncTest do
             "--tal FILE",
             "--timeout SECONDS",
             "--max-depth N",
+            "--per-host N",
             "--rsync PATH"
           ],
           do: assert(out =~ flag)

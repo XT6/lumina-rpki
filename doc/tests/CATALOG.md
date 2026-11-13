@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 16 Barry fixtures: 9 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 459 unit tests in 46 modules.
+- 462 unit tests in 46 modules.
 
 ## Barry fixtures
 
@@ -661,6 +661,13 @@ repository's certificates to it (`:remap`, see `Lumina.Walk`).
 - *syncing:* without --tal, every TAL in the TAL folder is synced
 - *syncing:* a partial failure exits 1 and names the failure and its reason (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
 - *syncing:* a TAL whose TA can't be fetched exits 1, with each attempt listed (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)))
+- *--per-host (#98):* --per-host 1 makes at most one rsync run at a time per host
+  m3-walk-siblings (eight sibling publication points) from a daemon
+  that refuses a second connection: with --per-host 1 every fetch
+  gets through, so the flag reaches the walk.
+- *--per-host (#98):* --per-host above what the server accepts gets fetches refused
+  The converse: with --per-host 8 the same daemon refuses some fetches.
+- *--per-host (#98):* --per-host must be a number of at least 1
 - *the cache lock:* a cache held by a running process isn't touched, and the sync exits 1
 - *the cache lock:* a lock whose process is gone is taken over
   A lock left by a crashed run (its process is gone) is taken over and released.

@@ -48,7 +48,7 @@ defmodule Lumina.CLI do
 
   @sync_usage """
   Usage: lumina sync [--cache DIR] [--tal FILE]... [--timeout SECONDS] [--max-depth N]
-                     [--rsync PATH] [--progress | --quiet]
+                     [--per-host N] [--rsync PATH] [--progress | --quiet]
 
   For each TAL, fetch its trust anchor certificate (HTTPS first, then
   rsync) and check it against the TAL, then walk the repository from it
@@ -66,6 +66,9 @@ defmodule Lumina.CLI do
                        HTTPS fetch (default: 300)
     --max-depth N      the deepest CA certificate followed below the trust
                        anchor (default: 32)
+    --per-host N       rsync runs at once to any one host (default: 8);
+                       more is faster on a slow link, and more load on
+                       the repository server
     --rsync PATH       the rsync binary to use, 3.1.0 or later (default: the
                        first rsync on PATH)
     --progress         report progress on stderr even when it isn't a
@@ -155,6 +158,7 @@ defmodule Lumina.CLI do
     tal: :keep,
     timeout: :integer,
     max_depth: :integer,
+    per_host: :integer,
     rsync: :string,
     progress: :boolean,
     quiet: :boolean,
@@ -233,8 +237,11 @@ defmodule Lumina.CLI do
       opts[:max_depth] != nil and opts[:max_depth] < 0 ->
         {:error, "--max-depth must be 0 or more"}
 
+      opts[:per_host] != nil and opts[:per_host] < 1 ->
+        {:error, "--per-host must be at least 1"}
+
       true ->
-        {:ok, Keyword.take(opts, [:timeout, :max_depth])}
+        {:ok, Keyword.take(opts, [:timeout, :max_depth, :per_host])}
     end
   end
 
