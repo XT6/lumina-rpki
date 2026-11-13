@@ -1,0 +1,239 @@
+defmodule Lumina.Progress do
+  @moduledoc """
+  Progress reports for long-running work (#96): `lumina sync` now, later
+  stages (validation, RRDP) as they arrive.
+
+  The work emits **events** through a `:progress` option, a one-argument
+  function (`emit/2`). Library calls without it pay nothing. Fetches run
+  in parallel tasks, so the function may be called from any process.
+
+  Events of a sync:
+
+    * `{:tal_started, path, index, total}`
+    * `{:ta_trying, uri}`: TA retrieval tries a URI (`Lumina.TA`)
+    * `{:level_started, level, %{points: n, fetches: n}}`: a walk level,
+      with its publication points and the rsync runs it needs
+    * `{:fetch_started, uri, host}` and
+      `{:fetch_finished, uri, host, outcome, files}` (`files`: regular files
+      in the publication point after the fetch)
+    * `{:level_finished, level, %{points: n, issues: n}}`: running totals
+      for the walk
+
+  `update/3` folds events into a state and `render/3` turns a state into
+  status text; both are pure. `start/2` runs them in a process that draws
+  on a device:
+
+    * `:tty`: one status line, redrawn in place at most every 200 ms;
+    * `:plain`: timestamped lines, one per finished level and one every
+      10 s, with no control characters, for logs and pipes.
+  """
+
+  @tty_interval 200
+  @plain_interval 10_000
+
+  @type event :: tuple()
+
+  @doc "Calls the `:progress` function in `opts`, if there is one."
+  @spec emit(keyword(), event()) :: :ok
+  def emit(opts, event) do
+    case opts[:progress] do
+      nil -> :ok
+      fun -> _ = fun.(event)
+    end
+
+    :ok
+  end
+
+  @doc "The initial state, at monotonic time `now` (milliseconds)."
+  @spec new(integer()) :: map()
+  def new(now) do
+    %{
+      started: now,
+      tal: nil,
+      tal_index: 0,
+      tal_total: 0,
+      ta: nil,
+      level: nil,
+      level_points: 0,
+      points: 0,
+      issues: 0,
+      fetches_done: 0,
+      fetches_failed: 0,
+      level_fetches: 0,
+      running: %{},
+      files: 0
+    }
+  end
+
+  @doc "Folds `event`, received at monotonic time `now`, into `state`."
+  @spec update(map(), event(), integer()) :: map()
+  def update(state, {:tal_started, path, index, total}, _now) do
+    %{
+      state
+      | tal: Path.basename(path),
+        tal_index: index,
+        tal_total: total,
+        ta: nil,
+        level: nil,
+        running: %{}
+    }
+  end
+
+  def update(state, {:ta_trying, uri}, _now), do: %{state | ta: uri}
+
+  def update(state, {:level_started, level, %{points: points, fetches: fetches}}, _now),
+    do: %{state | level: level, level_points: points, level_fetches: fetches}
+
+  def update(state, {:fetch_started, uri, host}, now),
+    do: %{state | running: Map.put(state.running, uri, {host, now})}
+
+  def update(state, {:fetch_finished, uri, _host, outcome, files}, _now) do
+    %{
+      state
+      | running: Map.delete(state.running, uri),
+        fetches_done: state.fetches_done + 1,
+        fetches_failed: state.fetches_failed + if(outcome == :ok, do: 0, else: 1),
+        files: state.files + files
+    }
+  end
+
+  def update(state, {:level_finished, _level, %{points: points, issues: issues}}, _now),
+    do: %{state | points: points, issues: issues}
+
+  def update(state, _other, _now), do: state
+
+  @doc """
+  Status text for `state` at monotonic time `now`, without a newline.
+  `:tty` text is cut to `columns`.
+  """
+  @spec render(map(), integer(), keyword()) :: String.t()
+  def render(state, now, opts \\ []) do
+    parts =
+      [
+        "#{seconds(now - state.started)}s",
+        state.tal && "#{state.tal} (#{state.tal_index}/#{state.tal_total})",
+        stage(state),
+        state.level != nil && "points #{state.points}",
+        state.level != nil && rsync(state),
+        state.level != nil && "files #{state.files}",
+        slowest(state, now)
+      ]
+      |> Enum.filter(& &1)
+
+    text = Enum.join(parts, "  ")
+
+    case opts[:columns] do
+      nil -> text
+      columns -> String.slice(text, 0, max(columns - 1, 10))
+    end
+  end
+
+  defp stage(%{level: nil, ta: nil}), do: nil
+  defp stage(%{level: nil, ta: ta}), do: "ta: #{ta}"
+
+  defp stage(%{level: level, level_points: points}),
+    do: "level #{level} (#{points} point#{if points == 1, do: "", else: "s"})"
+
+  defp rsync(state) do
+    failed = if state.fetches_failed > 0, do: ", #{state.fetches_failed} failed", else: ""
+    "rsync #{state.fetches_done} done, #{map_size(state.running)} running#{failed}"
+  end
+
+  # The fetch running longest, once it has taken more than 5 s: a slow or
+  # stuck host shows here.
+  defp slowest(%{running: running}, now) when map_size(running) > 0 do
+    {host, since} = running |> Map.values() |> Enum.min_by(&elem(&1, 1))
+    elapsed = now - since
+    if elapsed > 5_000, do: "slowest: #{host} #{seconds(elapsed)}s"
+  end
+
+  defp slowest(_state, _now), do: nil
+
+  defp seconds(ms), do: div(ms, 1000)
+
+  # The drawing process.
+
+  @doc """
+  Starts a process drawing progress on `device` in `mode` (`:tty` or
+  `:plain`). Returns the function to pass as `:progress`, and a stop
+  function that draws the last state, ends the line and waits.
+  """
+  @spec start(IO.device(), :tty | :plain) :: {(event() -> any()), (-> :ok)}
+  def start(device, mode) do
+    pid =
+      spawn_link(fn ->
+        loop(%{device: device, mode: mode, state: new(now()), drawn: 0, dirty: false})
+      end)
+
+    stop = fn ->
+      ref = Process.monitor(pid)
+      send(pid, {:stop, self()})
+
+      receive do
+        {:DOWN, ^ref, _, _, _} -> :ok
+      end
+    end
+
+    {fn event -> send(pid, {:progress, event, now()}) end, stop}
+  end
+
+  defp loop(%{mode: mode} = r) do
+    interval = if mode == :tty, do: @tty_interval, else: @plain_interval
+
+    receive do
+      {:progress, event, at} ->
+        r = %{r | state: update(r.state, event, at), dirty: true}
+
+        cond do
+          mode == :plain and match?({:level_finished, _, _}, event) -> loop(draw(r))
+          mode == :plain and match?({:tal_started, _, _, _}, event) -> loop(draw(r))
+          now() - r.drawn >= interval -> loop(draw(r))
+          true -> loop(r)
+        end
+
+      {:stop, _from} ->
+        _ =
+          cond do
+            mode == :tty -> IO.write(r.device, "\r\e[2K")
+            r.dirty -> draw(r)
+            true -> :ok
+          end
+
+        :ok
+    after
+      interval -> loop(draw(r))
+    end
+  end
+
+  defp draw(%{mode: :tty} = r) do
+    IO.write(r.device, ["\r\e[2K", render(r.state, now(), columns: columns())])
+    %{r | drawn: now(), dirty: false}
+  end
+
+  defp draw(%{mode: :plain} = r) do
+    stamp = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+    IO.write(r.device, "#{stamp} #{render(r.state, now())}\n")
+    %{r | drawn: now(), dirty: false}
+  end
+
+  defp columns do
+    case :io.columns() do
+      {:ok, columns} -> columns
+      _ -> 80
+    end
+  end
+
+  defp now, do: System.monotonic_time(:millisecond)
+
+  @doc """
+  Whether stderr is a terminal. OTP has no documented call for this;
+  `:prim_tty.isatty/1` (OTP 26 and later) answers it, and anything else
+  counts as not a terminal.
+  """
+  @spec stderr_tty?() :: boolean()
+  def stderr_tty? do
+    :prim_tty.isatty(:stderr) == true
+  rescue
+    _ -> false
+  end
+end

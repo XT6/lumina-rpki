@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 16 Barry fixtures: 9 valid, 7 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 450 unit tests in 45 modules.
+- 459 unit tests in 46 modules.
 
 ## Barry fixtures
 
@@ -1054,6 +1054,35 @@ are, under the strict grammar (D-002).
 - every production TAL is byte-identical to its reviewed copy
   Byte for byte: a changed key, URI, line ending or comment in either copy fails.
 - every production TAL parses with no warnings (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
+
+### `Lumina.ProgressTest`
+
+[test/lumina/progress_test.exs](../../test/lumina/progress_test.exs)
+
+Tests progress reporting (`Lumina.Progress`, #96): the events a walk
+emits, the status text built from a scripted event sequence, and
+`lumina sync --progress` / `--quiet`.
+
+Progress goes to stderr and never changes stdout. Tests run with
+StringIO devices, which aren't terminals, so `lumina sync` shows
+progress only with `--progress`, as timestamped lines.
+
+- *events:* a walk emits level and fetch events, in order, with outcomes and file counts
+  m0-minimal-valid: the TA's level fetches its publication point, the
+  next level ca1's. Each level is started, its fetches run, and it is
+  finished, with the running totals of the walk.
+- *events:* emit/2 without a listener does nothing
+- *status text:* the TA being tried shows before the walk starts
+- *status text:* a walk in progress shows its level, points, rsync runs and files
+- *status text:* a fetch running for more than 5 s is shown as the slowest, with its host
+  A stuck host (like krill.dacs.utwente.nl in the live LACNIC run) becomes visible.
+- *status text:* on a terminal, the status line is cut to the terminal width
+- *lumina sync:* --progress reports on stderr as plain timestamped lines, and stdout is unchanged
+  StringIO isn't a terminal, so these are the plain lines a log or a
+  pipe gets: a timestamp, no control characters, one line per TAL
+  and per finished level.
+- *lumina sync:* --quiet reports no progress
+- *lumina sync:* lumina help sync lists --progress and --quiet
 
 ### `Lumina.ResourcesTest`
 

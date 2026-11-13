@@ -47,7 +47,7 @@ defmodule Lumina.Walk do
       no copy).
   """
 
-  alias Lumina.{Cache, Certificate, Object, Rsync, URI}
+  alias Lumina.{Cache, Certificate, Object, Progress, Rsync, URI}
 
   @default_max_depth 32
   @default_per_host 8
@@ -67,7 +67,9 @@ defmodule Lumina.Walk do
   Walks from `ta` (an accepted TA certificate) into the cache at `root`.
 
   Options: `:max_depth` (default 32), `:per_host` (rsync runs at once per
-  host, default 8), `:now` (the time recorded for each fetch), `:rsync` (options for `Lumina.Rsync.fetch_dir/3`), and `:remap`,
+  host, default 8), `:now` (the time recorded for each fetch),
+  `:progress` (a `Lumina.Progress` listener, sent level and fetch events),
+  `:rsync` (options for `Lumina.Rsync.fetch_dir/3`), and `:remap`,
   for tests: a map from `"host:port"` in repository URIs to the
   `"host:port"` actually connected to. Remapping changes only where rsync
   connects; cache paths and reports keep the URIs from the certificates.
@@ -133,6 +135,14 @@ defmodule Lumina.Walk do
   defp walk(level, state) do
     {plans, state} = Enum.map_reduce(level, state, &plan/2)
     to_fetch = for {:point, _entry, pp, :fetch} <- plans, do: pp
+    depth = level |> hd() |> elem(2)
+    points = Enum.count(plans, &match?({:point, _, _, _}, &1))
+
+    Progress.emit(
+      state.opts,
+      {:level_started, depth, %{points: points, fetches: length(to_fetch)}}
+    )
+
     results = fetch_all(to_fetch, state)
 
     state = %{
@@ -142,6 +152,12 @@ defmodule Lumina.Walk do
     }
 
     {next, state} = Enum.flat_map_reduce(plans, state, &report(&1, &2, results))
+
+    Progress.emit(
+      state.opts,
+      {:level_finished, depth, %{points: length(state.points), issues: length(state.issues)}}
+    )
+
     walk(next, state)
   end
 
@@ -294,6 +310,7 @@ defmodule Lumina.Walk do
     live = Cache.path(root, pp)
     rsync_opts = Keyword.get(opts, :rsync, [])
     rsync_opts = if File.dir?(live), do: [{:link_dest, live} | rsync_opts], else: rsync_opts
+    Progress.emit(opts, {:fetch_started, key, pp.host})
 
     result =
       with {:ok, staging} <- Cache.stage(root) do
@@ -321,8 +338,25 @@ defmodule Lumina.Walk do
 
     status = if result.outcome == :ok, do: :ok, else: {:error, result.detail}
     Cache.record(root, pp, status, state.now)
+
+    Progress.emit(
+      opts,
+      {:fetch_finished, key, pp.host, result.outcome, files(opts, live, result)}
+    )
+
     result
   end
+
+  # Files in a fetched publication point, counted only for a progress
+  # listener.
+  defp files(opts, live, %{outcome: :ok}) do
+    if opts[:progress],
+      do:
+        live |> Path.join("**") |> Path.wildcard(match_dot: true) |> Enum.count(&File.regular?/1),
+      else: 0
+  end
+
+  defp files(_opts, _live, _result), do: 0
 
   defp remap(uri, nil), do: uri
 

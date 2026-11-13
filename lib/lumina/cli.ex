@@ -14,7 +14,7 @@ defmodule Lumina.CLI do
   or flag).
   """
 
-  alias Lumina.{Object, Print, Rsync, Sync, TAL}
+  alias Lumina.{Object, Print, Progress, Rsync, Sync, TAL}
 
   @usage """
   Usage: lumina <command> [flags] [arguments]
@@ -48,7 +48,7 @@ defmodule Lumina.CLI do
 
   @sync_usage """
   Usage: lumina sync [--cache DIR] [--tal FILE]... [--timeout SECONDS] [--max-depth N]
-                     [--rsync PATH]
+                     [--rsync PATH] [--progress | --quiet]
 
   For each TAL, fetch its trust anchor certificate (HTTPS first, then
   rsync) and check it against the TAL, then walk the repository from it
@@ -68,6 +68,10 @@ defmodule Lumina.CLI do
                        anchor (default: 32)
     --rsync PATH       the rsync binary to use, 3.1.0 or later (default: the
                        first rsync on PATH)
+    --progress         report progress on stderr even when it isn't a
+                       terminal, as timestamped lines (on a terminal, a
+                       status line is shown anyway)
+    --quiet            no progress report
 
   Prints one summary per TAL: the TA URI used, the publication points
   and rsync fetches, and every failure with its reason.
@@ -83,7 +87,20 @@ defmodule Lumina.CLI do
 
   @doc "Escript entry point."
   @spec main([String.t()]) :: no_return()
-  def main(args), do: System.halt(run(args))
+  def main(args) do
+    # Log messages (such as TLS warnings) go to stderr, so stdout holds
+    # only the command's output.
+    # A handler's device can't be changed in place, so the handler is
+    # replaced by a copy writing to stderr.
+    _ =
+      with {:ok, config} <- :logger.get_handler_config(:default),
+           :ok <- :logger.remove_handler(:default) do
+        config = config |> Map.drop([:id, :module]) |> put_in([:config, :type], :standard_error)
+        _ = :logger.add_handler(:default, :logger_std_h, config)
+      end
+
+    System.halt(run(args))
+  end
 
   @doc """
   Runs the command line `args`, writing to `out` and `err`, and returns the
@@ -139,6 +156,8 @@ defmodule Lumina.CLI do
     timeout: :integer,
     max_depth: :integer,
     rsync: :string,
+    progress: :boolean,
+    quiet: :boolean,
     help: :boolean
   ]
 
@@ -154,8 +173,19 @@ defmodule Lumina.CLI do
           internal = rsync_flag(opts[:rsync], internal)
 
           case rsync_check(internal) do
-            :ok -> sync(tals, opts[:cache] || default_cache(), limits ++ internal, out, err)
-            {:error, message} -> written(err, "lumina sync: #{message}\n", 1)
+            :ok ->
+              with_progress(opts, err, fn progress ->
+                sync(
+                  tals,
+                  opts[:cache] || default_cache(),
+                  limits ++ progress ++ internal,
+                  out,
+                  err
+                )
+              end)
+
+            {:error, message} ->
+              written(err, "lumina sync: #{message}\n", 1)
           end
         else
           {:error, message} -> written(err, "lumina sync: #{message}\n", 2)
@@ -210,6 +240,24 @@ defmodule Lumina.CLI do
 
   # Repositories need rsync 3.1.0 or later. Checked before anything is
   # fetched, so an old rsync fails clearly instead of every fetch failing.
+  # Progress on stderr (#96): a status line when stderr is a terminal,
+  # timestamped lines with --progress otherwise, nothing with --quiet.
+  defp with_progress(opts, err, fun) do
+    tty? = err == :stderr and Progress.stderr_tty?()
+
+    if opts[:quiet] || !(tty? || opts[:progress]) do
+      fun.([])
+    else
+      {listener, stop} = Progress.start(err, if(tty?, do: :tty, else: :plain))
+
+      try do
+        fun.(progress: listener)
+      after
+        stop.()
+      end
+    end
+  end
+
   # --rsync PATH: the binary for every rsync run, TA retrieval included.
   defp rsync_flag(nil, internal), do: internal
 

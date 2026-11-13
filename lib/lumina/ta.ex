@@ -27,7 +27,7 @@ defmodule Lumina.TA do
   Signature and validity dates are checked in M4.
   """
 
-  alias Lumina.{Cache, Certificate, HTTPS, Object, Rsync, TAL, URI}
+  alias Lumina.{Cache, Certificate, HTTPS, Object, Progress, Rsync, TAL, URI}
 
   @type attempt :: %{
           uri: String.t(),
@@ -70,6 +70,8 @@ defmodule Lumina.TA do
 
     result =
       Enum.reduce_while(TAL.uris_by_preference(tal), [], fn uri, attempts ->
+        Progress.emit(opts, {:ta_trying, uri})
+
         case try_uri(tal, uri, root, opts, now) do
           {:accepted, attempt, cert} -> {:halt, {:ok, cert, Enum.reverse([attempt | attempts])}}
           {:failed, attempt} -> {:cont, [attempt | attempts]}
