@@ -1,0 +1,9 @@
+ta.cer
+	ca1.cer
+		ca2.cer
+
+[node: ca2.cer]
+# ca2 names its parent's publication point as its own. Walking it finds
+# ca2.cer again: the walk must notice the loop and stop.
+rpp.uri = rsync://localhost:8873/rpki/ca1
+rpp.path = ca1
