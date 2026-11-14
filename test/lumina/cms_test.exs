@@ -278,6 +278,27 @@ defmodule Lumina.CMSTest do
                error_problems(object)
     end
 
+    @tag rfc: ["9286#4.3", "6488#2.1.6.4.1"],
+         doc: "The ROA OID (id-ct-routeOriginAuthz) in a manifest's content-type attribute."
+    test "a manifest whose content-type attribute isn't id-ct-rpkiManifest is rejected" do
+      manifest =
+        signed_object!(Path.join(Fixture.load!("m0-minimal-valid").rsync_root, "ca1/ca1.mft"))
+
+      assert rules(manifest) == []
+
+      object =
+        with_attrs(manifest, fn attrs ->
+          for a <- attrs,
+              do:
+                if(a.name == :content_type,
+                  do: %{a | values: [{1, 2, 840, 113_549, 1, 9, 16, 1, 24}]},
+                  else: a
+                )
+        end)
+
+      assert rules(object) == [:content_type_mismatch]
+    end
+
     @tag rfc: ["6488#2.1.6.4.1", "6488#2.1.6.4.2", "6488#3"]
     test "a missing content-type or message-digest attribute is rejected" do
       for name <- [:content_type, :message_digest] do

@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 69 Barry fixtures: 11 valid, 58 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 692 unit tests in 58 modules.
+- 697 unit tests in 59 modules.
 
 ## Barry fixtures
 
@@ -1569,6 +1569,8 @@ re-encoding.
 - *signed attributes:* absent signed attributes are rejected (RFC [6488 §2.1.6.4](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.4)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
 - *signed attributes:* a missing signing-time attribute is rejected (RFC [9589 §4](../rfc/rfc9589.txt) ([html](https://www.rfc-editor.org/rfc/rfc9589.html#section-4)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
   RFC 9589 §4 makes signing-time mandatory; RFC 6488 alone allowed leaving it out.
+- *signed attributes:* a manifest whose content-type attribute isn't id-ct-rpkiManifest is rejected (RFC [9286 §4.3](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.3)), [6488 §2.1.6.4.1](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.4.1)))
+  The ROA OID (id-ct-routeOriginAuthz) in a manifest's content-type attribute.
 - *signed attributes:* a missing content-type or message-digest attribute is rejected (RFC [6488 §2.1.6.4.1](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.4.1)), [6488 §2.1.6.4.2](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.4.2)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
 - *signed attributes:* a binary-signing-time attribute is rejected (RFC [9589 §4](../rfc/rfc9589.txt) ([html](https://www.rfc-editor.org/rfc/rfc9589.html#section-4)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
   RFC 9589 §4 removes binary-signing-time from the allowed attributes.
@@ -1940,6 +1942,68 @@ that they hold together, over all the data at once.
   validate; delegated repositories may hold faults (in 2026-11, 21
   expired manifests at one of them), printed but not failing the
   test as long as the share stays within D-022's 10%.
+
+### `Lumina.M5DoneTest`
+
+[test/lumina/m5_done_test.exs](../../test/lumina/m5_done_test.exs)
+
+The end-to-end check that closes M5, signed objects and manifests
+(#138). It runs `lumina sync` and then `lumina validate`
+(`Lumina.CLI.run/4`) the way a user would, over the whole M5 pipeline:
+the CMS envelope of every signed object (RFC 6488, RFC 9589), manifest
+content (RFC 9286 §4), publication point processing (§6, RFC 9981), the
+last valid copy (D-023) and replay protection (D-024).
+
+  * Every Barry fixture is synced from a local rsync daemon and
+    validated at 2030-01-01. Each publication point must be accepted or
+    failed as the fixture's `expected` metadata states: it fails exactly
+    when a reject with a `rule` names its manifest or its CRL. Nothing
+    is validated below a failed point, every signed object of an
+    accepted point is validated, and the signed objects found invalid
+    are exactly those a ruled reject names. (`M4DoneTest` covers the certificates and the
+    rejected TAs.)
+  * Over one copy of a repository changed between syncs, a point that
+    fails, live or as a replay, is served from its last valid copy by
+    both commands.
+  * RFC 6488 §3, RFC 9589 §4, RFC 9286 §4.2-4.4 and §6, and RFC 9981
+    §2-4 are covered by tests other than this one.
+  * Tagged `:network`, run by hand only (`mix test --only network`):
+    the live LACNIC repository is synced and validated, and its
+    publication points accepted, failed (with reasons) and served from
+    the last valid copy are printed.
+
+The individual behaviours are tested in detail elsewhere (`CMSTest`,
+`ManifestCheckTest`, `PublicationPointTest`, `LastValidTest`,
+`ManifestStateTest`, `WalkTest`, ...). This module checks that they hold
+together, over all the data at once.
+
+- every Barry fixture's publication points and signed objects get the verdicts its metadata states (RFC [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [9286 §4.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.4)), [9286 §6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)))
+  Driven by the fixture metadata; fixtures whose TA is rejected are
+  M4DoneTest's. A point fails exactly when a ruled reject names its
+  manifest (its CMS envelope, its content, or the point's files) or
+  its CRL (which invalidates the manifest's EE certificate). A
+  failed point has only its manifest entry, nothing validated below
+  it; an accepted point has an entry for every signed object it
+  publishes, and those found invalid are exactly the ones a ruled
+  reject names. The summary's manifest and ROA counts agree.
+- a point that fails live or as a replay is served from its last valid copy by sync and validate (RFC [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)), [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)), [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  One copy of m0-minimal-valid, served by a daemon and changed between
+  syncs. A ROA that no longer matches its hash, and then (restored) a
+  manifest older than the one recorded, each make ca1's point fail;
+  sync and validate both serve it from the copy the first sync saved,
+  with its ROA still valid, and exit 0.
+- RFC 6488 §3, RFC 9589 §4, RFC 9286 §4.2-4.4 and §6, and RFC 9981 §2-4 are covered by other tests
+  The coverage `mix lumina.rfc_coverage` reports, computed the same way,
+  ignoring this module's own tags. A section counts as covered by a
+  test of it or of one of its subsections.
+- *the live LACNIC repository:* the live LACNIC repository's publication points are processed (RFC [9286 §6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6)), [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  Run by hand: mix test --only network. Needs the Internet; takes
+  minutes. Syncs LACNIC twice into one cache (the second sync can
+  serve points from the copies the first saved) and validates it,
+  printing the publication points accepted, failed with their
+  reasons, and served from the last valid copy. Failures are
+  expected to be very few: at most 1% of the points, none in
+  LACNIC's own repository.
 
 ### `Lumina.ManifestCheckTest`
 
