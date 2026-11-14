@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 68 Barry fixtures: 11 valid, 57 invalid.
+- 69 Barry fixtures: 11 valid, 58 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 687 unit tests in 58 modules.
+- 689 unit tests in 58 modules.
 
 ## Barry fixtures
 
@@ -775,6 +775,18 @@ this one reason. Its envelope and EE certificate are valid.
 - **RFC:** [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)), [9286 §4.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.4))
 - **Files:** [descriptor](../../test/fixtures/barry/m5-mft-dates-reversed/case.repo) · [metadata](../../test/fixtures/barry/m5-mft-dates-reversed/case.exs) · [rsync tree](../../test/fixtures/barry/m5-mft-dates-reversed/rsync)
 
+#### `m5-mft-empty-file-list`: Manifest with an empty fileList
+
+The baseline tree (m0-minimal-valid) with one change: ca1.mft lists no files. RFC 9286 section 7: "A CA's manifest will always contain at least one entry"; verified erratum 7118 corrects the ASN.1 module's fileList from SIZE (0..MAX) to SIZE (1..MAX). The module is kept as published, so the manifest decodes (F-001 in doc/rfc-findings.md).
+
+Empty manifests (#37, maintainer decision of 2026-11-12): validation must reject ca1.mft as empty. Since the manifest doesn't list the CA's CRL, the publication point also fails for that (RFC 9286 section 6).
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.mft`: manifest has no entries (RFC 9286 section 7, erratum 7118)
+  - `ca1/ca1.mft`: the CRL ca1.crl is not on the manifest
+- **RFC:** [9286 §7](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-7)), [9286 §6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-mft-empty-file-list/case.repo) · [metadata](../../test/fixtures/barry/m5-mft-empty-file-list/case.exs) · [rsync tree](../../test/fixtures/barry/m5-mft-empty-file-list/rsync)
+
 #### `m5-mft-hash-sha1`: Manifest fileHashAlg SHA-1
 
 The baseline tree (m0-minimal-valid) with one change: the fileHashAlg of ca1.mft is SHA-1. RFC 9286 section 4.2.1 requires the algorithm of RFC 7935, which is SHA-256 (section 2).
@@ -1481,8 +1493,8 @@ Syncs run at 2026-11-13, inside the fixtures' default validity.
   m0-minimal-valid: ca1, two manifests and a ROA.
 - *signed objects (#131, #132):* a signed object whose CMS envelope or manifest content is invalid is listed with its rule (RFC [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [9589 §4](../rfc/rfc9589.txt) ([html](https://www.rfc-editor.org/rfc/rfc9589.html#section-4)), [9286 §4.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.4)))
   Driven by the metadata of every m5-cms-* and m5-mft-* fixture: the
-  object it names is listed invalid with its rule, and nothing else
-  is.
+  object it names is listed invalid with its (first) rule, and nothing
+  else is.
 - *--now:* --now after the fixture's expiry finds the TA expired, and nothing below valid (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
   After the fixtures' notAfter (2036-01-01), the TA itself has expired.
 - *--now:* --now sets the validation time for every certificate (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
@@ -1952,6 +1964,12 @@ m0-minimal-valid manifest changed in memory.
 - *fixtures:* m5-mft-name-bad-character: a file name with a character outside a-z A-Z 0-9 - _ is rejected (RFC [9286 §4.2.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.2)))
 - *fixtures:* m5-mft-name-unregistered-extension: an extension outside the IANA registry is rejected (RFC [9286 §4.2.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.2)), [6481 §7.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-7.2)))
 - *fixtures:* m5-mft-name-duplicate: a file name listed twice is rejected (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)), [9286 §4.2.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.2)))
+- *empty file list (#37):* m5-mft-empty-file-list decodes but is rejected as empty (RFC [9286 §7](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-7)))
+  Verified erratum 7118 corrects the module's SIZE (0..MAX) to
+  SIZE (1..MAX). The module is kept as published (F-001), so the
+  manifest decodes, as a file and as a repository object.
+- *empty file list (#37):* a manifest listing a single file is not empty (RFC [9286 §7](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-7)))
+  Erratum 7118: SIZE (1..MAX), so one entry is enough.
 - *dates and numbers:* thisUpdate equal to nextUpdate is rejected (RFC [9286 §4.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.4)))
   "thisUpdate precedes nextUpdate": equal times don't.
 - *dates and numbers:* manifest numbers 0 and 2^159-1 pass; -1 and 2^159 are rejected (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)))
