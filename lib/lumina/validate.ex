@@ -35,6 +35,7 @@ defmodule Lumina.Validate do
     CMS,
     Object,
     LastValid,
+    ManifestState,
     Profile,
     PublicationPoint,
     SignedObject,
@@ -143,14 +144,20 @@ defmodule Lumina.Validate do
   defp processed(ca, path, key, now, opts) do
     root = Keyword.get(opts, :last_valid)
     point = PublicationPoint.process(ca, path, key, now)
+    point = if root, do: replay(root, ca, point), else: point
 
     cond do
       root == nil ->
         {point, path}
 
       point.status == :accepted ->
-        # A copy that can't be saved only means no fallback later.
-        _ = if Keyword.get(opts, :save, false), do: LastValid.save(root, point, path)
+        # A copy or record that can't be saved only weakens the next run.
+        _ =
+          if Keyword.get(opts, :save, false) do
+            _ = LastValid.save(root, point, path)
+            ManifestState.record(root, ca, point)
+          end
+
         {point, path}
 
       stored = point.manifest && LastValid.load(root, point.manifest) ->
@@ -160,6 +167,18 @@ defmodule Lumina.Validate do
         {point, path}
     end
   end
+
+  # RFC 9286 §4.2.1, RFC 9981 (D-024): a new manifest that doesn't move
+  # forward is a failed fetch, so the last valid copy can stand in.
+  defp replay(root, ca, %{status: :accepted} = point) do
+    problems = point.problems ++ ManifestState.check(root, ca, point)
+
+    if Profile.passes?(problems),
+      do: %{point | problems: problems},
+      else: %{point | status: :failed, problems: problems, files: %{}, unlisted: []}
+  end
+
+  defp replay(_root, _ca, point), do: point
 
   defp fallback(live, stored, dir, path) do
     if stored.status == :accepted do

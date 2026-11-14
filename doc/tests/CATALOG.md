@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 68 Barry fixtures: 11 valid, 57 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 675 unit tests in 57 modules.
+- 684 unit tests in 58 modules.
 
 ## Barry fixtures
 
@@ -1964,6 +1964,37 @@ m0-minimal-valid manifest changed in memory.
   Case-sensitive (§4.2.2): .ROA is not a registered extension, and A.roa is not a.roa.
 - *file names:* names without a base, with two dots, a path, or a long extension are rejected (RFC [9286 §4.2.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.2)))
 - *file names:* a name listed three times is one problem (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)))
+
+### `Lumina.ManifestStateTest`
+
+[test/lumina/manifest_state_test.exs](../../test/lumina/manifest_state_test.exs)
+
+Tests manifest replay protection across runs (#136, D-024):
+`Lumina.ManifestState` and its use in `Lumina.Validate.point/5`.
+
+RFC 9286 §4.2.1 requires a new manifest to have a higher number and a
+more recent thisUpdate than the last one validated; RFC 9981 §2-3 resets
+the number check when the manifest's file name changes. Barry generates
+fresh keys for every fixture, so two fixtures never share a CA; instead,
+the record of "the last manifest validated" is written ahead of
+m0-minimal-valid's ca1 manifest (number 1, thisUpdate 2026-01-01),
+which then plays the replayed, older manifest.
+
+- *recording:* a sync records the accepted manifest; seeing the same one again is fine (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)))
+- *recording:* a 20-octet manifest number round-trips
+  Numbers up to 20 octets survive the JSON record.
+- *recording:* only an accepted point with :save is recorded
+  lumina validate (no :save) and a fallback point never move the record (D-024).
+- *replays (RFC 9286 §4.2.1):* a manifest number lower than the last one validated fails the point (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)))
+- *replays (RFC 9286 §4.2.1):* an equal manifest number on a different manifest fails the point (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)))
+  Same number, another thisUpdate: a different manifest.
+- *replays (RFC 9286 §4.2.1):* a higher number with an older thisUpdate fails the point (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)))
+- *replays (RFC 9286 §4.2.1):* a replayed manifest falls back to the last valid copy, and the record stays (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)))
+  The replayed manifest is a failed fetch, so the copy the sync kept stands in (D-023).
+- *file name changes (RFC 9981):* a new manifest file name skips the number check, with a warning (RFC [9981 §2](../rfc/rfc9981.txt) ([html](https://www.rfc-editor.org/rfc/rfc9981.html#section-2)), [9981 §3](../rfc/rfc9981.txt) ([html](https://www.rfc-editor.org/rfc/rfc9981.html#section-3)))
+  The number check is reset; operators are alerted with a warning.
+- *file name changes (RFC 9981):* a new manifest file name with an older thisUpdate still fails (RFC [9981 §2](../rfc/rfc9981.txt) ([html](https://www.rfc-editor.org/rfc/rfc9981.html#section-2)), [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)))
+  RFC 9981 §2: with the number check reset, the thisUpdate check still protects.
 
 ### `Lumina.ManifestTest`
 

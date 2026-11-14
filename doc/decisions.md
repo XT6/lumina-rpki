@@ -352,6 +352,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Why:** RFC 9286 §4.2.1 requires each RP to check that a new manifest's number and thisUpdate are higher than those of manifests it validated before, which needs state that outlives a run.
 - **Where:** M5 plan, #136 (maintainer accepted the recommendation).
 - **Consequences:** the cache gains `.state`; deleting the cache resets replay protection.
+- **As implemented (#136):** `Lumina.ManifestState` keeps one record per CA, keyed by its SKI alone, in `<cache>/.state/manifests/<SKI hex>.json` (manifest URI, number, thisUpdate). Keying by SKI and manifest URI, as first written above, would make a renamed manifest look like a new CA with no history, so RFC 9981's file-name change could never be noticed. The same manifest seen again (same URI, number and thisUpdate) passes; a new one must have a higher number (`manifest_number_replay`) and a more recent thisUpdate (`manifest_this_update_replay`), except that a changed file name skips the number check with the warning `manifest_name_changed`. A failing check fails the point, so D-023's last valid copy can stand in. Only `lumina sync` records, and only points accepted live; `lumina validate` checks against the record without writing it.
 
 ## D-025: Absent rsaEncryption parameters in CMS only warn
 
