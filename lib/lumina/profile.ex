@@ -10,6 +10,9 @@ defmodule Lumina.Profile do
       `:ta` (self-signed, from a TAL), `:ca` or `:ee` (the EE certificate
       of a signed object).
     * `certificate/3` does both.
+    * `crl/3` checks a CRL against RFC 6487 §5 as updated by RFC 9829 (#111),
+      including its signature, with the certificate of the CA that issued
+      it.
 
   The result is a list of problems, each with a `rule`, the `rfc` section,
   the `field` it concerns (a field name, an extension name, or
@@ -23,7 +26,7 @@ defmodule Lumina.Profile do
   chain validation (#112) and resource validation (M6).
   """
 
-  alias Lumina.{Certificate, Crypto, DER, Extension, OID, Resources}
+  alias Lumina.{Certificate, CRL, Crypto, DER, Extension, OID, Resources}
 
   @type kind :: :ta | :ca | :ee
   @type problem :: %{
@@ -110,6 +113,28 @@ defmodule Lumina.Profile do
       subject_info_access(by_name[:subject_info_access], kind),
       certificate_policies(by_name[:certificate_policies]),
       resources(by_name[:ip_resources], by_name[:as_resources])
+    ])
+  end
+
+  @doc """
+  The problems of `crl`, issued by the CA certificate `issuer`, at time
+  `at` (RFC 6487 §5, RFC 9829 §3.1).
+
+  A CRL past its nextUpdate is still used, with a `:stale_crl` warning
+  (D-016). Which CRL decides revocation (the CRLDP target, and in M5 the
+  one on the issuer's manifest, D-015) is for the caller.
+  """
+  @spec crl(CRL.t(), Certificate.t(), DateTime.t()) :: [problem()]
+  def crl(%CRL{} = crl, %Certificate{} = issuer, %DateTime{} = at) do
+    Enum.concat([
+      crl_version(crl),
+      crl_signature_algorithm(crl),
+      crl_issuer(crl, issuer),
+      name(crl, :issuer, "6487#5"),
+      crl_dates(crl, at),
+      crl_extensions(crl, issuer),
+      crl_entries(crl),
+      crl_signature(crl, issuer)
     ])
   end
 
@@ -793,6 +818,214 @@ defmodule Lumina.Profile do
       else
         []
       end
+  end
+
+  # CRLs (RFC 6487 §5, RFC 9829 §3.1).
+
+  defp crl_version(%{version: 2}), do: []
+
+  defp crl_version(%{version: v}),
+    do: [error(:crl_version, "6487#5", :version, "the CRL is version #{v}; RPKI CRLs are v2")]
+
+  # RFC 6487 §5 (via RFC 7935 §2), and RFC 5280 §5.1.1.2: the algorithm
+  # inside tbsCertList is the outer one.
+  defp crl_signature_algorithm(%{tbs_signature_algorithm: inner, signature_algorithm: outer}) do
+    mismatch =
+      if inner != outer,
+        do: [
+          error(
+            :signature_algorithm_mismatch,
+            "5280#5.1.1.2",
+            :tbs_signature_algorithm,
+            "the tbsCertList signature algorithm (#{OID.format(inner.oid)}) " <>
+              "is not the outer one (#{OID.format(outer.oid)})"
+          )
+        ],
+        else: []
+
+    unsupported =
+      case Crypto.check_signature_algorithm(inner) do
+        :ok -> []
+        {:error, p} -> [error(p.rule, p.rfc, :tbs_signature_algorithm, p.message)]
+      end
+
+    mismatch ++ unsupported
+  end
+
+  # §5: "The CRL issuer is the CA."
+  defp crl_issuer(%{issuer_der: der}, %{subject_der: der}), do: []
+
+  defp crl_issuer(_crl, _issuer),
+    do: [error(:crl_issuer_mismatch, "6487#5", :issuer, "the CRL issuer is not the CA's subject")]
+
+  # RFC 5280 §5.1.2.4 and §5.1.2.5: a CRL isn't in effect before its
+  # thisUpdate, and RPKI CRLs carry a nextUpdate; past it, the CRL is
+  # stale but still used (D-016).
+  defp crl_dates(%{this_update: this_update, next_update: next_update}, at) do
+    Enum.concat([
+      if(DateTime.compare(at, this_update.at) == :lt,
+        do: [
+          error(
+            :crl_not_yet_valid,
+            "5280#5.1.2.4",
+            :this_update,
+            "thisUpdate is #{DateTime.to_iso8601(this_update.at)}, after the validation time"
+          )
+        ],
+        else: []
+      ),
+      cond do
+        next_update == nil ->
+          [error(:next_update_missing, "5280#5.1.2.5", :next_update, "nextUpdate is missing")]
+
+        DateTime.compare(at, next_update.at) == :gt ->
+          [
+            warning(
+              :stale_crl,
+              "5280#5.1.2.5",
+              :next_update,
+              "stale: nextUpdate was #{DateTime.to_iso8601(next_update.at)}; used anyway (D-016)"
+            )
+          ]
+
+        true ->
+          []
+      end
+    ])
+  end
+
+  # RFC 9829 §3.1: exactly an AKI and a CRL Number. The AKI is processed
+  # (key identifier method, RFC 5280 §5.2.1, matching the issuer's SKI);
+  # the CRL Number is only checked to be non-critical and in range.
+  defp crl_extensions(%{extensions: extensions}, issuer) do
+    by_name = Map.new(for %Extension{name: name} = e <- extensions, name != nil, do: {name, e})
+
+    Enum.concat([
+      duplicates(extensions),
+      for(
+        %Extension{name: name} = ext <- extensions,
+        name not in [:authority_key_identifier, :crl_number],
+        do:
+          error(
+            :crl_extension,
+            "9829#3.1",
+            field(ext),
+            "#{label(ext)} is not allowed; a CRL has exactly AKI and CRL Number"
+          )
+      ),
+      for(
+        %Extension{name: name, value: {:malformed, reason}} = ext <- extensions,
+        name in [:authority_key_identifier, :crl_number],
+        not negative_crl_number?(ext),
+        do:
+          error(
+            :malformed_extension,
+            "5280#4.2",
+            name,
+            "#{label(ext)} doesn't decode: #{inspect(reason)}"
+          )
+      ),
+      crl_aki(by_name[:authority_key_identifier], issuer),
+      crl_number(by_name[:crl_number])
+    ])
+  end
+
+  defp crl_aki(nil, _issuer),
+    do: missing(:authority_key_identifier, "9829#3.1", "every CRL needs it")
+
+  # The key identifier is the SHA-1 of the issuer's subjectPublicKey bits
+  # (RFC 6487 §4.8.3), whether or not the issuer carries it as an SKI.
+  defp crl_aki(ext, issuer) do
+    criticality(ext, false, "6487#4.8.3") ++
+      if decoded?(ext) do
+        ski = :crypto.hash(:sha, issuer.public_key.key)
+
+        cond do
+          ext.value.key_identifier == nil ->
+            [
+              error(
+                :aki_key_identifier,
+                "5280#5.2.1",
+                :authority_key_identifier,
+                "keyIdentifier is missing"
+              )
+            ]
+
+          ext.value.key_identifier != ski ->
+            [
+              error(
+                :aki_mismatch,
+                "9829#3.1",
+                :authority_key_identifier,
+                "the AKI is not the key identifier of the issuer's public key"
+              )
+            ]
+
+          true ->
+            []
+        end
+      else
+        []
+      end
+  end
+
+  defp crl_number(nil), do: missing(:crl_number, "9829#3.1", "every CRL needs it")
+
+  # CRLNumber is INTEGER (0..MAX), so the decoder reports a negative value
+  # as out of range; RFC 9829 §3.1 calls it a range violation.
+  defp crl_number(%Extension{} = ext) when ext.value == {:malformed, {:asn1, :bad_range}} do
+    criticality(ext, false, "9829#3.1") ++
+      [
+        error(
+          :crl_number_range,
+          "9829#3.1",
+          :crl_number,
+          "the CRL Number is negative; it must be between 0 and 2^159-1"
+        )
+      ]
+  end
+
+  defp crl_number(ext) do
+    criticality(ext, false, "9829#3.1") ++
+      if decoded?(ext) and (ext.value < 0 or ext.value > Integer.pow(2, 159) - 1) do
+        [
+          error(
+            :crl_number_range,
+            "9829#3.1",
+            :crl_number,
+            "the CRL Number is #{ext.value}; it must be between 0 and 2^159-1"
+          )
+        ]
+      else
+        []
+      end
+  end
+
+  defp negative_crl_number?(%Extension{
+         name: :crl_number,
+         value: {:malformed, {:asn1, :bad_range}}
+       }),
+       do: true
+
+  defp negative_crl_number?(_ext), do: false
+
+  # §5: entries hold serial and revocation date only, no extensions.
+  defp crl_entries(%{revoked: revoked}) do
+    for %{serial: serial, extensions: [_ | _]} <- revoked do
+      error(
+        :entry_extensions,
+        "6487#5",
+        :revoked,
+        "the entry for serial #{serial} has extensions; CRL entry extensions are not allowed"
+      )
+    end
+  end
+
+  defp crl_signature(crl, issuer) do
+    case Crypto.verify(crl, issuer.public_key) do
+      :ok -> []
+      {:error, p} -> [error(p.rule, p.rfc, :signature, p.message)]
+    end
   end
 
   defp warning(rule, rfc, field, message),

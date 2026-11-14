@@ -1,0 +1,11 @@
+ta.cer
+	ca1.cer
+		ca1.crl
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: ca1.crl]
+# 2^159: one more than the largest value RFC 9829 allows.
+obj.tbsCertList.crlExtensions.cn.extnValue = 730750818665451459101842416358141509827966271488

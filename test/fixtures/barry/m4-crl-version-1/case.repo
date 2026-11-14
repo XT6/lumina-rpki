@@ -1,0 +1,11 @@
+ta.cer
+	ca1.cer
+		ca1.crl
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: ca1.crl]
+# An explicit version 0 means v1 (RFC 5280 5.1.2.1).
+obj.tbsCertList.version = 0

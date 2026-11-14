@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 29 Barry fixtures: 10 valid, 19 invalid.
+- 38 Barry fixtures: 11 valid, 27 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 539 unit tests in 49 modules.
+- 559 unit tests in 50 modules.
 
 ## Barry fixtures
 
@@ -336,11 +336,12 @@ CRL, manifest and ROA certificates, so their issuer names break the same
 rule.
 
 Certificate profile check (#109): validation must reject the CA
-certificate and the two EE certificates for their names. The CRL's
-issuer breaks the same rule; the CRL profile is #111.
+certificate and the two EE certificates for their names, and the CRL
+profile check (#111) the CRL, whose issuer name is ca1's subject.
 
 - **Expected:** invalid. A validator must reject:
   - `ta/ca1.cer`: the subject holds an organizationName
+  - `ca1/ca1.crl`: the CRL's issuer holds an organizationName
   - `ca1/ca1.mft`: the EE certificate's issuer holds an organizationName
   - `ca1/roa1.roa`: the EE certificate's issuer holds an organizationName
 - **RFC:** [6487 §4.4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.4)), [6487 §4.5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.5))
@@ -438,6 +439,125 @@ CA certificate gets one warning.
 - **Expected:** valid
 - **RFC:** [6487 §4.8](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8)), [5280 §4.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.2))
 - **Files:** [descriptor](../../test/fixtures/barry/m4-cert-unknown-extension/case.repo) · [metadata](../../test/fixtures/barry/m4-cert-unknown-extension/case.exs) · [rsync tree](../../test/fixtures/barry/m4-cert-unknown-extension/rsync)
+
+#### `m4-crl-aki-mismatch`: CRL whose AKI doesn't match the issuer's SKI
+
+The baseline tree with one change: ca1's CRL has an Authority Key Identifier that is not ca1's Subject Key
+Identifier. RFC 9829 section 3.1 requires RPs to process the AKI, and
+RFC 5280 section 5.2.1 says it identifies the CRL signer's key.
+
+CRL profile check (#111): validation must reject the CRL with this
+one reason, and accept everything else.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.crl`: the AKI is not the issuer's SKI
+- **RFC:** [9829 §3.1](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.1)), [5280 §5.2.1](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.2.1)), [6487 §4.8.3](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.3))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-crl-aki-mismatch/case.repo) · [metadata](../../test/fixtures/barry/m4-crl-aki-mismatch/case.exs) · [rsync tree](../../test/fixtures/barry/m4-crl-aki-mismatch/rsync)
+
+#### `m4-crl-bad-signature`: CRL with a signature that doesn't verify
+
+The baseline tree with one change: ca1's CRL carries a signature that doesn't verify with ca1's key. RFC
+6487 section 7.2 needs a valid CRL to decide revocation.
+
+CRL profile check (#111): validation must reject the CRL with this
+one reason, and accept everything else.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.crl`: the CRL signature doesn't verify
+- **RFC:** [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [8017 §8.2.2](../rfc/rfc8017.txt) ([html](https://www.rfc-editor.org/rfc/rfc8017.html#section-8.2.2)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-crl-bad-signature/case.repo) · [metadata](../../test/fixtures/barry/m4-crl-bad-signature/case.exs) · [rsync tree](../../test/fixtures/barry/m4-crl-bad-signature/rsync)
+
+#### `m4-crl-extra-extension`: CRL with a third extension
+
+The baseline tree with one change: ca1's CRL carries a third, non-critical extension with an unknown
+OID. RFC 9829 section 3.1 requires exactly two extensions, AKI and CRL
+Number; unlike in certificates, a non-critical one is not allowed.
+
+CRL profile check (#111): validation must reject the CRL with this
+one reason, and accept everything else.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.crl`: a CRL extension other than AKI and CRL Number
+- **RFC:** [9829 §3.1](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.1)), [6487 §5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-5))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-crl-extra-extension/case.repo) · [metadata](../../test/fixtures/barry/m4-crl-extra-extension/case.exs) · [rsync tree](../../test/fixtures/barry/m4-crl-extra-extension/rsync)
+
+#### `m4-crl-issuer-mismatch`: CRL whose issuer isn't the CA's subject
+
+The baseline tree with one change: ca1's CRL names an issuer other than ca1's subject. RFC 6487 section 5
+says the CRL issuer is the CA.
+
+CRL profile check (#111): validation must reject the CRL with this
+one reason, and accept everything else.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.crl`: the CRL issuer is not the CA's subject
+- **RFC:** [6487 §5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-5)), [5280 §5.1.2.3](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.2.3))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-crl-issuer-mismatch/case.repo) · [metadata](../../test/fixtures/barry/m4-crl-issuer-mismatch/case.exs) · [rsync tree](../../test/fixtures/barry/m4-crl-issuer-mismatch/rsync)
+
+#### `m4-crl-number-critical`: CRL whose CRL Number is critical
+
+The baseline tree with one change: ca1's CRL marks its CRL Number extension critical. RFC 9829 section 3.1
+has relying parties check that it is non-critical.
+
+CRL profile check (#111): validation must reject the CRL with this
+one reason, and accept everything else.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.crl`: the CRL Number is critical
+- **RFC:** [9829 §3.1](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.1))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-crl-number-critical/case.repo) · [metadata](../../test/fixtures/barry/m4-crl-number-critical/case.exs) · [rsync tree](../../test/fixtures/barry/m4-crl-number-critical/rsync)
+
+#### `m4-crl-number-negative`: CRL whose CRL Number is negative
+
+The baseline tree with one change: ca1's CRL Number is -2^159. RFC 9829 section 3.1 has relying parties
+check that it is a non-negative integer no larger than 2^159-1.
+
+CRL profile check (#111): validation must reject the CRL with this
+one reason, and accept everything else.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.crl`: the CRL Number is negative
+- **RFC:** [9829 §3.1](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.1)), [5280 §5.2.3](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.2.3))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-crl-number-negative/case.repo) · [metadata](../../test/fixtures/barry/m4-crl-number-negative/case.exs) · [rsync tree](../../test/fixtures/barry/m4-crl-number-negative/rsync)
+
+#### `m4-crl-number-too-large`: CRL whose CRL Number is 2^159
+
+The baseline tree with one change: ca1's CRL Number is 2^159. RFC 9829 section 3.1 has relying parties
+check that it is a non-negative integer no larger than 2^159-1.
+
+CRL profile check (#111): validation must reject the CRL with this
+one reason, and accept everything else.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.crl`: the CRL Number is above 2^159-1
+- **RFC:** [9829 §3.1](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.1)), [5280 §5.2.3](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.2.3))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-crl-number-too-large/case.repo) · [metadata](../../test/fixtures/barry/m4-crl-number-too-large/case.exs) · [rsync tree](../../test/fixtures/barry/m4-crl-number-too-large/rsync)
+
+#### `m4-crl-stale`: CRL past its nextUpdate
+
+The baseline tree with one change: ca1's CRL has a nextUpdate of 2029-01-01, before the validation time the
+tests use (2030-01-01). D-016: a stale CRL is still used, with a
+warning.
+
+CRL profile check (#111): the CRL is accepted, with a stale_crl
+warning.
+
+- **Expected:** valid
+- **RFC:** [5280 §5.1.2.5](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.2.5)), [6487 §5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-5))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-crl-stale/case.repo) · [metadata](../../test/fixtures/barry/m4-crl-stale/case.exs) · [rsync tree](../../test/fixtures/barry/m4-crl-stale/rsync)
+
+#### `m4-crl-version-1`: CRL with version 1
+
+The baseline tree with one change: ca1's CRL is version 1. RFC 6487 section 5 requires version 2 CRLs, and
+relying parties need not process v1.
+
+CRL profile check (#111): validation must reject the CRL with this
+one reason, and accept everything else.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.crl`: the CRL is version 1; RPKI CRLs are v2
+- **RFC:** [6487 §5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-5)), [5280 §5.1.2.1](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.2.1))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-crl-version-1/case.repo) · [metadata](../../test/fixtures/barry/m4-crl-version-1/case.exs) · [rsync tree](../../test/fixtures/barry/m4-crl-version-1/rsync)
 
 ## Test TALs
 
@@ -941,7 +1061,9 @@ a wrong `:ok` here would let forged objects through.
   Certificates (TA, CA, and the EE certificates in manifests and
   ROAs) and CRLs, each checked with the key of the certificate whose
   subject and key identifier its issuer and AKI name; a TA with its
-  own key.
+  own key. Three CRL fixtures break exactly that link or the
+  signature, and are left out (their own tests are in
+  Lumina.ProfileCRLTest).
 - *valid signatures:* a signature made by OTP's public_key verifies (RFC [8017 §8.2](../rfc/rfc8017.txt) ([html](https://www.rfc-editor.org/rfc/rfc8017.html#section-8.2)))
   An independent check of the implementation: OTP's `:public_key`
   signs with a fresh key, and Lumina verifies.
@@ -1292,6 +1414,49 @@ are, under the strict grammar (D-002).
 - every production TAL is byte-identical to its reviewed copy
   Byte for byte: a changed key, URI, line ending or comment in either copy fails.
 - every production TAL parses with no warnings (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
+
+### `Lumina.ProfileCRLTest`
+
+[test/lumina/profile_crl_test.exs](../../test/lumina/profile_crl_test.exs)
+
+Tests the CRL profile (`Lumina.Profile.crl/3`, #111): RFC 6487 §5 as
+updated by RFC 9829 §3.1, with the CRL's signature checked against the
+issuing CA's key.
+
+Every CRL of the positive Barry fixtures must pass, and each `m4-crl-*`
+fixture breaks one rule; `m4-crl-stale` is accepted with a `stale_crl`
+warning (D-016). Cases Barry can't produce (revoked entries, #52) change
+one field of a decoded fixture CRL; the signature covers the unchanged
+`tbs_der`, so it still verifies.
+
+Fixtures validate at 2030-01-01.
+
+- *fixtures:* every CRL of every positive Barry fixture passes (RFC [6487 §5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-5)), [9829 §3.1](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.1)))
+  Each CRL checked with the certificate of the CA it belongs to.
+- *fixtures:* m4-crl-version-1: a version 1 CRL is rejected (RFC [6487 §5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-5)))
+- *fixtures:* m4-crl-extra-extension: a third extension is rejected (RFC [9829 §3.1](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.1)))
+  Unlike in certificates (D-013), a non-critical unknown extension rejects a CRL.
+- *fixtures:* m4-crl-number-critical: a critical CRL Number is rejected (RFC [9829 §3.1](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.1)))
+- *fixtures:* m4-crl-number-too-large: a CRL Number of 2^159 is rejected (RFC [9829 §3.1](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.1)))
+- *fixtures:* m4-crl-number-negative: a negative CRL Number is rejected (RFC [9829 §3.1](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.1)))
+- *fixtures:* m4-crl-aki-mismatch: an AKI other than the issuer's key identifier is rejected (RFC [9829 §3.1](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.1)), [5280 §5.2.1](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.2.1)))
+- *fixtures:* m4-crl-issuer-mismatch: a CRL whose issuer isn't the CA's subject is rejected (RFC [6487 §5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-5)))
+- *fixtures:* m4-crl-bad-signature: a CRL whose signature doesn't verify is rejected (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [8017 §8.2.2](../rfc/rfc8017.txt) ([html](https://www.rfc-editor.org/rfc/rfc8017.html#section-8.2.2)))
+- *fixtures:* m4-crl-stale: a CRL past its nextUpdate is accepted with a stale_crl warning (RFC [5280 §5.1.2.5](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.2.5)))
+  D-016: a stale CRL is still used.
+- *fixtures:* m4-cert-name-extra-attribute: a CRL whose issuer name breaks §4.4 is rejected (RFC [6487 §5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-5)), [6487 §4.4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.4)))
+- *fixtures:* m1-cert-no-ski: the CRL of a CA without an SKI still matches its AKI (RFC [9829 §3.1](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.1)), [6487 §4.8.3](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.3)))
+  The AKI is compared with the SHA-1 of the issuer's key, not with its SKI extension.
+- *dates:* a CRL is stale only after its nextUpdate (RFC [5280 §5.1.2.5](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.2.5)))
+- *dates:* a CRL before its thisUpdate is rejected (RFC [5280 §5.1.2.4](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.2.4)))
+- *dates:* a CRL without nextUpdate is rejected (RFC [5280 §5.1.2.5](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.2.5)))
+- *extensions:* a CRL without an AKI or without a CRL Number is rejected (RFC [9829 §3.1](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.1)))
+- *extensions:* an extension that appears twice is rejected (RFC [5280 §4.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.2)))
+- *extensions:* CRL Numbers 0 and 2^159-1 are accepted (RFC [9829 §3.1](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.1)))
+  0 and 2^159-1 are the bounds RFC 9829 allows.
+- *entries and algorithms:* a revoked entry with extensions is rejected; one without is accepted (RFC [6487 §5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-5)))
+  Barry can't write revoked entries (#52), so the decoded entry list is changed.
+- *entries and algorithms:* a tbsCertList algorithm unlike the outer one is rejected (RFC [5280 §5.1.1.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.1.2)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2)))
 
 ### `Lumina.ProfileExtensionsTest`
 

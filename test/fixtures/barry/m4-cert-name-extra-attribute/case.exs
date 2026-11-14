@@ -10,14 +10,15 @@
   rule.
 
   Certificate profile check (#109): validation must reject the CA
-  certificate and the two EE certificates for their names. The CRL's
-  issuer breaks the same rule; the CRL profile is #111.
+  certificate and the two EE certificates for their names, and the CRL
+  profile check (#111) the CRL, whose issuer name is ca1's subject.
   """,
   rfc: ["6487#4.4", "6487#4.5"],
   expected:
     {:invalid,
      [
        %{object: "ta/ca1.cer", reason: "the subject holds an organizationName"},
+       %{object: "ca1/ca1.crl", reason: "the CRL's issuer holds an organizationName"},
        %{object: "ca1/ca1.mft", reason: "the EE certificate's issuer holds an organizationName"},
        %{object: "ca1/roa1.roa", reason: "the EE certificate's issuer holds an organizationName"}
      ]}
