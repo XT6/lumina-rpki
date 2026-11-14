@@ -41,18 +41,26 @@ defmodule Lumina.TATest do
     "rsync://127.0.0.1:#{daemon.port}/rpki"
   end
 
+  defp ta_invalid?(%{expected: {:invalid, problems}}),
+    do: Enum.any?(problems, &(&1.object == "ta.cer"))
+
+  defp ta_invalid?(_fixture), do: false
+
   defp closed, do: "https://localhost:#{RsyncDaemon.closed_port()}/ta.cer"
 
   describe "retrieval" do
     @tag :rsync
     @tag rfc: ["8630#3", "8630#2.3"],
-         doc: "The fixtures built to fail the TA check (m2-ta-*) are covered by the next test."
+         doc: """
+         Fixtures whose TA is expected invalid (m2-ta-*, m4-chain-ta-*) are
+         covered by the next tests.
+         """
     test "every Barry fixture's TA is retrieved over rsync and stored byte-identical", %{
       tmp_dir: tmp
     } do
       for dir <- Fixtures.case_dirs(),
           id = Path.basename(dir),
-          not String.starts_with?(id, "m2-ta-") do
+          not ta_invalid?(Fixture.load!(id)) do
         root = Path.join(tmp, "cache-" <> id)
         tal = tal!(id, [rsync(tmp, id) <> "/ta.cer"])
 
@@ -69,6 +77,26 @@ defmodule Lumina.TATest do
 
       assert {:error, %{attempts: [attempt], stale: nil}} = TA.retrieve(tal, tmp, now: @now)
       assert %{outcome: :check_failed, detail: [%{rule: :not_ca}]} = attempt
+    end
+
+    @tag :rsync
+    @tag rfc: ["8630#3", "6487#7.2"],
+         doc: "D-014: TAL checks alone (M2) would accept both; validation rejects them."
+    test "a TA whose self-signature fails, or that has expired, is fetched but not accepted", %{
+      tmp_dir: tmp
+    } do
+      for {id, rule} <- [
+            {"m4-chain-ta-bad-signature", :bad_signature},
+            {"m4-chain-ta-expired", :expired}
+          ] do
+        tal = tal!(id, [rsync(tmp, id) <> "/ta.cer"])
+
+        assert {:error, %{attempts: [attempt], stale: nil}} =
+                 TA.retrieve(tal, Path.join(tmp, "cache-" <> id), now: @now),
+               id
+
+        assert %{outcome: :check_failed, detail: [%{rule: ^rule}]} = attempt, id
+      end
     end
 
     @tag :rsync
@@ -151,6 +179,24 @@ defmodule Lumina.TATest do
       assert uri == base <> "/ta.cer"
       assert stale.certificate.der == ta_bytes("m0-minimal-valid")
       assert File.read!(path) == ta_bytes("m0-minimal-valid")
+    end
+
+    @tag :rsync
+    @tag rfc: ["8630#3", "6487#7.2"]
+    test "a previously accepted TA that has since expired is not offered as stale", %{
+      tmp_dir: tmp
+    } do
+      id = "m0-minimal-valid"
+
+      {:ok, %{certificate: cert}} =
+        TA.retrieve(tal!(id, [rsync(tmp, id) <> "/ta.cer"]), tmp, now: @now)
+
+      tal = tal!(id, [closed()])
+
+      assert {:error, %{stale: %{certificate: ^cert}}} = TA.retrieve(tal, tmp, now: @now)
+
+      assert {:error, %{stale: nil}} =
+               TA.retrieve(tal, tmp, now: DateTime.add(cert.not_after.at, 1))
     end
 
     test "when every URI fails and nothing was cached, there is no stale TA", %{tmp_dir: tmp} do

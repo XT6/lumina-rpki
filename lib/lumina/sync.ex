@@ -131,8 +131,14 @@ defmodule Lumina.Sync do
   end
 
   defp warnings(attempts) do
-    for attempt <- attempts, {:wildcard_certificate, uri, name} <- attempt.warnings do
-      "    warning: #{uri}: certificate matched by wildcard #{name}\n"
+    for attempt <- attempts, warning <- attempt.warnings do
+      case warning do
+        {:wildcard_certificate, uri, name} ->
+          "    warning: #{uri}: certificate matched by wildcard #{name}\n"
+
+        {:profile, problem} ->
+          "    warning: #{attempt.uri}: #{problem.rule} (#{problem.message})\n"
+      end
     end
   end
 
