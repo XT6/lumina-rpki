@@ -49,7 +49,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-028](#f-028-rfc-7935-4-cites-the-public-key-section-for-the-signature-format) | 7935 §4 | reference | none found (not reported) | Signature format from RFC 4055 §3.2 and RFC 5280 §4.1.1.3 (#108) |
 | [F-029](#f-029-barry-gives-the-root-certificate-serial-number-0) | 6487 §4.2; 5280 §4.1.2.2 (Barry) | tooling | n/a | Every fixture sets the TA serial to 1 (#109) |
 | [F-030](#f-030-barry-cant-set-the-certificate-policies-value) | 6487 §4.8.9; 7318 §2 (Barry) | tooling | n/a | Policy rules tested on decoded certificates (#110) |
-| [F-031](#f-031-rfc-7935-2-takes-rsaencryptions-parameters-from-rfc-3370-outside-the-library) | 7935 §2 | reference | none found (not reported) | rsaEncryption parameters: NULL or absent, as RFC 4055 §5 says for sha256WithRSAEncryption (#129) |
+| [F-031](#f-031-rfc-7935-2-takes-rsaencryptions-parameters-from-rfc-3370-outside-the-library) | 7935 §2; 3370 §3.2 | reference, tooling | none found (not reported) | RFC 3370 added; rsaEncryption parameters must be NULL, absent only warns because Barry omits them (#129, #130) |
 
 ## Entries
 
@@ -530,6 +530,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Found:** writing the CMS profile checks (#129). Barry writes rsaEncryption with absent parameters.
 - **Impact:** small; an RP that demanded NULL would reject Barry's objects.
 - **Resolution:** `Lumina.CMS` accepts NULL or absent parameters for both signature algorithms and rejects anything else. Adding RFC 3370 to the library would settle it.
+- **Update (2026-11-14, #130):** RFC 3370 was added to `doc/rfc/`. Its §3.2 says: "When the rsaEncryption algorithm identifier is used, the AlgorithmIdentifier parameters field MUST contain NULL", and unlike RFC 4055 §5 it doesn't ask implementations to accept them absent. Every signed object in the local LACNIC copy (21,259) has NULL; every Barry-generated one leaves them out (tooling). `Lumina.CMS.profile/1` now accepts NULL, warns `signature_algorithm_parameters_absent` (RFC 3370 §3.2) when absent, and rejects anything else. Making absent an error would need every fixture to declare its manifests as tree nodes so Barry can set the parameters, and all fixtures regenerated; that is the maintainer's call.
 
 ## Process notes
 

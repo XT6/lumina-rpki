@@ -83,6 +83,7 @@ RFC 7935 fixes the RPKI algorithm suite: RSA 2048-bit keys, SHA-256, and RSASSA-
 | --- | --- | --- | --- | --- |
 | 7935 | The Profile for Algorithms and Key Sizes for Use in the RPKI | [txt](rfc7935.txt) | [html](https://www.rfc-editor.org/rfc/rfc7935.html) | Obsoletes 6485; updated by 8608 (BGPsec only) |
 | 4055 | Additional Algorithms and Identifiers for RSA Cryptography for use in X.509 | [txt](rfc4055.txt) | [html](https://www.rfc-editor.org/rfc/rfc4055.html) | `sha256WithRSAEncryption` identifiers |
+| 3370 | Cryptographic Message Syntax (CMS) Algorithms | [txt](rfc3370.txt) | [html](https://www.rfc-editor.org/rfc/rfc3370.html) | `rsaEncryption` parameters in CMS (§3.2), cited by RFC 7935 §2; added 2026-11-14 (F-031) |
 | 5754 | Using SHA2 Algorithms with Cryptographic Message Syntax | [txt](rfc5754.txt) | [html](https://www.rfc-editor.org/rfc/rfc5754.html) | Digest algorithm identifiers in CMS |
 | 8017 | PKCS #1: RSA Cryptography Specifications Version 2.2 | [txt](rfc8017.txt) | [html](https://www.rfc-editor.org/rfc/rfc8017.html) | Informational; RSASSA-PKCS1-v1_5 |
 

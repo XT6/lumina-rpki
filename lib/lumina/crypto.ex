@@ -2,8 +2,8 @@ defmodule Lumina.Crypto do
   @moduledoc """
   Signature verification for certificates and CRLs (#108), with the one
   algorithm suite RPKI allows (RFC 7935): RSASSA-PKCS1-v1_5 with SHA-256,
-  over 2048-bit RSA keys with public exponent 65,537. Signed objects (CMS)
-  are M5.
+  over 2048-bit RSA keys with public exponent 65,537. `verify_cms/4`
+  checks a signed object's SignerInfo signature (#130).
 
   `verify/2` checks a decoded `Lumina.Certificate` or `Lumina.CRL` against
   its issuer's public key; `verify/4` checks any signed bytes. Both return
@@ -78,6 +78,33 @@ defmodule Lumina.Crypto do
       rsassa_pkcs1_v1_5_verify(rsa, message, s)
     end
   end
+
+  @doc """
+  Verifies the signature of a CMS SignerInfo (RFC 6488 §3 item 2) over
+  `signed_attrs_der`, the DER of the signed attributes (RFC 5652 §5.4),
+  with the EE certificate's `key`. In CMS the digest and signature
+  algorithms are named apart, so `algorithm` may be rsaEncryption as well
+  as sha256WithRSAEncryption (RFC 7935 §2); either way the signature is
+  RSASSA-PKCS1-v1_5 over SHA-256. The algorithm's parameters and the
+  digest algorithm are `Lumina.CMS.profile/1`'s to check.
+  """
+  @spec verify_cms(binary(), algorithm(), binary(), public_key()) :: :ok | {:error, problem()}
+  def verify_cms(signed_attrs_der, %{oid: oid}, signature, key)
+      when oid in [@rsa_encryption, @sha256_with_rsa] do
+    with {:ok, rsa} <- check_rsa_key(key),
+         {:ok, s} <- signature_octets(signature, div(rsa.bits + 7, 8)) do
+      rsassa_pkcs1_v1_5_verify(rsa, signed_attrs_der, s)
+    end
+  end
+
+  def verify_cms(_signed_attrs_der, %{oid: oid}, _signature, _key),
+    do:
+      problem(
+        :unsupported_signature_algorithm,
+        "7935#2",
+        "the signature algorithm is #{Lumina.OID.format(oid)}; CMS in RPKI uses rsaEncryption " <>
+          "or sha256WithRSAEncryption"
+      )
 
   @doc """
   Reads an RSA public key from a subjectPublicKeyInfo's algorithm and
