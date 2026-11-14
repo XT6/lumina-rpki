@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 53 Barry fixtures: 11 valid, 42 invalid.
+- 60 Barry fixtures: 11 valid, 49 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 627 unit tests in 54 modules.
+- 641 unit tests in 55 modules.
 
 ## Barry fixtures
 
@@ -760,6 +760,90 @@ reason. Its EE certificate is valid.
 - **RFC:** [6488 §2.1.1](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.1)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3))
 - **Files:** [descriptor](../../test/fixtures/barry/m5-cms-version-1/case.repo) · [metadata](../../test/fixtures/barry/m5-cms-version-1/case.exs) · [rsync tree](../../test/fixtures/barry/m5-cms-version-1/rsync)
 
+#### `m5-mft-dates-reversed`: Manifest thisUpdate after nextUpdate
+
+The baseline tree (m0-minimal-valid) with one change: the thisUpdate of ca1.mft (2027-01-01) is after its nextUpdate (2026-06-01). RFC 9286 section 4.4 item 3 requires thisUpdate to precede nextUpdate.
+
+Manifest content checks (#132): validation must reject ca1.mft with
+this one reason. Its envelope and EE certificate are valid.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.mft`: thisUpdate is not before nextUpdate
+- **RFC:** [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)), [9286 §4.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.4))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-mft-dates-reversed/case.repo) · [metadata](../../test/fixtures/barry/m5-mft-dates-reversed/case.exs) · [rsync tree](../../test/fixtures/barry/m5-mft-dates-reversed/rsync)
+
+#### `m5-mft-hash-sha1`: Manifest fileHashAlg SHA-1
+
+The baseline tree (m0-minimal-valid) with one change: the fileHashAlg of ca1.mft is SHA-1. RFC 9286 section 4.2.1 requires the algorithm of RFC 7935, which is SHA-256 (section 2).
+
+Manifest content checks (#132): validation must reject ca1.mft with
+this one reason. Its envelope and EE certificate are valid.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.mft`: the file hash algorithm is SHA-1, not SHA-256
+- **RFC:** [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-mft-hash-sha1/case.repo) · [metadata](../../test/fixtures/barry/m5-mft-hash-sha1/case.exs) · [rsync tree](../../test/fixtures/barry/m5-mft-hash-sha1/rsync)
+
+#### `m5-mft-name-bad-character`: Manifest file name with a character outside the allowed set
+
+The baseline tree (m0-minimal-valid) with one change: ca1.mft lists its ROA as roa+1.roa. RFC 9286 section 4.2.2 allows only a-z, A-Z, 0-9, hyphen and underscore before the dot.
+
+Manifest content checks (#132): validation must reject ca1.mft with
+this one reason. Its envelope and EE certificate are valid.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.mft`: the file name roa+1.roa has a character outside a-z A-Z 0-9 - _
+- **RFC:** [9286 §4.2.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.2))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-mft-name-bad-character/case.repo) · [metadata](../../test/fixtures/barry/m5-mft-name-bad-character/case.exs) · [rsync tree](../../test/fixtures/barry/m5-mft-name-bad-character/rsync)
+
+#### `m5-mft-name-duplicate`: Manifest listing the same file name twice
+
+The baseline tree (m0-minimal-valid) with one change: ca1.mft lists roa1.roa twice (the second entry replaces ca1.crl). RFC 9286 section 4.2.1 has one entry per file, and a name can't have two hashes.
+
+Manifest content checks (#132): validation must reject ca1.mft with
+this one reason. Its envelope and EE certificate are valid.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.mft`: roa1.roa is listed twice
+- **RFC:** [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)), [9286 §4.2.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.2))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-mft-name-duplicate/case.repo) · [metadata](../../test/fixtures/barry/m5-mft-name-duplicate/case.exs) · [rsync tree](../../test/fixtures/barry/m5-mft-name-duplicate/rsync)
+
+#### `m5-mft-name-unregistered-extension`: Manifest file name with an unregistered extension
+
+The baseline tree (m0-minimal-valid) with one change: ca1.mft lists its ROA as roa1.xyz. RFC 9286 section 4.2.2 requires an extension from the IANA "RPKI Repository Name Schemes" registry, which has no .xyz.
+
+Manifest content checks (#132): validation must reject ca1.mft with
+this one reason. Its envelope and EE certificate are valid.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.mft`: the extension .xyz is not in the RPKI Repository Name Schemes registry
+- **RFC:** [9286 §4.2.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.2)), [6481 §7.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-7.2))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-mft-name-unregistered-extension/case.repo) · [metadata](../../test/fixtures/barry/m5-mft-name-unregistered-extension/case.exs) · [rsync tree](../../test/fixtures/barry/m5-mft-name-unregistered-extension/rsync)
+
+#### `m5-mft-number-too-large`: Manifest number of 21 octets
+
+The baseline tree (m0-minimal-valid) with one change: the manifestNumber of ca1.mft is 2^160, 21 octets. RFC 9286 section 4.2.1 says issuers MUST NOT use values longer than 20 octets.
+
+Manifest content checks (#132): validation must reject ca1.mft with
+this one reason. Its envelope and EE certificate are valid.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.mft`: the manifest number is longer than 20 octets
+- **RFC:** [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-mft-number-too-large/case.repo) · [metadata](../../test/fixtures/barry/m5-mft-number-too-large/case.exs) · [rsync tree](../../test/fixtures/barry/m5-mft-number-too-large/rsync)
+
+#### `m5-mft-version-1`: Manifest version 1
+
+The baseline tree (m0-minimal-valid) with one change: the version of ca1.mft is 1. RFC 9286 section 4.2.1 requires 0, and section 4.4 item 2 makes a relying party check it.
+
+Manifest content checks (#132): validation must reject ca1.mft with
+this one reason. Its envelope and EE certificate are valid.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.mft`: the manifest version is 1; RFC 9286 requires 0
+- **RFC:** [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)), [9286 §4.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.4))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-mft-version-1/case.repo) · [metadata](../../test/fixtures/barry/m5-mft-version-1/case.exs) · [rsync tree](../../test/fixtures/barry/m5-mft-version-1/rsync)
+
 ## Test TALs
 
 Hand-written Trust Anchor Locators, valid and malformed, and what a correct TAL parser must report for each (RFC 8630 §2.2, D-002).
@@ -1287,9 +1371,10 @@ Syncs run at 2026-11-13, inside the fixtures' default validity.
   --max-invalid 0 and 24 fail, 25 and 100 pass (D-022).
 - *verdicts:* a valid tree exits 0 and counts CA certificates and signed objects by type (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [6487 §4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4)))
   m0-minimal-valid: ca1, two manifests and a ROA.
-- *signed objects (#131):* a signed object whose CMS envelope is invalid is listed with its rule (RFC [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [9589 §4](../rfc/rfc9589.txt) ([html](https://www.rfc-editor.org/rfc/rfc9589.html#section-4)))
-  Driven by the metadata of every m5-cms-* fixture: the object it
-  names is listed invalid with its rule, and nothing else is.
+- *signed objects (#131, #132):* a signed object whose CMS envelope or manifest content is invalid is listed with its rule (RFC [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [9589 §4](../rfc/rfc9589.txt) ([html](https://www.rfc-editor.org/rfc/rfc9589.html#section-4)), [9286 §4.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.4)))
+  Driven by the metadata of every m5-cms-* and m5-mft-* fixture: the
+  object it names is listed invalid with its rule, and nothing else
+  is.
 - *--now:* --now after the fixture's expiry finds the TA expired, and nothing below valid (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
   After the fixtures' notAfter (2036-01-01), the TA itself has expired.
 - *--now:* --now sets the validation time for every certificate (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
@@ -1700,6 +1785,42 @@ that they hold together, over all the data at once.
   validate; delegated repositories may hold faults (in 2026-11, 21
   expired manifests at one of them), printed but not failing the
   test as long as the share stays within D-022's 10%.
+
+### `Lumina.ManifestCheckTest`
+
+[test/lumina/manifest_check_test.exs](../../test/lumina/manifest_check_test.exs)
+
+Tests the manifest content checks (#132): `Lumina.Manifest.check/1`
+against RFC 9286 §4.2.1, §4.2.2 and §4.4. An invalid manifest is
+treated as though no manifest were present (§4.4), which makes its
+publication point fail (#133), so a false positive here would throw
+away a whole publication point.
+
+Every manifest of the positive fixtures must pass, and each `m5-mft-*`
+fixture must fail with exactly its one rule. The edge cases (boundaries,
+case sensitivity, registered extensions) are tested on a decoded
+m0-minimal-valid manifest changed in memory.
+
+- *fixtures:* every manifest of the positive Barry fixtures passes (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)), [9286 §4.2.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.2)), [9286 §4.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.4)))
+- *fixtures:* m5-mft-version-1: a manifest version other than 0 is rejected (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)), [9286 §4.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.4)))
+- *fixtures:* m5-mft-dates-reversed: thisUpdate after nextUpdate is rejected (RFC [9286 §4.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.4)))
+- *fixtures:* m5-mft-number-too-large: a manifest number of 21 octets is rejected (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)))
+- *fixtures:* m5-mft-hash-sha1: a file hash algorithm other than SHA-256 is rejected (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2)))
+- *fixtures:* m5-mft-name-bad-character: a file name with a character outside a-z A-Z 0-9 - _ is rejected (RFC [9286 §4.2.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.2)))
+- *fixtures:* m5-mft-name-unregistered-extension: an extension outside the IANA registry is rejected (RFC [9286 §4.2.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.2)), [6481 §7.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-7.2)))
+- *fixtures:* m5-mft-name-duplicate: a file name listed twice is rejected (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)), [9286 §4.2.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.2)))
+- *dates and numbers:* thisUpdate equal to nextUpdate is rejected (RFC [9286 §4.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.4)))
+  "thisUpdate precedes nextUpdate": equal times don't.
+- *dates and numbers:* manifest numbers 0 and 2^159-1 pass; -1 and 2^159 are rejected (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)))
+  20 octets hold 0..2^159-1 as a DER INTEGER, the CRLNumber range §4.2.1 points to.
+- *file names:* every extension in the IANA registry is accepted (RFC [9286 §4.2.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.2)), [6481 §7.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-7.2)))
+  F-032: the IANA registry as of 2026-11-14, temporary (.asa, .cdr)
+  and deprecated (.gbr) entries included. LACNIC's manifests list
+  .asa files.
+- *file names:* names are case-sensitive (RFC [9286 §4.2.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.2)))
+  Case-sensitive (§4.2.2): .ROA is not a registered extension, and A.roa is not a.roa.
+- *file names:* names without a base, with two dots, a path, or a long extension are rejected (RFC [9286 §4.2.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.2)))
+- *file names:* a name listed three times is one problem (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)))
 
 ### `Lumina.ManifestTest`
 

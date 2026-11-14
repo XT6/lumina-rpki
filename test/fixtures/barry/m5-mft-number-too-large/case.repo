@@ -1,0 +1,13 @@
+ta.cer
+	ca1.cer
+		ca1.mft
+		roa1.roa
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: ca1.mft]
+# 2^160: 21 octets once encoded. RFC 9286 section 4.2.1 allows at most 20.
+# Decimal, because Barry writes hexadecimal INTEGERs as raw octets.
+obj.content.encapContentInfo.eContent.manifestNumber = 1461501637330902918203684832716283019655932542976

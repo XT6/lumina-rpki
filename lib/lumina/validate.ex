@@ -24,8 +24,8 @@ defmodule Lumina.Validate do
   name another CA (a CA sharing the directory). One mismatch alone is a
   fault, left to validation to report.
 
-  A signed object's eContent (manifest, ROA, ...) isn't judged here yet:
-  manifests come later in M5, ROAs in M7, the other types in M9.
+  A manifest's content is checked too (`Lumina.Manifest.check/1`, #132);
+  the other types' eContent isn't judged yet (ROAs in M7, the rest in M9).
   """
 
   alias Lumina.{
@@ -34,6 +34,7 @@ defmodule Lumina.Validate do
     Chain,
     CMS,
     CRL,
+    Manifest,
     Object,
     Profile,
     SignedObject,
@@ -135,19 +136,23 @@ defmodule Lumina.Validate do
   defp entry(name, :ca, cert, nil, result),
     do: %{uri: name, kind: :ca, certificate: cert, valid: result.valid, problems: result.problems}
 
-  # RFC 6488 §3: the envelope (items 1, 2) and the EE certificate (item 3).
-  defp entry(name, {:object, type}, ee, object, result) do
-    cms = CMS.check(object)
+  # RFC 6488 §3: the envelope (items 1, 2) and the EE certificate (item 3);
+  # for a manifest, its content too (RFC 9286 §4.4, #132).
+  defp entry(name, {:object, type}, ee, value, result) do
+    own = CMS.check(signed_object(value)) ++ content(value)
 
     %{
       uri: name,
       kind: :object,
       type: type,
       certificate: ee,
-      valid: result.valid and Profile.passes?(cms),
-      problems: result.problems ++ cms
+      valid: result.valid and Profile.passes?(own),
+      problems: result.problems ++ own
     }
   end
+
+  defp content(%Manifest{} = manifest), do: Manifest.check(manifest)
+  defp content(_value), do: []
 
   defp chain_kind(:ca), do: :ca
   defp chain_kind({:object, _type}), do: :ee
@@ -171,10 +176,8 @@ defmodule Lumina.Validate do
       objects? and ext in @signed ->
         case Object.decode_file(file) do
           {:ok, %Object{type: type, value: value}} ->
-            object = signed_object(value)
-
-            case SignedObject.ee_certificate(object) do
-              %Certificate{} = cert -> {{:object, type}, cert, object}
+            case SignedObject.ee_certificate(signed_object(value)) do
+              %Certificate{} = cert -> {{:object, type}, cert, value}
               nil -> {:error, {:envelope, :no_ee_certificate}}
             end
 
