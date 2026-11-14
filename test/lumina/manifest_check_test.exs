@@ -31,7 +31,15 @@ defmodule Lumina.ManifestCheckTest do
 
   defp at(iso) do
     {:ok, time, 0} = DateTime.from_iso8601(iso)
-    %{at: time, format: :generalized_time, raw: ""}
+    %{at: time, format: :generalized_time, raw: Calendar.strftime(time, "%Y%m%d%H%M%SZ")}
+  end
+
+  # m0-minimal-valid's ca1.mft eContent, re-encoded with `changes`: a
+  # hand-built object, for what Barry can't write (doc/barry.md).
+  defp reencoded(changes) do
+    {:ok, value} = Lumina.ASN1.decode(:manifest, :Manifest, manifest().object.econtent)
+    {:ok, der} = Lumina.ASN1.encode(:manifest, :Manifest, Map.merge(value, changes))
+    der
   end
 
   describe "fixtures" do
@@ -105,6 +113,51 @@ defmodule Lumina.ManifestCheckTest do
     test "a manifest listing a single file is not empty" do
       assert rules(named(["a.roa"])) == []
       assert rules(named([])) == [:manifest_empty]
+    end
+  end
+
+  describe "time formats (#48)" do
+    @tag rfc: ["9286#4.2.1", "5280#4.1.2.5.2"],
+         doc: """
+         F-019: RFC 9286 §4.2.1 imports the CRL field's constraints; for a
+         GeneralizedTime field that means RFC 5280 §4.1.2.5.2, which forbids
+         fractional seconds although DER allows them. Barry can't write a
+         fraction, so the manifest is m0-minimal-valid's re-encoded.
+         """
+    test "a fractional-second thisUpdate decodes but is rejected" do
+      der = reencoded(%{thisUpdate: ~c"20260101000000.5Z"})
+
+      assert {:ok, manifest} = Manifest.decode_econtent(der)
+      assert manifest.this_update.raw == "20260101000000.5Z"
+
+      assert [%{rule: :manifest_time_format, rfc: "9286#4.2.1", field: :this_update} = problem] =
+               Manifest.check(manifest)
+
+      assert problem.message ==
+               "thisUpdate 20260101000000.5Z is not YYYYMMDDHHMMSSZ: GeneralizedTime with " <>
+                 "seconds and no fractional seconds (RFC 5280 section 4.1.2.5.2, F-019)"
+    end
+
+    @tag rfc: ["9286#4.2.1", "5280#4.1.2.5.2"]
+    test "a fractional-second nextUpdate is rejected" do
+      {:ok, manifest} = Manifest.decode_econtent(reencoded(%{nextUpdate: ~c"20360101000000.25Z"}))
+      assert [%{rule: :manifest_time_format, field: :next_update}] = Manifest.check(manifest)
+    end
+
+    @tag rfc: ["9286#4.2.1", "5280#5.1.2.4"],
+         doc: """
+         F-019: RFC 5280 §5.1.2.4 wants a CRL's thisUpdate as UTCTime through
+         2049; a manifest's can only be GeneralizedTime, so that rule isn't
+         applied.
+         """
+    test "a GeneralizedTime dated before 2050 is not rejected" do
+      {:ok, manifest} =
+        Manifest.decode_econtent(
+          reencoded(%{thisUpdate: ~c"20490101000000Z", nextUpdate: ~c"20490102000000Z"})
+        )
+
+      assert manifest.this_update.at.year == 2049
+      assert rules(manifest) == []
     end
   end
 

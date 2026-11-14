@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 69 Barry fixtures: 11 valid, 58 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 689 unit tests in 58 modules.
+- 692 unit tests in 58 modules.
 
 ## Barry fixtures
 
@@ -1970,6 +1970,16 @@ m0-minimal-valid manifest changed in memory.
   manifest decodes, as a file and as a repository object.
 - *empty file list (#37):* a manifest listing a single file is not empty (RFC [9286 §7](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-7)))
   Erratum 7118: SIZE (1..MAX), so one entry is enough.
+- *time formats (#48):* a fractional-second thisUpdate decodes but is rejected (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)), [5280 §4.1.2.5.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.5.2)))
+  F-019: RFC 9286 §4.2.1 imports the CRL field's constraints; for a
+  GeneralizedTime field that means RFC 5280 §4.1.2.5.2, which forbids
+  fractional seconds although DER allows them. Barry can't write a
+  fraction, so the manifest is m0-minimal-valid's re-encoded.
+- *time formats (#48):* a fractional-second nextUpdate is rejected (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)), [5280 §4.1.2.5.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.5.2)))
+- *time formats (#48):* a GeneralizedTime dated before 2050 is not rejected (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)), [5280 §5.1.2.4](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.2.4)))
+  F-019: RFC 5280 §5.1.2.4 wants a CRL's thisUpdate as UTCTime through
+  2049; a manifest's can only be GeneralizedTime, so that rule isn't
+  applied.
 - *dates and numbers:* thisUpdate equal to nextUpdate is rejected (RFC [9286 §4.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.4)))
   "thisUpdate precedes nextUpdate": equal times don't.
 - *dates and numbers:* manifest numbers 0 and 2^159-1 pass; -1 and 2^159 are rejected (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)))

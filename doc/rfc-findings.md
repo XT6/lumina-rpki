@@ -37,7 +37,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-016](#f-016-no-rfc-says-how-a-repository-directory-uri-ends) | 6487 §4.8.8.1 | ambiguity | none found (not reported) | Both forms handled in M3 (#43) |
 | [F-017](#f-017-rfc-6487-still-points-to-the-obsolete-algorithm-profile) | 6487 §4.3, §4.7, §5, §6.1.1; also 7935, 8630 | reference | none found (not reported) | Use the current RFCs |
 | [F-018](#f-018-rfc-9582-tells-cas-that-relying-parties-will-change-their-minds) | 9582 §4.3.2.2, §4.3.3 | ambiguity | none (by design) | Reported by `ROA.issues/1`; decide in M7 |
-| [F-019](#f-019-manifest-times-inherit-a-crl-rule-they-cannot-follow) | 9286 §4.2.1 | ambiguity | none found (not reported) | Use RFC 5280 GeneralizedTime rules (#48) |
+| [F-019](#f-019-manifest-times-inherit-a-crl-rule-they-cannot-follow) | 9286 §4.2.1 | ambiguity | none found (not reported) | RFC 5280 GeneralizedTime rules enforced (#48) |
 | [F-020](#f-020-a-repository-file-extension-for-an-object-banned-from-repositories) | 9323 §2, §9.3; 6481 §7.2 | ambiguity | none found (not reported) | `.sig` recognized; repository policy in M5 |
 | [F-021](#f-021-the-tal-grammar-leaves-whitespace-and-blank-lines-open-and-its-example-is-indented) | 8630 §2.2, §2.4 | ambiguity | none found (not reported) | Strict grammar, whitespace warns (D-002, #54) |
 | [F-022](#f-022-the-whole-rp-procedure-for-tals-is-a-should) | 8630 §3 | ambiguity | none found (not reported) | Lumina performs every step (#56) |
@@ -363,7 +363,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
   - The rule that can actually carry over is RFC 5280 §4.1.2.5.2's GeneralizedTime profile: Zulu time, seconds present, no fractional seconds. That rule is stricter than DER, which allows fractions.
 - **Impact:** a relying party that follows the reference literally rejects everything. One that ignores it accepts fractional seconds that RFC 5280's profile forbids. Two plausible readings give different verdicts on a fractional-second manifest.
 - **Resolution:**
-  - M5 checks manifest times against RFC 5280 §4.1.2.5.2 (#48).
+  - M5 checks manifest times against RFC 5280 §4.1.2.5.2 (#48). Done: `Lumina.Manifest.check/1`'s rule `manifest_time_format` rejects a thisUpdate or nextUpdate that isn't `YYYYMMDDHHMMSSZ`; a GeneralizedTime dated before 2050 is not rejected.
   - `Lumina.Time` keeps the raw value so the check can be precise.
   - Decoding accepts any DER GeneralizedTime.
 - **Suggested text:** *"This field MUST be encoded as GeneralizedTime as specified in Section 4.1.2.5.2 of [RFC5280]."*

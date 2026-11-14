@@ -10,7 +10,8 @@ defmodule Lumina.Manifest do
 
   Decoding is structural. `check/1` reports what's wrong with the content
   (#132): version, dates, manifest number, hash algorithm and file names
-  (RFC 9286 §4.2.1, §4.2.2, §4.4), and an empty file list (§7, erratum
+  (RFC 9286 §4.2.1, §4.2.2, §4.4), time formats (§4.2.1 via RFC 5280
+  §4.1.2.5.2, #48), and an empty file list (§7, erratum
   7118, #37). An empty file list decodes, as the ASN.1 module as published
   allows it, so that `lumina print` can show it (F-001 in
   doc/rfc-findings.md). What a manifest
@@ -50,6 +51,12 @@ defmodule Lumina.Manifest do
 
     * `:manifest_version`: not 0 (RFC 9286 §4.2.1, §4.4 item 2);
     * `:manifest_dates`: thisUpdate not before nextUpdate (§4.4 item 3);
+    * `:manifest_time_format`: thisUpdate or nextUpdate not
+      `YYYYMMDDHHMMSSZ`, for example with fractional seconds (§4.2.1 gives
+      them "the same format constraints as specified in [RFC5280] for the
+      CRL field of the same name"; the field is GeneralizedTime, so RFC
+      5280 §4.1.2.5.2's rules apply, not its UTCTime-before-2050 rule,
+      F-019);
     * `:manifest_number_range`: negative, or longer than 20 octets
       (§4.2.1);
     * `:manifest_hash_algorithm`: fileHashAlg not SHA-256 (§4.2.1, RFC
@@ -69,6 +76,8 @@ defmodule Lumina.Manifest do
   def check(%__MODULE__{} = manifest) do
     version(manifest.version) ++
       dates(manifest) ++
+      time_format(:this_update, "thisUpdate", manifest.this_update) ++
+      time_format(:next_update, "nextUpdate", manifest.next_update) ++
       number(manifest.number) ++
       hash_algorithm(manifest.file_hash_alg) ++
       empty(manifest.files) ++
@@ -97,6 +106,23 @@ defmodule Lumina.Manifest do
           "9286#4.4",
           :this_update,
           "thisUpdate (#{DateTime.to_iso8601(this)}) is not before nextUpdate (#{DateTime.to_iso8601(next)})"
+        )
+      ]
+  end
+
+  # RFC 5280 §4.1.2.5.2: "expressed in Greenwich Mean Time (Zulu) and MUST
+  # include seconds (i.e., times are YYYYMMDDHHMMSSZ) ... MUST NOT include
+  # fractional seconds". DER (and so decoding) allows fractions.
+  defp time_format(field, name, %{raw: raw}) do
+    if Regex.match?(~r/\A[0-9]{14}Z\z/, raw),
+      do: [],
+      else: [
+        error(
+          :manifest_time_format,
+          "9286#4.2.1",
+          field,
+          "#{name} #{raw} is not YYYYMMDDHHMMSSZ: GeneralizedTime with seconds and " <>
+            "no fractional seconds (RFC 5280 section 4.1.2.5.2, F-019)"
         )
       ]
   end
