@@ -1,0 +1,15 @@
+ta.cer
+	ca1.cer
+		ca2.cer
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: ca1.cer]
+# IPv4 only: ca1 holds no IPv6 addresses.
+obj.tbsCertificate.extensions.ip.extnValue = [ 1.0.0.0/8 ]
+
+[node: ca2.cer]
+# IPv6 from an issuer that has none.
+obj.tbsCertificate.extensions.ip.extnValue = [ 1.1.0.0/16, 101::/16 ]

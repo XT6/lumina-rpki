@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 72 Barry fixtures: 14 valid, 58 invalid.
+- 81 Barry fixtures: 15 valid, 66 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 721 unit tests in 61 modules.
+- 736 unit tests in 62 modules.
 
 ## Barry fixtures
 
@@ -962,6 +962,16 @@ with exactly these reasons.
 
 ### M6
 
+#### `m6-encompass-equal`: CA certificate holding exactly its issuer's resources
+
+ta, ca1 and ca2 below it, with one change: ca2 claims exactly ca1's resources (1.0.0.0/8, 100::/8, AS16777216-AS33554431) instead of a part of them. Encompassing includes equality (RFC 6487 section 7.1), so a strict-subset check would wrongly reject ca2.
+
+Resource inclusion (#154): everything validates.
+
+- **Expected:** valid
+- **RFC:** [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)), [3779 §3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.3))
+- **Files:** [descriptor](../../test/fixtures/barry/m6-encompass-equal/case.repo) · [metadata](../../test/fixtures/barry/m6-encompass-equal/case.exs) · [rsync tree](../../test/fixtures/barry/m6-encompass-equal/rsync)
+
 #### `m6-inherit-ee`: ROA whose EE certificate inherits its addresses
 
 The baseline tree (m0-minimal-valid) with one change: the EE certificate of roa1.roa uses inherit for its IP addresses. RFC 6487 section 4.8.10 allows inherit in any resource certificate, EE certificates included; the EE certificate then holds ca1's addresses (RFC 3779 section 2.2.3.5).
@@ -991,6 +1001,94 @@ Effective resources (#153): everything validates.
 - **Expected:** valid
 - **RFC:** [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [3779 §3.2.3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.3)), [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10)), [6487 §4.8.11](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.11))
 - **Files:** [descriptor](../../test/fixtures/barry/m6-inherit-two-levels/case.repo) · [metadata](../../test/fixtures/barry/m6-inherit-two-levels/case.exs) · [rsync tree](../../test/fixtures/barry/m6-inherit-two-levels/rsync)
+
+#### `m6-overclaim-as`: CA certificate claiming an AS number its issuer doesn't hold
+
+ta, ca1 and ca2 below it, with Barry's default resources (ca1: 1.0.0.0/8, 100::/8, AS16777216-AS33554431; ca2: 1.1.0.0/16, 101::/16, AS16842752-AS16908287), with one change: ca2 also claims AS64500, outside ca1's AS numbers. RFC 3779 section 3.3 applies the same rule to AS numbers as section 2.3 to addresses.
+
+Resource inclusion (#154): RFC 6487 section 7.2 point 6 requires a certificate's resources to be encompassed by its issuer's, and RFC 3779 says "Validation MUST fail when this is not the case". The whole certificate is invalid (no RFC 8360 reconsideration, #121), so nothing below it is validated.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca2.cer`: AS64500 not held by the issuer
+- **RFC:** [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.3)), [6487 §4.8.11](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.11))
+- **Files:** [descriptor](../../test/fixtures/barry/m6-overclaim-as/case.repo) · [metadata](../../test/fixtures/barry/m6-overclaim-as/case.exs) · [rsync tree](../../test/fixtures/barry/m6-overclaim-as/rsync)
+
+#### `m6-overclaim-as-range`: CA certificate claiming an AS range partly outside its issuer's
+
+ta, ca1 and ca2 below it, with Barry's default resources (ca1: 1.0.0.0/8, 100::/8, AS16777216-AS33554431; ca2: 1.1.0.0/16, 101::/16, AS16842752-AS16908287), with one change: ca2's AS numbers are the range AS33554176-AS33554687, which crosses the upper end of ca1's range. Half of it is held, so a check that only compares the range's start, or asks for any overlap, would accept it. The reason names only the part outside, AS33554432-AS33554687. Barry can't write IP address ranges in certificates (only prefixes), so the partial range is an AS range; m6-overclaim-ipv4-partial is the address counterpart.
+
+Resource inclusion (#154): RFC 6487 section 7.2 point 6 requires a certificate's resources to be encompassed by its issuer's, and RFC 3779 says "Validation MUST fail when this is not the case". The whole certificate is invalid (no RFC 8360 reconsideration, #121), so nothing below it is validated.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca2.cer`: AS33554432-AS33554687 not held by the issuer
+- **RFC:** [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.3)), [6487 §4.8.11](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.11))
+- **Files:** [descriptor](../../test/fixtures/barry/m6-overclaim-as-range/case.repo) · [metadata](../../test/fixtures/barry/m6-overclaim-as-range/case.exs) · [rsync tree](../../test/fixtures/barry/m6-overclaim-as-range/rsync)
+
+#### `m6-overclaim-family`: CA certificate claiming an address family its issuer doesn't have
+
+ta, ca1 and ca2 below it, with two changes: ca1 holds only IPv4 (1.0.0.0/8), and ca2 claims 1.1.0.0/16 and 101::/16. ca1 has no IPv6 at all, so ca2's IPv6 prefix isn't encompassed, however small. A check that compares only the families both certificates list would miss it. Barry copies ca1's override to the EE certificate of ca1's manifest, which stays within ca1's resources.
+
+Resource inclusion (#154): RFC 6487 section 7.2 point 6 requires a certificate's resources to be encompassed by its issuer's, and RFC 3779 says "Validation MUST fail when this is not the case". The whole certificate is invalid (no RFC 8360 reconsideration, #121), so nothing below it is validated.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca2.cer`: 101::/16 not held by the issuer
+- **RFC:** [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)), [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10))
+- **Files:** [descriptor](../../test/fixtures/barry/m6-overclaim-family/case.repo) · [metadata](../../test/fixtures/barry/m6-overclaim-family/case.exs) · [rsync tree](../../test/fixtures/barry/m6-overclaim-family/rsync)
+
+#### `m6-overclaim-grandchild`: Overclaim deep in an otherwise valid chain
+
+ta > ca1 > ca2, and below ca2 two CAs with a ROA each: ca3 (roa1) and ca4 (roa2). One change: ca3 also claims 1.2.0.0/24, which ca1 holds but ca2, its issuer, doesn't (ca2 holds 1.1.0.0/16). Inclusion is checked against the direct issuer, so a check against the TA or any ancestor would accept it. ca3 is invalid and nothing below it is validated (roa1 is never reached); ta, ca1, ca2, ca4 and roa2 stay valid.
+
+Resource inclusion (#154): RFC 6487 section 7.2 point 6 requires a certificate's resources to be encompassed by its issuer's, and RFC 3779 says "Validation MUST fail when this is not the case". The whole certificate is invalid (no RFC 8360 reconsideration, #121), so nothing below it is validated.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca2/ca3.cer`: 1.2.0.0/24 not held by the issuer
+- **RFC:** [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3))
+- **Files:** [descriptor](../../test/fixtures/barry/m6-overclaim-grandchild/case.repo) · [metadata](../../test/fixtures/barry/m6-overclaim-grandchild/case.exs) · [rsync tree](../../test/fixtures/barry/m6-overclaim-grandchild/rsync)
+
+#### `m6-overclaim-ipv4`: CA certificate claiming an IPv4 prefix its issuer doesn't hold
+
+ta, ca1 and ca2 below it, with Barry's default resources (ca1: 1.0.0.0/8, 100::/8, AS16777216-AS33554431; ca2: 1.1.0.0/16, 101::/16, AS16842752-AS16908287), with one change: ca2 also claims 2.0.0.0/16, outside ca1's IPv4 space. ca2's other resources are within ca1's, so the reason names only that prefix.
+
+Resource inclusion (#154): RFC 6487 section 7.2 point 6 requires a certificate's resources to be encompassed by its issuer's, and RFC 3779 says "Validation MUST fail when this is not the case". The whole certificate is invalid (no RFC 8360 reconsideration, #121), so nothing below it is validated.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca2.cer`: 2.0.0.0/16 not held by the issuer
+- **RFC:** [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)), [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10))
+- **Files:** [descriptor](../../test/fixtures/barry/m6-overclaim-ipv4/case.repo) · [metadata](../../test/fixtures/barry/m6-overclaim-ipv4/case.exs) · [rsync tree](../../test/fixtures/barry/m6-overclaim-ipv4/rsync)
+
+#### `m6-overclaim-ipv4-partial`: CA certificate claiming an IPv4 prefix only half inside its issuer's
+
+ta, ca1 and ca2 below it, with Barry's default resources (ca1: 1.0.0.0/8, 100::/8, AS16777216-AS33554431; ca2: 1.1.0.0/16, 101::/16, AS16842752-AS16908287), with one change: ca2's IPv4 space is 0.0.0.0/7, which covers ca1's 1.0.0.0/8 and the 0.0.0.0/8 next to it. The claim overlaps the issuer's and contains it, but isn't contained by it. The reason names only the part outside, 0.0.0.0/8.
+
+Resource inclusion (#154): RFC 6487 section 7.2 point 6 requires a certificate's resources to be encompassed by its issuer's, and RFC 3779 says "Validation MUST fail when this is not the case". The whole certificate is invalid (no RFC 8360 reconsideration, #121), so nothing below it is validated.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca2.cer`: 0.0.0.0/8 not held by the issuer
+- **RFC:** [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)), [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10))
+- **Files:** [descriptor](../../test/fixtures/barry/m6-overclaim-ipv4-partial/case.repo) · [metadata](../../test/fixtures/barry/m6-overclaim-ipv4-partial/case.exs) · [rsync tree](../../test/fixtures/barry/m6-overclaim-ipv4-partial/rsync)
+
+#### `m6-overclaim-ipv6`: CA certificate claiming an IPv6 prefix its issuer doesn't hold
+
+ta, ca1 and ca2 below it, with Barry's default resources (ca1: 1.0.0.0/8, 100::/8, AS16777216-AS33554431; ca2: 1.1.0.0/16, 101::/16, AS16842752-AS16908287), with one change: ca2 also claims 200::/16, outside ca1's IPv6 space. The address families are checked separately (erratum 5188 to RFC 6487 section 7.1), so a correct IPv4 claim doesn't hide the IPv6 one.
+
+Resource inclusion (#154): RFC 6487 section 7.2 point 6 requires a certificate's resources to be encompassed by its issuer's, and RFC 3779 says "Validation MUST fail when this is not the case". The whole certificate is invalid (no RFC 8360 reconsideration, #121), so nothing below it is validated.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca2.cer`: 200::/16 not held by the issuer
+- **RFC:** [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)), [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10))
+- **Files:** [descriptor](../../test/fixtures/barry/m6-overclaim-ipv6/case.repo) · [metadata](../../test/fixtures/barry/m6-overclaim-ipv6/case.exs) · [rsync tree](../../test/fixtures/barry/m6-overclaim-ipv6/rsync)
+
+#### `m6-overclaim-roa-ee`: ROA whose EE certificate claims addresses its CA doesn't hold
+
+The baseline tree (m0-minimal-valid) with one change: the EE certificate of roa1.roa also claims 2.0.0.0/16, outside ca1's 1.0.0.0/8. RFC 6488 section 3 item 3 validates a signed object's EE certificate per RFC 6487, so section 7.2 point 6 applies to it as to a CA certificate, and the ROA is invalid. Whether the ROA's prefixes are within the EE certificate's resources (RFC 9582) is M7; here they are.
+
+Resource inclusion (#154).
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/roa1.roa`: 2.0.0.0/16 not held by the issuer
+- **RFC:** [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3))
+- **Files:** [descriptor](../../test/fixtures/barry/m6-overclaim-roa-ee/case.repo) · [metadata](../../test/fixtures/barry/m6-overclaim-roa-ee/case.exs) · [rsync tree](../../test/fixtures/barry/m6-overclaim-roa-ee/rsync)
 
 ## Test TALs
 
@@ -1753,7 +1851,8 @@ resolves `inherit` from the issuer's effective resources (RFC 3779
 §2.2.3.5 for each address family, §3.2.3.3 for AS numbers), and
 `Lumina.Chain` carries them down a chain.
 
-Resource inclusion itself (RFC 6487 §7.2 point 6) is #154; here only
+Resource inclusion itself (RFC 6487 §7.2 point 6) is
+`ResourceInclusionTest`'s (#154); here only
 what a certificate holds is decided. Resolving gives no errors:
 inheriting a kind the issuer doesn't hold is holding nothing of it
 (D-026), as every manifest's EE certificate does under a CA that lacks
@@ -2534,6 +2633,58 @@ copy of m0-minimal-valid changed on disk.
 - *the CRL on the manifest (RFC 9829, #116):* a CRL that is neither listed nor published is missing (RFC [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
 - *read_crl/3:* reads the CRL a URI names in the point, and nothing outside it (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
   D-015: only the publication point's own CRL is read.
+
+### `Lumina.ResourceInclusionTest`
+
+[test/lumina/resource_inclusion_test.exs](../../test/lumina/resource_inclusion_test.exs)
+
+Tests resource inclusion (#154): `Lumina.Chain.child/6` rejects a CA or
+EE certificate whose effective resources aren't encompassed by its
+issuer's (RFC 6487 §7.2 point 6; RFC 3779 §2.3 and §3.3: "Validation
+MUST fail when this is not the case"), with rule
+`resources_not_encompassed` and a message naming the resources outside.
+
+The comparison itself (sets, kinds separately, D-027) is
+`EncompassTest`'s. Here: the rule in the chain, through in-memory
+changes to m0-minimal-valid's ca1 (an IP address range, which Barry
+can't write in a certificate) and through the `m6-overclaim-*`
+fixtures, one per way of overclaiming, at 2030-01-01; that an
+overclaim deep in a chain invalidates only that branch (over rsync,
+with `Lumina.Validate.run/3`); and that equal or inherited resources
+stay valid. The certificate is invalid as a whole: RFC 8360 isn't
+applied (#121).
+
+- *Chain.child/6:* a certificate holding addresses outside its issuer's is invalid, naming them (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)))
+  ca1 holds 1.0.0.0/8, 100::/8 and an AS range; the issuer is
+  given as holding 1.0.0.0/9 and the rest, so ca1's upper half of
+  1.0.0.0/8 lies outside. Only that is reported, as a prefix.
+- *Chain.child/6:* an address range partly outside the issuer's is reported as the range outside (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)))
+  Barry writes only prefixes in certificates, so the address range
+  is set in memory: 1.0.0.0-1.0.1.9 against an issuer holding
+  1.0.0.0/24. The part outside, 1.0.1.0-1.0.1.9, isn't a prefix and
+  is shown as a range.
+- *Chain.child/6:* resources outside in several kinds are all named in one problem (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)), [3779 §3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.3)))
+  IPv4, then IPv6, then AS numbers, in one message.
+- *Chain.child/6:* a certificate holding exactly its issuer's resources is encompassed (RFC [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
+  Without a CRL the result is invalid for other reasons; only point 6 is checked.
+- *Chain.child/6:* a certificate inheriting every kind is encompassed by any issuer (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)))
+  Inherited kinds are the issuer's set, so they never lie outside,
+  even when the issuer holds none of a kind (D-026).
+- *fixtures:* m6-overclaim-ipv4: a CA claiming an IPv4 prefix outside its issuer's is invalid (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)))
+- *fixtures:* m6-overclaim-ipv6: a CA claiming an IPv6 prefix outside its issuer's is invalid (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)))
+- *fixtures:* m6-overclaim-as: a CA claiming an AS number outside its issuer's is invalid (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [3779 §3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.3)))
+- *fixtures:* m6-overclaim-as-range: a CA claiming an AS range partly outside its issuer's is invalid, naming the part outside (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [3779 §3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.3)))
+- *fixtures:* m6-overclaim-ipv4-partial: a CA claiming a prefix that contains its issuer's is invalid, naming the part outside (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)))
+- *fixtures:* m6-overclaim-family: a CA claiming an address family its issuer doesn't have is invalid (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)))
+- *fixtures:* m6-overclaim-roa-ee: a ROA whose EE certificate overclaims is invalid (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)))
+- *fixtures:* m6-encompass-equal: a CA holding exactly its issuer's resources is valid (RFC [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)), [3779 §3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.3)))
+- *fixtures:* m6-inherit-two-levels: certificates inheriting everything are encompassed (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [3779 §3.2.3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.3)))
+- *a branch below an overclaim:* an overclaim deep in a chain invalidates only that certificate and what is below it (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)))
+  m6-overclaim-grandchild, synced from a local rsync daemon and
+  validated offline: ca3 claims a prefix ca1 holds but ca2, its
+  issuer, doesn't. ca3 is invalid, its publication point is never
+  processed (no manifest entry, roa1 not reached), and its
+  sibling ca4 and everything else validate.
 
 ### `Lumina.ResourcesTest`
 

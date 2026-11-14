@@ -1,17 +1,18 @@
 defmodule Lumina.Chain do
   @moduledoc """
   Validates certificates in the context of their issuer (#112): RFC 6487
-  §7.2 points 1 to 5 and 7, as RFC 9829 §3.2 updates point 5. Resource
-  inclusion (point 6) is M6: so far each result carries the certificate's
-  effective resources, `inherit` resolved (`Lumina.Resources.effective/2`,
-  #153).
+  §7.2 points 1 to 7, as RFC 9829 §3.2 updates point 5. Each result
+  carries the certificate's effective resources, `inherit` resolved
+  (`Lumina.Resources.effective/2`, #153), and a child's must be
+  encompassed by its issuer's (point 6, #154).
 
     * `ta/3`: a TA certificate against its TAL (`Lumina.TAL.check_ta/2`),
       its self-signature and the profile (`Lumina.Profile.certificate/3`).
     * `crl/3`: the CRL of a CA, once per CA, so its children can share the
       result (`Lumina.Profile.crl/3`, signature included).
     * `child/6`: a CA or EE certificate against its issuer: names, AKI,
-      signature, profile, and revocation by the issuer's CRL.
+      signature, profile, revocation by the issuer's CRL, and resource
+      inclusion.
 
   Each returns `%{valid: boolean, problems: [problem]}` (`ta/3` and
   `child/6` add `resources`), problems as in
@@ -92,6 +93,13 @@ defmodule Lumina.Chain do
   `:resources` gives the issuer's effective resources, which the walk
   carries down from the TA; without it, the issuer's own are used, as if
   it were at the top.
+
+  The effective resources must be encompassed by the issuer's (RFC 6487
+  §7.2 point 6; RFC 3779 §2.3, §3.3: "Validation MUST fail when this is
+  not the case"), compared as sets (`Lumina.Resources.encompasses?/2`,
+  D-027). Otherwise the certificate is invalid as a whole, with
+  `resources_not_encompassed` naming what lies outside (RFC 8360 isn't
+  applied, #121).
   """
   @spec child(
           Certificate.t(),
@@ -111,6 +119,7 @@ defmodule Lumina.Chain do
       )
       when kind in [:ca, :ee] do
     held = Keyword.get_lazy(opts, :resources, fn -> Resources.effective(issuer, nil) end)
+    resources = Resources.effective(cert, held)
 
     result(
       Enum.concat([
@@ -118,9 +127,10 @@ defmodule Lumina.Chain do
         aki(cert, issuer),
         signature(cert, issuer, "the signature doesn't verify with the issuer's key"),
         Profile.certificate(cert, kind, at),
-        revocation(cert, crl_result)
+        revocation(cert, crl_result),
+        encompassed(resources, held)
       ]),
-      Resources.effective(cert, held)
+      resources
     )
   end
 
@@ -213,6 +223,27 @@ defmodule Lumina.Chain do
     if CRL.revoked?(crl, cert.serial),
       do: [error(:revoked, "6487#7.2", :serial, "revoked by the issuer's CRL") | warnings],
       else: warnings
+  end
+
+  # Point 6. Inherited kinds are the issuer's own, so only explicit ones
+  # can lie outside.
+  defp encompassed(resources, held) do
+    outside = Resources.outside(resources, held)
+
+    case for kind <- [:ipv4, :ipv6, :as], r <- outside[kind], do: Resources.format(r, kind) do
+      [] ->
+        []
+
+      shown ->
+        [
+          error(
+            :resources_not_encompassed,
+            "6487#7.2",
+            :resources,
+            "#{Enum.join(shown, ", ")} not held by the issuer"
+          )
+        ]
+    end
   end
 
   defp result(problems, resources),

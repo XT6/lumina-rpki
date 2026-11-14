@@ -1,0 +1,15 @@
+ta.cer
+	ca1.cer
+		ca2.cer
+			ca3.cer
+				roa1.roa
+			ca4.cer
+				roa2.roa
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: ca3.cer]
+# 1.2.0.0/24 is ca1's but not ca2's (1.1.0.0/16).
+obj.tbsCertificate.extensions.ip.extnValue = [ 1.1.1.0/24, 1.2.0.0/24, 101:100::/24 ]

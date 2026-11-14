@@ -1,0 +1,11 @@
+ta.cer
+	ca1.cer
+		ca2.cer
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: ca2.cer]
+# AS64500 is outside ca1's AS16777216-AS33554431. Listed in increasing order (RFC 3779 section 3.2.3.4); ranges are raw octets (0x01... is positive).
+obj.tbsCertificate.extensions.as.extnValue.asnum = [ 64500, 0x01010000-0x0101FFFF ]
