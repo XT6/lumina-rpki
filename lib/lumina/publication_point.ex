@@ -3,7 +3,7 @@ defmodule Lumina.PublicationPoint do
   Decides whether a CA's publication point can be used (RFC 9286 §6,
   #133), from the copy in the cache.
 
-  `process/4` takes a valid CA certificate and the cache directory of its
+  `process/5` takes a valid CA certificate and the cache directory of its
   caRepository, and returns either an accepted point (the manifest and
   the files it lists) or a failed fetch with every reason:
 
@@ -11,7 +11,7 @@ defmodule Lumina.PublicationPoint do
       in the caRepository directory (`:manifest_outside`);
     * §6.2: it must be there (`:manifest_missing`), decode
       (`:manifest_decode`) and be valid: its EE certificate validates
-      against the CA (`Lumina.Chain.child/5`, so a revoked manifest fails
+      against the CA (`Lumina.Chain.child/6`, so a revoked manifest fails
       as §6 says), its envelope passes `Lumina.CMS.check/1` and its
       content `Lumina.Manifest.check/1`; those problems are reported with
       their own rules;
@@ -75,15 +75,19 @@ defmodule Lumina.PublicationPoint do
   in an accepted point's directory (the manifest itself aside), which
   aren't used. `number` and `this_update` are the accepted manifest's, for
   replay protection (#136).
+
+  Option `:resources`: the CA's effective resources, which the manifest's
+  EE certificate may inherit (`Lumina.Chain.child/6`, #153).
   """
-  @spec process(Certificate.t(), Path.t(), String.t(), DateTime.t()) :: t()
-  def process(%Certificate{} = ca, path, key, %DateTime{} = now) do
+  @spec process(Certificate.t(), Path.t(), String.t(), DateTime.t(), keyword()) :: t()
+  def process(%Certificate{} = ca, path, key, %DateTime{} = now, opts \\ []) do
     case manifest_uri(ca) do
       {:ok, uri} ->
         with {:ok, file} <- in_point(uri, key),
              {:ok, manifest} <- read_manifest(path, file) do
           problems =
-            manifest_problems(manifest, uri, ca, path, key, now) ++ files(manifest, path)
+            manifest_problems(manifest, uri, ca, path, key, now, opts) ++
+              files(manifest, path)
 
           if Profile.passes?(problems),
             do: %{
@@ -260,7 +264,7 @@ defmodule Lumina.PublicationPoint do
     end
   end
 
-  defp manifest_problems(manifest, uri, ca, path, key, now) do
+  defp manifest_problems(manifest, uri, ca, path, key, now, opts) do
     object = manifest.object
     ee = SignedObject.ee_certificate(object)
 
@@ -268,7 +272,9 @@ defmodule Lumina.PublicationPoint do
       if ee do
         crl_uri = Chain.crl_uri(ee)
         crl = Chain.crl(read_crl(crl_uri, path, key), ca, now)
-        Chain.child(ee, :ee, ca, crl, now).problems ++ crl_listed(crl_uri, manifest, key)
+
+        Chain.child(ee, :ee, ca, crl, now, Keyword.take(opts, [:resources])).problems ++
+          crl_listed(crl_uri, manifest, key)
       else
         []
       end

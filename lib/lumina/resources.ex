@@ -15,6 +15,9 @@ defmodule Lumina.Resources do
   AS identifiers become `%{asnum: ..., rdi: ...}`, where each value is `nil`
   (absent), `:inherit`, or a list of `{:id, n}` and `{:range, min, max}`.
 
+  `effective/2` gives a certificate's effective resources, with `inherit`
+  resolved from its issuer's (RFC 3779 §2.2.3.5, §3.2.3.3; #153).
+
   Decoding is structural. The canonical-form rules (sorting, no overlap,
   combining adjacent blocks, minimal encodings) are reported by
   `ip_issues/1` and `as_issues/1`, not enforced, because rejecting
@@ -39,9 +42,68 @@ defmodule Lumina.Resources do
           nil
           | :inherit
           | [{:id, non_neg_integer()} | {:range, non_neg_integer(), non_neg_integer()}]
+  @type as_resource :: {:id, non_neg_integer()} | {:range, non_neg_integer(), non_neg_integer()}
   @type issue :: %{rule: atom(), rfc: String.t(), message: String.t()}
 
+  @typedoc """
+  The resources a certificate holds, `inherit` resolved: IPv4 and IPv6
+  prefixes and ranges, and AS numbers (`asnum`). An empty list holds
+  nothing of that kind.
+  """
+  @type effective :: %{ipv4: [ip_resource()], ipv6: [ip_resource()], as: [as_resource()]}
+
   @widths %{ipv4: 32, ipv6: 128}
+
+  @doc """
+  The effective resources of `cert`, given its issuer's (`nil` for a TA).
+
+  RFC 3779 §2.2.3.5 (per address family) and §3.2.3.3 (AS numbers): with
+  `inherit`, the set "is taken from the issuer's certificate, or from the
+  issuer's issuer's certificate, recursively, until a certificate
+  containing [explicit resources] is located". Effective resources are
+  built top-down from the TA, so an inherited kind takes the issuer's
+  effective set and the recursion is one step per certificate.
+
+  A kind the certificate doesn't list is empty, and so is an inherited
+  kind the issuer holds none of (D-026): the certificate holds nothing of
+  it. RFC 9286 §5.1 requires a manifest's EE certificate to inherit its
+  resources, every kind, so under a CA without IPv6, say, the manifest
+  inherits IPv6 from nothing. A TA can't inherit (RFC 8630 §2.3, checked
+  with its TAL); there `inherit` resolves to nothing too. Address
+  families with an unknown AFI, and RDIs, aren't resources a certificate
+  can hold in the RPKI (RFC 6487 §4.8.10, §4.8.11; the profile rejects
+  them) and are left out.
+  """
+  @spec effective(Lumina.Certificate.t(), effective() | nil) :: effective()
+  def effective(%Lumina.Certificate{} = cert, issuer) do
+    ip = Lumina.Certificate.extension_value(cert, :ip_resources)
+    as = Lumina.Certificate.extension_value(cert, :as_resources)
+
+    %{
+      ipv4: resolve(ip_choice_of(ip, :ipv4), issuer, :ipv4),
+      ipv6: resolve(ip_choice_of(ip, :ipv6), issuer, :ipv6),
+      as: resolve(as_choice_of(as), issuer, :as)
+    }
+  end
+
+  # The explicit list, :inherit or nil (not present) for one family. A
+  # family listed twice is a profile problem; its lists are joined.
+  defp ip_choice_of(families, afi) when is_list(families) do
+    case for(%{afi: ^afi, resources: r} <- families, do: r) do
+      [] -> nil
+      choices -> if :inherit in choices, do: :inherit, else: Enum.concat(choices)
+    end
+  end
+
+  defp ip_choice_of(_absent_or_malformed, _afi), do: nil
+
+  defp as_choice_of(%{asnum: asnum}), do: asnum
+  defp as_choice_of(_absent_or_malformed), do: nil
+
+  defp resolve(nil, _issuer, _kind), do: []
+  defp resolve(:inherit, nil, _kind), do: []
+  defp resolve(:inherit, issuer, kind), do: Map.fetch!(issuer, kind)
+  defp resolve(list, _issuer, _kind) when is_list(list), do: list
 
   @doc """
   Decodes the DER of an `IPAddrBlocks` value (the contents of the

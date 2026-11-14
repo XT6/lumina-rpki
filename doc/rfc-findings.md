@@ -51,6 +51,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-030](#f-030-barry-cant-set-the-certificate-policies-value) | 6487 §4.8.9; 7318 §2 (Barry) | tooling | n/a | Policy rules tested on decoded certificates (#110) |
 | [F-031](#f-031-rfc-7935-2-takes-rsaencryptions-parameters-from-rfc-3370-outside-the-library) | 7935 §2; 3370 §3.2 | reference, tooling | none found (not reported) | RFC 3370 added; rsaEncryption parameters must be NULL, absent only warns because Barry omits them (#129, #130) |
 | [F-032](#f-032-manifest-file-name-extensions-depend-on-an-iana-registry-outside-the-library) | 9286 §4.2.2; 6481 §7.2 | reference | none found (not reported) | Extensions from the IANA registry as of 2026-11-14, temporary and deprecated entries included (#132) |
+| [F-033](#f-033-inheriting-resources-the-issuer-doesnt-hold) | 3779 §2.2.3.5, §3.2.3.3; 9286 §5.1 | ambiguity | none found (not reported) | Inheriting nothing is holding nothing (D-026, #153) |
 
 ## Entries
 
@@ -541,6 +542,17 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Found:** writing the manifest content checks (#132).
 - **Impact:** the set of valid manifests changes with the registry. The local LACNIC copy's manifests list 177 `.asa` files: an RP that took the library's RFCs alone, or dropped `.asa` when its temporary registration lapsed, would reject those manifests and so fail whole publication points (RFC 9286 §4.4, §6.2).
 - **Resolution:** `Lumina.Manifest` accepts every extension in the registry as fetched, temporary and deprecated entries included: `asa ccr cdr cer crl gbr mft roa sig tak`. The list is a constant to review when the registry changes; the maintainer may want `.asa` handled explicitly once ASPA is an RFC.
+
+### F-033: Inheriting resources the issuer doesn't hold
+
+- **Where:** RFC 3779 §2.2.3.5: "If the IPAddressChoice CHOICE contains the inherit element, then the set of authorized IP addresses for the specified AFI and optional SAFI is taken from the issuer's certificate, or from the issuer's issuer's certificate, recursively, until a certificate containing an IPAddressChoice containing an addressesOrRanges element is located." §3.2.3.3 says the same for AS identifiers. RFC 9286 §5.1, on the manifest's EE certificate: "This EE certificate MUST describe its Internet Number Resources (INRs) using the 'inherit' attribute, rather than an explicit description of a resource set (see [RFC3779]). (RPs are required to verify this.)"
+- **Kind:** ambiguity.
+- **Official errata:** none found for RFC 3779 (its errata mentioning inherit are about the Appendix B example, F-002), RFC 9286 or RFC 6487 (checked 2026-11-14). **Not reported.**
+- **The problem:** RFC 3779 describes the search up the chain but not what happens when it finds no certificate with explicit resources of that kind: the issuer holds no IPv6, say, and neither does anyone above it. RFC 9286 §5.1 makes this an everyday case. A manifest's EE certificate must use inherit for its INRs, and producers write it for every kind (IPv4, IPv6 and AS numbers) whatever the CA holds.
+- **Impact:** in the LACNIC repository (2026-11-14), 1,527 manifest EE certificates inherit a kind their CA doesn't hold: IPv4 (1,120), AS numbers (401) or IPv6 (192). An RP that treats an unsatisfiable inherit as an error fails all those manifests, and with them about 1,500 publication points and every ROA in them. Lumina did exactly that for an afternoon (D-026 as first decided).
+- **Resolution:** inheriting a kind nobody above holds is holding nothing of it, with no error or warning (D-026, as revised, #153). Nothing is claimed, so nothing can be overclaimed.
+- **Suggested text (RFC 3779 §2.2.3.5):** *"If no such certificate is located, the certificate holds no IP addresses for that AFI."* And likewise in §3.2.3.3.
+- **Talk note:** a validator decision that looked cautious ("refuse to resolve an inherit to nothing") would have rejected 20% of a real repository. One SHOULD-sized sentence elsewhere (RFC 9286 §5.1) turns a corner case into the common case.
 
 ## Process notes
 

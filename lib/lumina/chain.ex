@@ -2,16 +2,19 @@ defmodule Lumina.Chain do
   @moduledoc """
   Validates certificates in the context of their issuer (#112): RFC 6487
   §7.2 points 1 to 5 and 7, as RFC 9829 §3.2 updates point 5. Resource
-  inclusion (point 6) is M6.
+  inclusion (point 6) is M6: so far each result carries the certificate's
+  effective resources, `inherit` resolved (`Lumina.Resources.effective/2`,
+  #153).
 
     * `ta/3`: a TA certificate against its TAL (`Lumina.TAL.check_ta/2`),
       its self-signature and the profile (`Lumina.Profile.certificate/3`).
     * `crl/3`: the CRL of a CA, once per CA, so its children can share the
       result (`Lumina.Profile.crl/3`, signature included).
-    * `child/5`: a CA or EE certificate against its issuer: names, AKI,
+    * `child/6`: a CA or EE certificate against its issuer: names, AKI,
       signature, profile, and revocation by the issuer's CRL.
 
-  Each returns `%{valid: boolean, problems: [problem]}`, problems as in
+  Each returns `%{valid: boolean, problems: [problem]}` (`ta/3` and
+  `child/6` add `resources`), problems as in
   `Lumina.Profile` (rule, RFC section, field, message, severity). A result
   is valid when no problem is an `:error`; warnings are kept (D-013,
   D-016, D-018). The validation time is always an argument.
@@ -23,9 +26,13 @@ defmodule Lumina.Chain do
   is passed here only once it is valid itself.
   """
 
-  alias Lumina.{Certificate, CRL, Crypto, Profile, TAL}
+  alias Lumina.{Certificate, CRL, Crypto, Profile, Resources, TAL}
 
-  @type result :: %{valid: boolean(), problems: [Profile.problem()]}
+  @type result :: %{
+          valid: boolean(),
+          problems: [Profile.problem()],
+          resources: Resources.effective()
+        }
   @type crl_result :: %{crl: CRL.t() | nil, valid: boolean(), problems: [Profile.problem()]}
 
   @doc """
@@ -52,7 +59,10 @@ defmodule Lumina.Chain do
           not MapSet.member?(profile_rules, p.rule),
           do: Map.merge(p, %{field: :tal, severity: :error})
 
-    result(tal_only ++ signature(cert, cert, "the self-signature doesn't verify") ++ profile)
+    result(
+      tal_only ++ signature(cert, cert, "the self-signature doesn't verify") ++ profile,
+      Resources.effective(cert, nil)
+    )
   end
 
   @doc """
@@ -75,11 +85,33 @@ defmodule Lumina.Chain do
   A missing or invalid CRL makes the certificate invalid: revocation
   can't be decided without it (RFC 6487 §7.2 point 5). The CRL's own
   warnings (a stale CRL, D-016) are passed on.
+
+  The result's `resources` are the certificate's effective resources,
+  `inherit` resolved from the issuer's (`Lumina.Resources.effective/2`).
+  Option
+  `:resources` gives the issuer's effective resources, which the walk
+  carries down from the TA; without it, the issuer's own are used, as if
+  it were at the top.
   """
-  @spec child(Certificate.t(), :ca | :ee, Certificate.t(), crl_result(), DateTime.t()) ::
-          result()
-  def child(%Certificate{} = cert, kind, %Certificate{} = issuer, crl_result, %DateTime{} = at)
+  @spec child(
+          Certificate.t(),
+          :ca | :ee,
+          Certificate.t(),
+          crl_result(),
+          DateTime.t(),
+          keyword()
+        ) :: result()
+  def child(
+        %Certificate{} = cert,
+        kind,
+        %Certificate{} = issuer,
+        crl_result,
+        %DateTime{} = at,
+        opts \\ []
+      )
       when kind in [:ca, :ee] do
+    held = Keyword.get_lazy(opts, :resources, fn -> Resources.effective(issuer, nil) end)
+
     result(
       Enum.concat([
         issuer_name(cert, issuer),
@@ -87,7 +119,8 @@ defmodule Lumina.Chain do
         signature(cert, issuer, "the signature doesn't verify with the issuer's key"),
         Profile.certificate(cert, kind, at),
         revocation(cert, crl_result)
-      ])
+      ]),
+      Resources.effective(cert, held)
     )
   end
 
@@ -182,7 +215,8 @@ defmodule Lumina.Chain do
       else: warnings
   end
 
-  defp result(problems), do: %{valid: Profile.passes?(problems), problems: problems}
+  defp result(problems, resources),
+    do: %{valid: Profile.passes?(problems), problems: problems, resources: resources}
 
   defp error(rule, rfc, field, message),
     do: %{rule: rule, rfc: rfc, field: field, message: message, severity: :error}

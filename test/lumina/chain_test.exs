@@ -32,11 +32,12 @@ defmodule Lumina.ChainTest do
     acc = %{"ta.cer" => result}
 
     if result.valid,
-      do: elem(walk(fixture, ta, at, {acc, MapSet.new()}), 0),
+      do: elem(walk(fixture, {ta, result.resources}, at, {acc, MapSet.new()}), 0),
       else: acc
   end
 
-  defp walk(fixture, ca, at, {acc, seen}) do
+  # `held`: the CA's effective resources, which its children inherit from.
+  defp walk(fixture, {ca, held}, at, {acc, seen}) do
     [repository | _] = Certificate.sia_uris(ca, :ca_repository)
     dir = local(fixture, repository)
 
@@ -54,11 +55,11 @@ defmodule Lumina.ChainTest do
       |> Enum.map(&{&1, certificate(fixture, &1)})
       |> Enum.reject(fn {_file, {cert, _kind}} -> other_issuer?(cert, ca) end)
       |> Enum.reduce({acc, seen}, fn {file, {cert, kind}}, {acc, seen} ->
-        result = Chain.child(cert, kind, ca, crl(fixture, cert, ca, at), at)
+        result = Chain.child(cert, kind, ca, crl(fixture, cert, ca, at), at, resources: held)
         acc = Map.put(acc, file, result)
 
         if kind == :ca and result.valid,
-          do: walk(fixture, cert, at, {acc, seen}),
+          do: walk(fixture, {cert, result.resources}, at, {acc, seen}),
           else: {acc, seen}
       end)
     end
