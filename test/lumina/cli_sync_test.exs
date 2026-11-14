@@ -421,13 +421,15 @@ defmodule Lumina.CLISyncTest do
           ],
           do: assert(out =~ flag)
 
-      assert out =~ "Exit codes: 0 everything fetched, 1 some fetch failed"
+      assert out =~
+               "Exit codes: 0 everything fetched (an invalid CA certificate doesn't\nchange that), 1 some fetch failed"
+
       assert {0, ^out, ""} = run(["sync", "--help"])
     end
 
     test "lumina help lists sync" do
       assert {0, out, ""} = run(["help"])
-      assert out =~ "sync    fetch the trust anchors and repositories"
+      assert out =~ "sync      fetch the trust anchors and repositories"
     end
   end
 end

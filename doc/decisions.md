@@ -29,6 +29,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-019](#d-019-known-extensions-outside-the-certificate-profile-are-treated-as-unknown) | Known extensions outside the certificate profile (e.g. CRL extensions) are treated as unknown | 2026-11-13 | #110, PR #120 |
 | [D-020](#d-020-rfc-8360-and-router-certificates-are-out-of-scope-for-now) | RFC 8360 (v2 policy) and router certificates are out of scope for now | 2026-11-13 | #110, PR #120, #121 |
 | [D-021](#d-021-revocation-fixtures-use-barrys-revokedcertificates) | Revocation fixtures are plain Barry descriptors using `revokedCertificates` (supersedes D-017) | 2026-11-13 | #112, #52 |
+| [D-022](#d-022-lumina-validate-fails-above-a-share-of-invalid-certificates) | `lumina validate` exits 1 only above a share of invalid certificates per TAL (default 10%) | 2026-11-14 | #114, PR #126 |
 
 ## D-001: CLI model
 
@@ -243,6 +244,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **As implemented (#113):**
   - The TA is validated when it is retrieved (`Lumina.TA`, with `Lumina.Chain.ta/3`): an invalid TA counts as a failed URI, so D-003 moves on to the next one. A cached TA is offered as stale only if it still validates.
   - Each CA certificate in a walked publication point is validated against that CA (with the CRL its CRLDP names in that publication point, D-015) before `Walk.repository/1` is asked where it points. An invalid one is an `invalid` issue listing its errors; a valid one's warnings are a `warning` issue. Neither fails the sync.
+  - `lumina validate` (#114) runs the same per-publication-point validation (`Lumina.Validate.point/5`) over the cache, offline, from the stored TA at `--now`, and adds the EE certificates of signed objects. Its exit code is set by D-022.
   - Not validated, and not reported: a certificate with the CA's own key (the CA itself, such as LACNIC's TA in its own publication point, #103), and, until manifests list a CA's files (M5), one whose issuer name and AKI both name another CA.
 
 ## D-015: The CRL that decides revocation in M4
@@ -308,3 +310,13 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
   - Each entry is revoked at `--now`, and entries can't carry extensions. The entry-extension rule (RFC 6487 §5) stays tested on decoded CRLs.
   - The tree must list the CRL (for example `ca1.crl` under `ca1.cer`) for the override to apply.
   - #52's remaining wish is per-entry revocation dates and extensions (`doc/barry.md`).
+
+## D-022: `lumina validate` fails above a share of invalid certificates
+
+- **Date:** 2026-11-14
+- **Decision:**
+  - `lumina validate` exits 1 for a TAL with no TA in the cache or an invalid TA, or when more than a share of the certificates validated below the TA (CA and EE, files that don't decode included) are invalid. The share is per TAL, 10% by default, set with `--max-invalid PERCENT` (0 to 100; 0 fails on any invalid certificate).
+  - Warnings and publication points missing from the cache are listed but don't affect the exit code.
+- **Why:** the live RPKI always holds some invalid objects (in 2026-11, 21 expired manifests at one delegated repository out of about 52,000 certificates under LACNIC). Exiting 1 for any of them would make the exit code useless; a large share points at a real problem, such as a broken cache or the wrong `--now`.
+- **Where:** #114, PR #126 (maintainer: "over 10 or 20% of all certificates have to be invalid for an exit 1").
+- **Consequences:** `Lumina.Validate.failed?/2` takes the percentage. Missing publication points are a fetch problem, reported by `lumina sync`.
