@@ -5,7 +5,7 @@ defmodule Lumina.Validate do
 
     * `point/5`: one publication point of a valid CA: accepted or failed
       (`Lumina.PublicationPoint`), and the certificates its manifest
-      lists, each validated against the CA (`Lumina.Chain.child/5`) with
+      lists, each validated against the CA (`Lumina.Chain.child/6`) with
       the CRL its CRL Distribution Point names in that publication point
       (D-015). The walk asks only for CA certificates; `lumina validate`
       also asks for signed objects, each valid when its CMS envelope is
@@ -52,7 +52,8 @@ defmodule Lumina.Validate do
             kind: :ca,
             certificate: Certificate.t(),
             valid: boolean(),
-            problems: [map()]
+            problems: [map()],
+            resources: Lumina.Resources.effective()
           }
           | %{
               uri: String.t(),
@@ -89,7 +90,7 @@ defmodule Lumina.Validate do
   Validates the publication point `key` of the valid CA certificate `ca`,
   held at `path`, at time `now` (RFC 9286 §6, #134).
 
-  The point is processed first (`Lumina.PublicationPoint.process/4`).
+  The point is processed first (`Lumina.PublicationPoint.process/5`).
   Only when it is accepted are the files its manifest lists validated:
   one entry per CA certificate or signed object (or file that doesn't
   decode), in file name order. Files not on the manifest are never
@@ -103,7 +104,11 @@ defmodule Lumina.Validate do
   Options: `objects: true` also validates signed objects (`.roa .gbr .sig
   .tak .asa`): the EE certificate against the CA, and the CMS envelope
   (`Lumina.CMS.check/1`), whose problems are added to the entry's. By
-  default only CA certificates are validated.
+  default only CA certificates are validated. `resources:` the CA's
+  effective resources (`Lumina.Resources.effective/2`), which its
+  children's `inherit` resolves from; a CA certificate's entry carries
+  its own, for the next level (#153). Without it, the CA's own resources
+  are used, as for a TA.
   """
   @spec point(Certificate.t(), Path.t(), String.t(), DateTime.t(), keyword()) :: %{
           point: PublicationPoint.t(),
@@ -128,7 +133,7 @@ defmodule Lumina.Validate do
 
           {kind, cert, object} ->
             {crl, crls} = crl(cert, ca, point, dir, key, crls, now)
-            result = Chain.child(cert, chain_kind(kind), ca, crl, now)
+            result = Chain.child(cert, chain_kind(kind), ca, crl, now, resources_opt(opts))
             {[entry(name, kind, cert, object, result)], crls}
         end
       end)
@@ -143,7 +148,7 @@ defmodule Lumina.Validate do
   # `:save` keeps an accepted live copy as the last valid one.
   defp processed(ca, path, key, now, opts) do
     root = Keyword.get(opts, :last_valid)
-    point = PublicationPoint.process(ca, path, key, now)
+    point = PublicationPoint.process(ca, path, key, now, resources_opt(opts))
     point = if root, do: replay(root, ca, point), else: point
 
     cond do
@@ -161,7 +166,12 @@ defmodule Lumina.Validate do
         {point, path}
 
       stored = point.manifest && LastValid.load(root, point.manifest) ->
-        fallback(point, PublicationPoint.process(ca, stored, key, now), stored, path)
+        fallback(
+          point,
+          PublicationPoint.process(ca, stored, key, now, resources_opt(opts)),
+          stored,
+          path
+        )
 
       true ->
         {point, path}
@@ -223,7 +233,14 @@ defmodule Lumina.Validate do
   end
 
   defp entry(name, :ca, cert, nil, result),
-    do: %{uri: name, kind: :ca, certificate: cert, valid: result.valid, problems: result.problems}
+    do: %{
+      uri: name,
+      kind: :ca,
+      certificate: cert,
+      valid: result.valid,
+      problems: result.problems,
+      resources: result.resources
+    }
 
   # RFC 6488 §3: the envelope (items 1, 2) and the EE certificate (item 3).
   defp entry(name, {:object, type}, ee, value, result) do
@@ -238,6 +255,9 @@ defmodule Lumina.Validate do
       problems: result.problems ++ own
     }
   end
+
+  defp resources_opt(opts),
+    do: if(held = opts[:resources], do: [resources: held], else: [])
 
   defp chain_kind(:ca), do: :ca
   defp chain_kind({:object, _type}), do: :ee
@@ -345,7 +365,7 @@ defmodule Lumina.Validate do
 
         state =
           if result.valid,
-            do: walk([{cert, uri, 0, []}], state),
+            do: walk([{cert, uri, 0, [], result.resources}], state),
             else: state
 
         {:ok,
@@ -360,7 +380,8 @@ defmodule Lumina.Validate do
   end
 
   # One breadth-first level at a time, as the walk goes. Each entry is
-  # {valid CA certificate, its name, depth, ancestor publication points}.
+  # {valid CA certificate, its name, depth, ancestor publication points,
+  # its effective resources}.
   defp walk([], state), do: state
 
   defp walk(level, state) do
@@ -368,7 +389,7 @@ defmodule Lumina.Validate do
     walk(next, state)
   end
 
-  defp visit({cert, name, depth, ancestors}, state) do
+  defp visit({cert, name, depth, ancestors, resources}, state) do
     case Walk.repository(cert) do
       :not_ca ->
         {[], state}
@@ -397,7 +418,11 @@ defmodule Lumina.Validate do
             state = %{state | visited: MapSet.put(state.visited, key)}
 
             %{point: point, entries: entries} =
-              point(cert, path, key, state.now, objects: true, last_valid: state.root)
+              point(cert, path, key, state.now,
+                objects: true,
+                last_valid: state.root,
+                resources: resources
+              )
 
             state = %{
               state
@@ -408,7 +433,8 @@ defmodule Lumina.Validate do
 
             next =
               for %{kind: :ca, valid: true} = entry <- entries,
-                  do: {entry.certificate, entry.uri, depth + 1, [key | ancestors]}
+                  do:
+                    {entry.certificate, entry.uri, depth + 1, [key | ancestors], entry.resources}
 
             {next, state}
         end

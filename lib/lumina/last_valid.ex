@@ -55,7 +55,7 @@ defmodule Lumina.LastValid do
   end
 
   @doc """
-  Saves an accepted publication point (`Lumina.PublicationPoint.process/4`)
+  Saves an accepted publication point (`Lumina.PublicationPoint.process/5`)
   as its last valid copy: the manifest, read from `path`, and the files it
   lists. Does nothing when the saved manifest is the same.
   """

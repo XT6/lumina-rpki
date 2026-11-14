@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 69 Barry fixtures: 11 valid, 58 invalid.
+- 72 Barry fixtures: 14 valid, 58 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 697 unit tests in 59 modules.
+- 707 unit tests in 60 modules.
 
 ## Barry fixtures
 
@@ -960,6 +960,38 @@ with exactly these reasons.
 - **RFC:** [9286 §6.3](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.3)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6))
 - **Files:** [descriptor](../../test/fixtures/barry/m5-pp-manifest-stale/case.repo) · [metadata](../../test/fixtures/barry/m5-pp-manifest-stale/case.exs) · [rsync tree](../../test/fixtures/barry/m5-pp-manifest-stale/rsync)
 
+### M6
+
+#### `m6-inherit-ee`: ROA whose EE certificate inherits its addresses
+
+The baseline tree (m0-minimal-valid) with one change: the EE certificate of roa1.roa uses inherit for its IP addresses. RFC 6487 section 4.8.10 allows inherit in any resource certificate, EE certificates included; the EE certificate then holds ca1's addresses (RFC 3779 section 2.2.3.5).
+
+Effective resources (#153): everything validates.
+
+- **Expected:** valid
+- **RFC:** [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10))
+- **Files:** [descriptor](../../test/fixtures/barry/m6-inherit-ee/case.repo) · [metadata](../../test/fixtures/barry/m6-inherit-ee/case.exs) · [rsync tree](../../test/fixtures/barry/m6-inherit-ee/rsync)
+
+#### `m6-inherit-from-empty`: Inheriting an address family the issuer doesn't hold
+
+ca1 holds IPv4 addresses (1.0.0.0/8) and AS numbers but no IPv6; ca2 inherits both address families. RFC 3779 section 2.2.3.5 takes inherited resources from the issuer, and ca1 has no IPv6 to take, so ca2 holds no IPv6: inheriting nothing is holding nothing (D-026). Real repositories depend on this: RFC 9286 section 5.1 requires every manifest's EE certificate to inherit its resources, so under a CA without IPv6 the manifest inherits IPv6 from nothing.
+
+Effective resources (#153): everything validates, and ca2 holds ca1's IPv4 addresses only.
+
+- **Expected:** valid
+- **RFC:** [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [9286 §5.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-5.1))
+- **Files:** [descriptor](../../test/fixtures/barry/m6-inherit-from-empty/case.repo) · [metadata](../../test/fixtures/barry/m6-inherit-from-empty/case.exs) · [rsync tree](../../test/fixtures/barry/m6-inherit-from-empty/rsync)
+
+#### `m6-inherit-two-levels`: Resources inherited through two levels
+
+ta, ca1 with Barry's default resources, then ca2 and ca3 that both inherit every address family and their AS numbers, and a ROA under ca3 whose EE certificate inherits too (Barry's default under an inheriting CA). RFC 3779 sections 2.2.3.5 and 3.2.3.3: inherited resources are taken "from the issuer's certificate, or from the issuer's issuer's certificate, recursively", so ca3 and the EE certificate hold ca1's resources.
+
+Effective resources (#153): everything validates.
+
+- **Expected:** valid
+- **RFC:** [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [3779 §3.2.3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.3)), [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10)), [6487 §4.8.11](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.11))
+- **Files:** [descriptor](../../test/fixtures/barry/m6-inherit-two-levels/case.repo) · [metadata](../../test/fixtures/barry/m6-inherit-two-levels/case.exs) · [rsync tree](../../test/fixtures/barry/m6-inherit-two-levels/rsync)
+
 ## Test TALs
 
 Hand-written Trust Anchor Locators, valid and malformed, and what a correct TAL parser must report for each (RFC 8630 §2.2, D-002).
@@ -1711,6 +1743,42 @@ isn't in doc/rfc, so its clauses are cited in each test's doc tag.
   with an explicit `version [0] INTEGER 0` passes the TLV walk, since every
   TLV is well formed, but isn't DER. Only re-encoding catches it.
 - *check_canonical/3:* passes on decoding errors from the ASN.1 layer
+
+### `Lumina.EffectiveResourcesTest`
+
+[test/lumina/effective_resources_test.exs](../../test/lumina/effective_resources_test.exs)
+
+Tests effective resources (#153): `Lumina.Resources.effective/2`
+resolves `inherit` from the issuer's effective resources (RFC 3779
+§2.2.3.5 for each address family, §3.2.3.3 for AS numbers), and
+`Lumina.Chain` carries them down a chain.
+
+Resource inclusion itself (RFC 6487 §7.2 point 6) is #154; here only
+what a certificate holds is decided. Resolving gives no errors:
+inheriting a kind the issuer doesn't hold is holding nothing of it
+(D-026), as every manifest's EE certificate does under a CA that lacks
+a kind (RFC 9286 §5.1). The unit tests change m0-minimal-valid's ca1
+certificate in memory; the `m6-inherit-*` and
+m1-resources-inherit fixtures check the same through real chains, at
+2030-01-01.
+
+- *Resources.effective/2:* explicit resources are taken as they are, whatever the issuer holds (RFC [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10)), [6487 §4.8.11](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.11)))
+- *Resources.effective/2:* an inherited kind takes the issuer's effective set, each address family on its own (RFC [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [3779 §3.2.3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.3)))
+- *Resources.effective/2:* a kind the certificate doesn't list is empty (RFC [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10)), [6487 §4.8.11](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.11)))
+  Only AS numbers, or one address family: the rest is held by nobody.
+- *Resources.effective/2:* inheriting a kind the issuer doesn't hold is holding nothing of it (RFC [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [3779 §3.2.3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.3)), [9286 §5.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-5.1)))
+  D-026. A manifest's EE certificate must inherit every kind (RFC
+  9286 §5.1), so under a CA without IPv6 or AS numbers it inherits
+  them from nothing; LACNIC's repository has over 1,500 such
+  manifests.
+- *Resources.effective/2:* a TA's inherit resolves to nothing (RFC [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)))
+  The TA's inherit is rejected against its TAL; resolving adds nothing.
+- *Chain:* a child's result carries its effective resources, from the issuer's passed in (RFC [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
+- *fixtures:* m6-inherit-two-levels: inheritance two levels deep resolves to ca1's resources (RFC [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [3779 §3.2.3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.3)))
+  ca2 and ca3 inherit, and so does the EE certificate of ca3's ROA.
+- *fixtures:* m6-inherit-ee: an EE certificate that inherits holds its CA's addresses (RFC [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10)))
+- *fixtures:* m6-inherit-from-empty: inheriting IPv6 from an IPv4-only issuer holds no IPv6, and is valid (RFC [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [9286 §5.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-5.1)))
+- *fixtures:* m1-resources-inherit: ca2 inherits everything from ca1 (RFC [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [3779 §3.2.3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.3)))
 
 ### `Lumina.Fixtures.M0MinimalValidTest`
 

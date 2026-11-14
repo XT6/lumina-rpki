@@ -33,6 +33,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-023](#d-023-a-failed-publication-point-falls-back-to-its-last-valid-copy) | A failed publication point falls back to its last valid copy while that copy's manifest is current | 2026-11-14 | M5 plan, #135 |
 | [D-024](#d-024-manifest-replay-state-is-kept-in-the-cache-and-written-only-by-sync) | Manifest replay state is kept per CA in the cache, written only by `lumina sync` | 2026-11-14 | M5 plan, #136 |
 | [D-025](#d-025-absent-rsaencryption-parameters-in-cms-only-warn) | Absent rsaEncryption parameters in a SignerInfo only warn | 2026-11-14 | #130, PR #140, F-031 |
+| [D-026](#d-026-inheriting-resources-the-issuer-doesnt-hold-is-holding-none) | Inheriting resources the issuer doesn't hold is holding none (revised the same day) | 2026-11-14 | #153, F-033 |
 
 ## D-001: CLI model
 
@@ -362,3 +363,13 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Why:** RFC 3370 §3.2, which RFC 7935 §2 cites, says the parameters "MUST contain NULL". Every object in the LACNIC repository has NULL, but Barry omits them on every object it writes, and it can override them only on nodes declared in a fixture's tree, which manifests usually aren't. Making it an error would mean declaring the manifests in every fixture and regenerating them all.
 - **Where:** #130, PR #140, F-031 (maintainer: "Keep the warning").
 - **Consequences:** every Barry-generated signed object carries the warning; tests check errors and this warning separately. Revisit if Barry writes NULL.
+
+## D-026: Inheriting resources the issuer doesn't hold is holding none
+
+- **Date:** 2026-11-14 (revised the same day).
+- **Decision:** a certificate that uses `inherit` for an address family, or for AS numbers, whose issuer holds none of that kind (after resolving the issuer's own `inherit`) holds none of it. That is not an error and not a warning.
+- **Why:** RFC 3779 §2.2.3.5 and §3.2.3.3 take inherited resources from the issuer, recursively, but don't say what happens when nothing is found (F-033). RFC 9286 §5.1 settles it in practice: a manifest's EE certificate "MUST describe its Internet Number Resources (INRs) using the 'inherit' attribute", and producers write inherit for IPv4, IPv6 and AS numbers whatever the CA holds. Under a CA without IPv6, the manifest inherits IPv6 from nothing, as the RFC requires. A certificate that inherits nothing claims nothing, so nothing can be overclaimed.
+- **Superseded first version:** the decision as first accepted made this an error (`inherit_from_empty`), thinking of a CA inheriting what its parent doesn't have. On the LACNIC repository that failed 1,527 manifest EE certificates and about 1,500 publication points (1,540 failed instead of 15). It was revised before anything was merged (maintainer, #153).
+- **Where:** M6 plan, #153.
+- **Consequences:** no rule for it. Whether a manifest's EE certificate actually uses inherit, as RFC 9286 §5.1 asks RPs to check, is a separate check (#157).
+- **As implemented (#153):** `Lumina.Resources.effective(cert, issuer_effective)` returns the certificate's IPv4, IPv6 and AS sets, `inherit` resolved from the issuer's, an empty list for a kind held by nobody. `Lumina.Chain.child/6` returns the child's effective resources as `resources`; `Chain.ta/3` returns the TA's. The walk, `lumina validate` and publication point processing (the manifest's EE certificate) carry each CA's effective resources to its children.

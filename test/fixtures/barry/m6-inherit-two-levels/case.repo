@@ -1,0 +1,19 @@
+ta.cer
+	ca1.cer
+		ca2.cer
+			ca3.cer
+				roa1.roa
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: ca2.cer]
+# Both address families, and AS numbers, inherited from ca1.
+obj.tbsCertificate.extensions.ip.extnValue = inherit
+obj.tbsCertificate.extensions.as.extnValue.asnum = inherit
+
+[node: ca3.cer]
+# Inherited from ca2, which inherits from ca1: resolves to ca1's resources.
+obj.tbsCertificate.extensions.ip.extnValue = inherit
+obj.tbsCertificate.extensions.as.extnValue.asnum = inherit

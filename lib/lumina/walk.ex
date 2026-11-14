@@ -122,7 +122,7 @@ defmodule Lumina.Walk do
       issues: []
     }
 
-    state = walk([{ta, "TA", 0, []}], state)
+    state = walk([{ta, "TA", 0, [], Lumina.Resources.effective(ta, nil)}], state)
 
     %{
       points: Enum.reverse(state.points),
@@ -158,7 +158,7 @@ defmodule Lumina.Walk do
 
   # The walk goes one breadth-first level at a time. Each entry is
   # {certificate, its name for reports, depth, ancestor publication
-  # points}. A level is planned in order, its fetches run concurrently, and
+  # points, its effective resources}. A level is planned in order, its fetches run concurrently, and
   # its results are reported in order, so the outcome is the same as
   # visiting the entries one by one.
   defp walk([], state), do: state
@@ -195,7 +195,7 @@ defmodule Lumina.Walk do
   # Decides what an entry needs: nothing, an issue, or a publication point
   # read from a fetch (`:fetch` if it is fetched for itself, or the URI of
   # the fetch that covers it).
-  defp plan({cert, name, depth, ancestors} = entry, state) do
+  defp plan({cert, name, depth, ancestors, _resources} = entry, state) do
     case repository(cert) do
       :not_ca ->
         {:skip, state}
@@ -241,7 +241,7 @@ defmodule Lumina.Walk do
   defp report({:issue, kind, uri, detail}, state, _results),
     do: {[], issue(state, kind, uri, detail)}
 
-  defp report({:point, {cert, _name, depth, ancestors}, pp, covered}, state, results) do
+  defp report({:point, {cert, _name, depth, ancestors, resources}, pp, covered}, state, results) do
     key = to_string(pp)
 
     {covered_by, module, outcome, state} =
@@ -278,7 +278,7 @@ defmodule Lumina.Walk do
       }
 
       state = %{state | points: [point | state.points]}
-      children(cert, path, key, depth, [key | ancestors], {module, outcome}, state)
+      children({cert, resources}, path, key, depth, [key | ancestors], {module, outcome}, state)
     else
       {[], issue(state, :missing, key, %{covered_by: covered_by})}
     end
@@ -308,11 +308,12 @@ defmodule Lumina.Walk do
           %{kind: :decode_failed, uri: name, reason: reason}, {acc, state} ->
             {acc, issue(state, :decode_failed, name, reason)}
 
-          %{valid: true, problems: [], certificate: cert, uri: name}, {acc, state} ->
-            {[{cert, name, depth + 1, ancestors} | acc], state}
+          %{valid: true, problems: [], certificate: cert, uri: name} = e, {acc, state} ->
+            {[{cert, name, depth + 1, ancestors, e.resources} | acc], state}
 
-          %{valid: true, problems: warnings, certificate: cert, uri: name}, {acc, state} ->
-            {[{cert, name, depth + 1, ancestors} | acc], issue(state, :warning, name, warnings)}
+          %{valid: true, problems: warnings, certificate: cert, uri: name} = e, {acc, state} ->
+            {[{cert, name, depth + 1, ancestors, e.resources} | acc],
+             issue(state, :warning, name, warnings)}
 
           %{problems: problems, uri: name}, {acc, state} ->
             {acc, issue(state, :invalid, name, Enum.filter(problems, &(&1.severity == :error)))}
@@ -325,9 +326,13 @@ defmodule Lumina.Walk do
   # fails only because listed files are missing or don't match their
   # hashes, the repository may have been caught mid-update (RFC 6481 §5,
   # D-007): its module is fetched once more and the point validated again.
-  defp validated(ca, path, key, {module, outcome}, state) do
+  defp validated({ca, resources}, path, key, {module, outcome}, state) do
     validate = fn ->
-      Validate.point(ca, path, key, state.now, last_valid: state.root, save: true)
+      Validate.point(ca, path, key, state.now,
+        last_valid: state.root,
+        save: true,
+        resources: resources
+      )
     end
 
     result = validate.()
