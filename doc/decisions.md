@@ -261,6 +261,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Why:** RFC 9829 §3.2 changes RFC 6487 §7.2 point 5 so that the issuer's current CRL is the one "identified by the issuer's current manifest and the CRLDP of the certificate". Manifests are M5. Doing CRLs in M4 without the manifest keeps the milestones apart; the manifest check tightens the rule later without changing the CRL code.
 - **Where:** M4 plan.
 - **Consequences:** M4's chain validation looks up the CRL by CRLDP. An M5 issue adds the manifest cross-check and cites RFC 9829.
+- **Done in M5 (#116):** a certificate's CRL must be on its issuer's current manifest (`PublicationPoint.crl/6`); one in the directory but not listed makes the certificate invalid (`crl_not_on_manifest`, RFC 9829 §3.2). The manifest's hash for it is checked when the point is accepted (RFC 9286 §6.5), so a CRL that doesn't match, an older one replayed for instance (RFC 9829 §5), fails the whole point. The manifest's own EE certificate names the same CRL, so a CRL missing from the manifest already fails the point (`crl_not_listed`, #133).
 
 ## D-016: A stale CRL is used with a warning
 

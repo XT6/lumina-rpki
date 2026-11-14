@@ -124,7 +124,7 @@ defmodule Lumina.Validate do
             {[%{uri: name, kind: :decode_failed, reason: reason}], crls}
 
           {kind, cert, object} ->
-            {crl, crls} = crl(cert, ca, path, key, crls, now)
+            {crl, crls} = crl(cert, ca, point, path, key, crls, now)
             result = Chain.child(cert, chain_kind(kind), ca, crl, now)
             {[entry(name, kind, cert, object, result)], crls}
         end
@@ -213,9 +213,9 @@ defmodule Lumina.Validate do
       end
   end
 
-  # The CA's CRL result for the CRL `cert`'s CRLDP names, read only from
-  # the CA's publication point (D-015) and validated once per URI.
-  defp crl(cert, ca, path, key, crls, now) do
+  # The CA's CRL result for the CRL `cert`'s CRLDP names: one on the
+  # point's manifest (RFC 9829 §3.2, #116), validated once per URI.
+  defp crl(cert, ca, point, path, key, crls, now) do
     uri = Chain.crl_uri(cert)
 
     case Map.fetch(crls, uri) do
@@ -223,7 +223,7 @@ defmodule Lumina.Validate do
         {result, crls}
 
       :error ->
-        result = Chain.crl(PublicationPoint.read_crl(uri, path, key), ca, now)
+        result = PublicationPoint.crl(point, uri, path, key, ca, now)
         {result, Map.put(crls, uri, result)}
     end
   end
