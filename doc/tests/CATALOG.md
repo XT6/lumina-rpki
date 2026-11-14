@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 60 Barry fixtures: 11 valid, 49 invalid.
+- 67 Barry fixtures: 11 valid, 56 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 641 unit tests in 55 modules.
+- 658 unit tests in 56 modules.
 
 ## Barry fixtures
 
@@ -843,6 +843,91 @@ this one reason. Its envelope and EE certificate are valid.
   - `ca1/ca1.mft`: the manifest version is 1; RFC 9286 requires 0
 - **RFC:** [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)), [9286 §4.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.4))
 - **Files:** [descriptor](../../test/fixtures/barry/m5-mft-version-1/case.repo) · [metadata](../../test/fixtures/barry/m5-mft-version-1/case.exs) · [rsync tree](../../test/fixtures/barry/m5-mft-version-1/rsync)
+
+#### `m5-pp-crl-renamed`: Manifest that lists the CA's CRL under another name
+
+The baseline tree (m0-minimal-valid) with one change: ca1.mft lists the CRL as ca2.crl (Barry writes an empty hash for the renamed entry), so the CRL its EE certificate's CRLDP names, ca1.crl, isn't on the manifest, and ca2.crl isn't published. RFC 9286 section 6: a CRL not on the manifest is considered missing and the fetch fails; section 6.4: so does a listed file that isn't there.
+
+Publication point processing (#133): ca1's publication point must fail
+with exactly these reasons.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.mft`: the CRL ca1.crl is not on the manifest
+  - `ca1/ca1.mft`: ca2.crl is listed but not published
+- **RFC:** [9286 §6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6)), [9286 §6.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.4)), [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-pp-crl-renamed/case.repo) · [metadata](../../test/fixtures/barry/m5-pp-crl-renamed/case.exs) · [rsync tree](../../test/fixtures/barry/m5-pp-crl-renamed/rsync)
+
+#### `m5-pp-file-missing`: Manifest listing a file that isn't published
+
+The baseline tree (m0-minimal-valid) with one change: ca1.mft lists roa2.roa, which isn't in the publication point (the ROA is published as roa1.roa). RFC 9286 section 6.4: a listed file that can't be retrieved is a failed fetch.
+
+Publication point processing (#133): ca1's publication point must fail
+with exactly these reasons.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.mft`: roa2.roa is listed but not published
+- **RFC:** [9286 §6.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.4)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-pp-file-missing/case.repo) · [metadata](../../test/fixtures/barry/m5-pp-file-missing/case.exs) · [rsync tree](../../test/fixtures/barry/m5-pp-file-missing/rsync)
+
+#### `m5-pp-hash-mismatch`: Manifest hash that doesn't match the file
+
+The baseline tree (m0-minimal-valid) with one change: ca1.mft lists roa1.roa with a hash that isn't the SHA-256 of the published file. RFC 9286 section 6.5: a hash mismatch is a failed fetch.
+
+Publication point processing (#133): ca1's publication point must fail
+with exactly these reasons.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.mft`: the hash of roa1.roa doesn't match the manifest
+- **RFC:** [9286 §6.5](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.5)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-pp-hash-mismatch/case.repo) · [metadata](../../test/fixtures/barry/m5-pp-hash-mismatch/case.exs) · [rsync tree](../../test/fixtures/barry/m5-pp-hash-mismatch/rsync)
+
+#### `m5-pp-manifest-premature`: Manifest whose thisUpdate is in the future
+
+The baseline tree (m0-minimal-valid) with one change: the thisUpdate of ca1.mft is 2031-01-01, after the tests' validation time (2030-01-01). RFC 9286 section 6.3: a prematurely issued manifest is a failed fetch.
+
+Publication point processing (#133): ca1's publication point must fail
+with exactly these reasons.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.mft`: the manifest is premature: thisUpdate is after the validation time
+- **RFC:** [9286 §6.3](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.3)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-pp-manifest-premature/case.repo) · [metadata](../../test/fixtures/barry/m5-pp-manifest-premature/case.exs) · [rsync tree](../../test/fixtures/barry/m5-pp-manifest-premature/rsync)
+
+#### `m5-pp-manifest-revoked`: Manifest whose EE certificate is revoked by the CA's CRL
+
+The baseline tree (m0-minimal-valid) with one change: ca1's CRL revokes the EE certificate of ca1.mft (serial 77). RFC 9286 section 6: a revoked current manifest is a serious CA error and the fetch fails; the manifest is also invalid (RFC 6488 section 3 item 3).
+
+Publication point processing (#133): ca1's publication point must fail
+with exactly these reasons.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.mft`: the manifest's EE certificate is revoked
+- **RFC:** [9286 §6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6)), [9286 §6.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.2)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-pp-manifest-revoked/case.repo) · [metadata](../../test/fixtures/barry/m5-pp-manifest-revoked/case.exs) · [rsync tree](../../test/fixtures/barry/m5-pp-manifest-revoked/rsync)
+
+#### `m5-pp-manifest-sia-mismatch`: Manifest EE certificate naming another URI
+
+The baseline tree (m0-minimal-valid) with one change: the signedObject URI in the SIA of ca1.mft's EE certificate is rsync://localhost:8873/rpki/ca1/other.mft, not the URI it is fetched from (ca1's rpkiManifest). RFC 9981 section 4: the fetch fails.
+
+Publication point processing (#133): ca1's publication point must fail
+with exactly these reasons.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.mft`: the EE certificate's signedObject URI isn't the manifest's URI
+- **RFC:** [9981 §4](../rfc/rfc9981.txt) ([html](https://www.rfc-editor.org/rfc/rfc9981.html#section-4)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-pp-manifest-sia-mismatch/case.repo) · [metadata](../../test/fixtures/barry/m5-pp-manifest-sia-mismatch/case.exs) · [rsync tree](../../test/fixtures/barry/m5-pp-manifest-sia-mismatch/rsync)
+
+#### `m5-pp-manifest-stale`: Manifest past its nextUpdate
+
+The baseline tree (m0-minimal-valid) with one change: the nextUpdate of ca1.mft is 2027-01-01, before the tests' validation time (2030-01-01). RFC 9286 section 6.3: a stale manifest is a failed fetch. Its EE certificate (valid to 2036) and content are otherwise valid.
+
+Publication point processing (#133): ca1's publication point must fail
+with exactly these reasons.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.mft`: the manifest is stale: nextUpdate is before the validation time
+- **RFC:** [9286 §6.3](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.3)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-pp-manifest-stale/case.repo) · [metadata](../../test/fixtures/barry/m5-pp-manifest-stale/case.exs) · [rsync tree](../../test/fixtures/barry/m5-pp-manifest-stale/rsync)
 
 ## Test TALs
 
@@ -2105,6 +2190,50 @@ progress only with `--progress`, as timestamped lines.
   and per finished level.
 - *lumina sync:* --quiet reports no progress
 - *lumina sync:* lumina help sync lists --progress and --quiet
+
+### `Lumina.PublicationPointTest`
+
+[test/lumina/publication_point_test.exs](../../test/lumina/publication_point_test.exs)
+
+Tests publication point processing (#133): `Lumina.PublicationPoint.process/4`
+decides from a fixture's files whether a CA's publication point can be
+used (RFC 9286 §6, RFC 9981 §4).
+
+A point is ca1's (`rsync/ca1`, caRepository
+`rsync://localhost:8873/rpki/ca1`) unless a test says otherwise, at
+2030-01-01, inside the fixtures' validity. Every positive fixture's
+points must be accepted with exactly the manifest's files, and each
+`m5-pp-*` fixture must fail with exactly its reasons. Cases Barry can't
+publish (a missing or undecodable manifest, an extra file) work on a
+copy of m0-minimal-valid changed on disk.
+
+- *fixtures:* every positive Barry fixture's publication points are accepted with exactly the manifest's files (RFC [9286 §6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6)), [9286 §6.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.2)), [9286 §6.3](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.3)), [9286 §6.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.4)), [9286 §6.5](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.5)))
+  The TA's point and ca1's (where it exists); warnings are allowed.
+- *fixtures:* m5-pp-manifest-stale: a manifest past its nextUpdate fails the point (RFC [9286 §6.3](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.3)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)))
+- *fixtures:* m5-pp-manifest-premature: a manifest before its thisUpdate fails the point (RFC [9286 §6.3](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.3)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)))
+- *fixtures:* m5-pp-file-missing: a listed file that isn't published fails the point (RFC [9286 §6.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.4)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)))
+- *fixtures:* m5-pp-hash-mismatch: a file whose hash differs from the manifest's fails the point (RFC [9286 §6.5](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.5)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)))
+- *fixtures:* m5-pp-crl-renamed: the CA's CRL not on the manifest, and a listed file missing, fail the point (RFC [9286 §6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6)), [9286 §6.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.4)))
+- *fixtures:* the CRL the manifest's EE certificate names must be on the manifest (RFC [9286 §6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6)), [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)))
+  With ca2.crl published, the CRL rule stays: the CRL the CRLDP names
+  (ca1.crl) isn't listed. The hash mismatch is Barry's: it writes an
+  empty hash for a renamed entry (doc/barry.md).
+- *fixtures:* m5-pp-manifest-revoked: a manifest whose EE certificate is revoked fails the point (RFC [9286 §6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6)), [9286 §6.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.2)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
+- *fixtures:* m5-pp-manifest-sia-mismatch: a manifest whose signedObject URI isn't its own fails the point (RFC [9981 §4](../rfc/rfc9981.txt) ([html](https://www.rfc-editor.org/rfc/rfc9981.html#section-4)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)))
+- *fixtures:* m5-mft-version-1: an invalid manifest fails the point with the manifest's own rule (RFC [9286 §6.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.2)), [9286 §4.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.4)))
+  An invalid manifest is treated as though no manifest were present (§4.4).
+- *fixtures:* m4-crl-version-1: an invalid CRL fails the point (RFC [9286 §6.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.2)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
+  The manifest's EE certificate can't validate without a valid CRL.
+- *fixtures:* m4-crl-stale: a stale CRL is accepted with a warning (RFC [9286 §6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6)))
+  D-016: a stale CRL on a current manifest only warns.
+- *on disk:* a missing manifest fails the point (RFC [9286 §6.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.2)))
+- *on disk:* a manifest that doesn't decode fails the point (RFC [9286 §6.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.2)))
+- *on disk:* a manifest outside the CA's publication point fails it (RFC [9286 §6.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.1)))
+  The CA's caRepository is taken to be elsewhere, so its manifest URI is outside it.
+- *on disk:* a file not on the manifest is left out of an accepted point (RFC [9286 §6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6)))
+  Files not on the manifest "MUST NOT be used": they aren't in the result.
+- *read_crl/3:* reads the CRL a URI names in the point, and nothing outside it (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
+  D-015: only the publication point's own CRL is read.
 
 ### `Lumina.ResourcesTest`
 

@@ -33,14 +33,13 @@ defmodule Lumina.Validate do
     Certificate,
     Chain,
     CMS,
-    CRL,
     Manifest,
     Object,
     Profile,
+    PublicationPoint,
     SignedObject,
     TA,
     TAL,
-    URI,
     Walk
   }
 
@@ -225,22 +224,8 @@ defmodule Lumina.Validate do
         {result, crls}
 
       :error ->
-        result = Chain.crl(read_crl(uri, path, key), ca, now)
+        result = Chain.crl(PublicationPoint.read_crl(uri, path, key), ca, now)
         {result, Map.put(crls, uri, result)}
-    end
-  end
-
-  defp read_crl(uri, path, key) do
-    with true <- is_binary(uri),
-         {:ok, parsed} <- URI.parse(uri),
-         prefix = key <> "/",
-         true <- String.starts_with?(to_string(parsed), prefix),
-         file = String.replace_prefix(to_string(parsed), prefix, ""),
-         false <- String.contains?(file, "/"),
-         {:ok, %Object{value: %CRL{} = crl}} <- Object.decode_file(Path.join(path, file)) do
-      crl
-    else
-      _ -> nil
     end
   end
 

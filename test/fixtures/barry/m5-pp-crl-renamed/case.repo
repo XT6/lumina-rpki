@@ -1,0 +1,14 @@
+ta.cer
+	ca1.cer
+		ca1.mft
+		roa1.roa
+		ca1.crl
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: ca1.mft]
+# The CRL entry (the last) names ca2.crl. Barry then writes an empty hash
+# for it (doc/barry.md).
+obj.content.encapContentInfo.eContent.fileList.1.file = ca2.crl

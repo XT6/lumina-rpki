@@ -1,0 +1,12 @@
+ta.cer
+	ca1.cer
+		ca1.mft
+		roa1.roa
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: ca1.mft]
+# RFC 9981 section 4: the signedObject URI must be where the manifest was fetched.
+obj.content.certificates.0.tbsCertificate.extensions.sia.extnValue.0.accessLocation.value = rsync://localhost:8873/rpki/ca1/other.mft
