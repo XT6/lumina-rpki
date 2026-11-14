@@ -147,10 +147,14 @@ defmodule Lumina.Sync do
   defp walk_lines(walk) do
     failed = Enum.count(walk.fetches, &(&1.outcome == :error))
     stale = Enum.count(walk.points, & &1.stale)
+    failed_points = Enum.count(walk.points, &(&1.status == :failed))
+
+    notes =
+      for {n, label} <- [{stale, "stale"}, {failed_points, "failed"}], n > 0, do: "#{n} #{label}"
 
     [
       "  publication points: #{length(walk.points)}" <>
-        if(stale > 0, do: " (#{stale} stale)", else: "") <> "\n",
+        if(notes != [], do: " (#{Enum.join(notes, ", ")})", else: "") <> "\n",
       "  rsync fetches: #{length(walk.fetches)}, #{failed} failed\n",
       for issue <- walk.issues do
         "    #{issue.kind}: #{issue.uri}" <>

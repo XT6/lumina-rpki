@@ -9,15 +9,15 @@ defmodule Lumina.Walk do
   the publication point are found, and their publication points are walked
   the same way, breadth first.
 
-  **Which certificates are followed** (D-005, D-014): a CA certificate
-  in the publication point of a CA already walked, that validates against
-  that CA at `:now` (`Lumina.Validate.point/5`, shared with `lumina
-  validate`) and has an rsync `caRepository` (`repository/1`). The TA was
-  validated when it was accepted (`Lumina.TA`). An invalid CA is reported
-  with its reasons and nothing below it is walked; a valid one's warnings
-  are reported too. Certificates that aren't the CA's products (its own,
-  another CA's) are skipped without an issue, as `Lumina.Validate`
-  describes.
+  **Which certificates are followed** (D-005, D-014, #134): a CA
+  certificate listed on the current manifest of a CA already walked, in
+  a publication point that is accepted (RFC 9286 §6), that validates
+  against that CA at `:now` (`Lumina.Validate.point/5`, shared with
+  `lumina validate`) and has an rsync `caRepository` (`repository/1`).
+  The TA was validated when it was accepted (`Lumina.TA`). A failed
+  publication point is reported with its reasons, and so is an invalid
+  CA; nothing below either is walked. A valid CA's warnings are reported
+  too. Files not on the manifest are ignored.
 
   **Fetching once:** a publication point in a module already fetched in
   this run (same host and port, same module) isn't fetched again; it's
@@ -42,13 +42,15 @@ defmodule Lumina.Walk do
   The result:
 
     * `:points`: each publication point walked, with its depth, its cache
-      path, the fetch that covered it and whether the copy is `stale`;
+      path, the fetch that covered it, whether the copy is `stale` and
+      its `status` (`:accepted` or `:failed`, RFC 9286 §6);
     * `:fetches`: each rsync run, by module URI, with its outcome (their number is the
       number of rsync runs);
     * `:issues`: everything reported, as `%{kind, uri, detail}`, `kind` one
       of `:fetch_failed`, `:loop`, `:duplicate`, `:depth_exceeded`,
-      `:decode_failed`, `:invalid` (a CA that doesn't validate; the detail
-      lists its errors), `:warning` (a valid CA's warnings), `:no_repository`,
+      `:decode_failed`, `:point_failed` (a publication point RFC 9286 §6
+      rejects, by its manifest URI; the detail lists the reasons),
+      `:invalid` (a CA that doesn't validate; the detail lists its errors), `:warning` (a valid CA's warnings), `:no_repository`,
       `:bad_uri`, `:oversize`,
       `:removed` (symlinks or special files dropped by `Cache.commit/3`)
       and `:missing` (a publication point that was never fetched and has
@@ -66,7 +68,8 @@ defmodule Lumina.Walk do
           depth: non_neg_integer(),
           path: Path.t(),
           covered_by: String.t(),
-          stale: boolean()
+          stale: boolean(),
+          status: :accepted | :failed
         }
   @type fetch :: %{uri: String.t(), outcome: :ok | :error, detail: term()}
   @type result :: %{points: [point()], fetches: [fetch()], issues: [issue()]}
@@ -251,7 +254,8 @@ defmodule Lumina.Walk do
         depth: depth,
         path: path,
         covered_by: covered_by,
-        stale: outcome == :error
+        stale: outcome == :error,
+        status: :accepted
       }
 
       state = %{state | points: [point | state.points]}
@@ -261,27 +265,38 @@ defmodule Lumina.Walk do
     end
   end
 
-  # The CA certificates directly in the publication point of `ca`, at
+  # The CA certificates the manifest of `ca`'s publication point lists, at
   # `path`, that validate against it (`Lumina.Validate.point/5`), as
-  # entries of the next level.
+  # entries of the next level. A point that fails (RFC 9286 §6) is an
+  # issue, and nothing below it is walked (§6.6).
   defp children(ca, path, key, depth, ancestors, state) do
-    ca
-    |> Validate.point(path, key, state.now)
-    |> Enum.reduce({[], state}, fn
-      %{kind: :decode_failed, uri: name, reason: reason}, {acc, state} ->
-        {acc, issue(state, :decode_failed, name, reason)}
+    case Validate.point(ca, path, key, state.now) do
+      %{point: %{status: :failed} = point} ->
+        errors = Enum.filter(point.problems, &(&1.severity == :error))
+        {[], point_status(issue(state, :point_failed, point.manifest || key, errors), :failed)}
 
-      %{valid: true, problems: [], certificate: cert, uri: name}, {acc, state} ->
-        {[{cert, name, depth + 1, ancestors} | acc], state}
+      %{entries: entries} ->
+        entries
+        |> Enum.reduce({[], state}, fn
+          %{kind: :decode_failed, uri: name, reason: reason}, {acc, state} ->
+            {acc, issue(state, :decode_failed, name, reason)}
 
-      %{valid: true, problems: warnings, certificate: cert, uri: name}, {acc, state} ->
-        {[{cert, name, depth + 1, ancestors} | acc], issue(state, :warning, name, warnings)}
+          %{valid: true, problems: [], certificate: cert, uri: name}, {acc, state} ->
+            {[{cert, name, depth + 1, ancestors} | acc], state}
 
-      %{problems: problems, uri: name}, {acc, state} ->
-        {acc, issue(state, :invalid, name, Enum.filter(problems, &(&1.severity == :error)))}
-    end)
-    |> then(fn {children, state} -> {Enum.reverse(children), state} end)
+          %{valid: true, problems: warnings, certificate: cert, uri: name}, {acc, state} ->
+            {[{cert, name, depth + 1, ancestors} | acc], issue(state, :warning, name, warnings)}
+
+          %{problems: problems, uri: name}, {acc, state} ->
+            {acc, issue(state, :invalid, name, Enum.filter(problems, &(&1.severity == :error)))}
+        end)
+        |> then(fn {children, state} -> {Enum.reverse(children), state} end)
+    end
   end
+
+  # Marks the point just recorded (the head of `points`) failed.
+  defp point_status(%{points: [point | rest]} = state, status),
+    do: %{state | points: [%{point | status: status} | rest]}
 
   defp covering(pp, fetched) do
     Enum.find_value(fetched, fn {%URI{} = dir, outcome} ->

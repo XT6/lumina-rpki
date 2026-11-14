@@ -39,7 +39,8 @@ defmodule Lumina.PublicationPoint do
           status: :accepted | :failed,
           manifest: String.t() | nil,
           problems: [problem()],
-          files: %{String.t() => Path.t()}
+          files: %{String.t() => Path.t()},
+          unlisted: [String.t()]
         }
 
   @rules [
@@ -65,7 +66,9 @@ defmodule Lumina.PublicationPoint do
   Processes the publication point of the valid CA certificate `ca`, whose
   caRepository URI is `key` and whose copy is the directory `path`, at
   time `now`. `files` maps each listed name to its path when the point is
-  accepted, and is empty when it fails.
+  accepted, and is empty when it fails; `unlisted` names the other files
+  in an accepted point's directory (the manifest itself aside), which
+  aren't used.
   """
   @spec process(Certificate.t(), Path.t(), String.t(), DateTime.t()) :: t()
   def process(%Certificate{} = ca, path, key, %DateTime{} = now) do
@@ -81,7 +84,8 @@ defmodule Lumina.PublicationPoint do
               status: :accepted,
               manifest: uri,
               problems: problems,
-              files: Map.new(Manifest.names(manifest), &{&1, Path.join(path, &1)})
+              files: Map.new(Manifest.names(manifest), &{&1, Path.join(path, &1)}),
+              unlisted: unlisted(path, [file | Manifest.names(manifest)])
             },
             else: failed(uri, problems)
         else
@@ -110,7 +114,16 @@ defmodule Lumina.PublicationPoint do
   end
 
   defp failed(uri, problems),
-    do: %{status: :failed, manifest: uri, problems: problems, files: %{}}
+    do: %{status: :failed, manifest: uri, problems: problems, files: %{}, unlisted: []}
+
+  # §6: files present but not on the manifest "MUST NOT be used"; they're
+  # only counted.
+  defp unlisted(path, listed) do
+    for file <- path |> File.ls!() |> Enum.sort(),
+        file not in listed,
+        File.regular?(Path.join(path, file)),
+        do: file
+  end
 
   # §6.2: the manifest the CA's SIA names (RFC 6487 §4.8.8.1: rsync).
   defp manifest_uri(ca) do

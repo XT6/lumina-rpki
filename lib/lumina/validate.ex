@@ -3,11 +3,12 @@ defmodule Lumina.Validate do
   Validates the certificates of the trees in the cache (D-014): the code
   the repository walk (`Lumina.Walk`) and `lumina validate` (#114) share.
 
-    * `point/5`: the certificates in one publication point of a valid CA,
-      each validated against it (`Lumina.Chain.child/5`) with the CRL its
-      CRL Distribution Point names in that publication point (D-015). The
-      walk asks only for CA certificates; `lumina validate` also asks for
-      signed objects, each valid when its CMS envelope is
+    * `point/5`: one publication point of a valid CA: accepted or failed
+      (`Lumina.PublicationPoint`), and the certificates its manifest
+      lists, each validated against the CA (`Lumina.Chain.child/5`) with
+      the CRL its CRL Distribution Point names in that publication point
+      (D-015). The walk asks only for CA certificates; `lumina validate`
+      also asks for signed objects, each valid when its CMS envelope is
       (`Lumina.CMS.check/1`) and its EE certificate validates (RFC 6488
       §3, #131).
     * `run/3`: offline validation of one TAL's tree, from the TA stored in
@@ -15,17 +16,16 @@ defmodule Lumina.Validate do
       the same top-down walk through valid CAs that `Lumina.Walk` makes,
       over the publication points already in the cache.
 
-  A `.cer` file is a CA certificate when its Basic Constraints say cA or
-  its Key Usage has keyCertSign; other `.cer` files (router certificates,
-  D-020) are skipped. What a CA published is decided by the directory
-  until manifests list it (M5). Two kinds of certificate there aren't the CA's products and are
-  skipped without a result: one with the CA's own key (a TA published in
-  its own publication point, #103), and one whose issuer name and AKI both
-  name another CA (a CA sharing the directory). One mismatch alone is a
-  fault, left to validation to report.
+  What a CA published is what its current manifest lists (RFC 9286 §6,
+  #134): a publication point that fails (`Lumina.PublicationPoint`) gives
+  nothing, and files not on the manifest are ignored. A listed `.cer`
+  file is a CA certificate when its Basic Constraints say cA or its Key
+  Usage has keyCertSign; other `.cer` files (router certificates, D-020)
+  are skipped.
 
-  A manifest's content is checked too (`Lumina.Manifest.check/1`, #132);
-  the other types' eContent isn't judged yet (ROAs in M7, the rest in M9).
+  The manifest is checked as part of its point (CMS, EE certificate and
+  content); the other types' eContent isn't judged yet (ROAs in M7, the
+  rest in M9).
   """
 
   alias Lumina.{
@@ -33,7 +33,6 @@ defmodule Lumina.Validate do
     Certificate,
     Chain,
     CMS,
-    Manifest,
     Object,
     Profile,
     PublicationPoint,
@@ -66,10 +65,13 @@ defmodule Lumina.Validate do
   @type result :: %{
           ta: %{uri: String.t(), path: Path.t(), valid: boolean(), problems: [map()]} | nil,
           objects: [entry()],
+          unlisted: non_neg_integer(),
           issues: [Walk.issue()]
         }
 
-  @signed [".mft", ".roa", ".gbr", ".sig", ".tak"]
+  # Signed objects validated in a point; its manifest is the point's own
+  # entry, and another manifest listed there isn't this CA's.
+  @signed [".roa", ".gbr", ".sig", ".tak"]
 
   # Summary lines for signed objects, in this order.
   @labels [
@@ -81,29 +83,40 @@ defmodule Lumina.Validate do
   ]
 
   @doc """
-  Validates the certificates in the publication point `key` of the valid
-  CA certificate `ca`, held at `path`, at time `now`. Returns one entry
-  per CA certificate or signed object (or file that doesn't decode), in
-  file name order.
+  Validates the publication point `key` of the valid CA certificate `ca`,
+  held at `path`, at time `now` (RFC 9286 §6, #134).
 
-  Options: `objects: true` also validates signed objects (`.mft .roa .gbr
-  .sig .tak`): the EE certificate against the CA, and the CMS envelope
+  The point is processed first (`Lumina.PublicationPoint.process/4`).
+  Only when it is accepted are the files its manifest lists validated:
+  one entry per CA certificate or signed object (or file that doesn't
+  decode), in file name order. Files not on the manifest are never
+  looked at (§6: they "MUST NOT be used").
+
+  Returns `%{point: publication point result, entries: [entry]}`; with
+  `objects: true`, the first entry is the manifest's, standing for the
+  point: valid when the point is accepted, with every problem of the
+  point.
+
+  Options: `objects: true` also validates signed objects (`.roa .gbr .sig
+  .tak .asa`): the EE certificate against the CA, and the CMS envelope
   (`Lumina.CMS.check/1`), whose problems are added to the entry's. By
   default only CA certificates are validated.
   """
-  @spec point(Certificate.t(), Path.t(), String.t(), DateTime.t(), keyword()) :: [entry()]
+  @spec point(Certificate.t(), Path.t(), String.t(), DateTime.t(), keyword()) :: %{
+          point: PublicationPoint.t(),
+          entries: [entry()]
+        }
   def point(%Certificate{} = ca, path, key, %DateTime{} = now, opts \\ []) do
     objects? = Keyword.get(opts, :objects, false)
+    point = PublicationPoint.process(ca, path, key, now)
 
     {entries, _crls} =
-      path
-      |> File.ls!()
+      point.files
       |> Enum.sort()
-      |> Enum.filter(&File.regular?(Path.join(path, &1)))
-      |> Enum.flat_map_reduce(%{}, fn file, crls ->
+      |> Enum.flat_map_reduce(%{}, fn {file, full}, crls ->
         name = key <> "/" <> file
 
-        case candidate(Path.join(path, file), objects?) do
+        case candidate(full, objects?) do
           :skip ->
             {[], crls}
 
@@ -111,34 +124,34 @@ defmodule Lumina.Validate do
             {[%{uri: name, kind: :decode_failed, reason: reason}], crls}
 
           {kind, cert, object} ->
-            if ours?(cert, ca) do
-              {crl, crls} = crl(cert, ca, path, key, crls, now)
-
-              {[
-                 entry(
-                   name,
-                   kind,
-                   cert,
-                   object,
-                   Chain.child(cert, chain_kind(kind), ca, crl, now)
-                 )
-               ], crls}
-            else
-              {[], crls}
-            end
+            {crl, crls} = crl(cert, ca, path, key, crls, now)
+            result = Chain.child(cert, chain_kind(kind), ca, crl, now)
+            {[entry(name, kind, cert, object, result)], crls}
         end
       end)
 
-    entries
+    if objects?,
+      do: %{point: point, entries: [manifest_entry(point, key) | entries]},
+      else: %{point: point, entries: entries}
+  end
+
+  defp manifest_entry(point, key) do
+    %{
+      uri: point.manifest || key,
+      kind: :object,
+      type: :manifest,
+      certificate: nil,
+      valid: point.status == :accepted,
+      problems: point.problems
+    }
   end
 
   defp entry(name, :ca, cert, nil, result),
     do: %{uri: name, kind: :ca, certificate: cert, valid: result.valid, problems: result.problems}
 
-  # RFC 6488 §3: the envelope (items 1, 2) and the EE certificate (item 3);
-  # for a manifest, its content too (RFC 9286 §4.4, #132).
+  # RFC 6488 §3: the envelope (items 1, 2) and the EE certificate (item 3).
   defp entry(name, {:object, type}, ee, value, result) do
-    own = CMS.check(signed_object(value)) ++ content(value)
+    own = CMS.check(signed_object(value))
 
     %{
       uri: name,
@@ -149,9 +162,6 @@ defmodule Lumina.Validate do
       problems: result.problems ++ own
     }
   end
-
-  defp content(%Manifest{} = manifest), do: Manifest.check(manifest)
-  defp content(_value), do: []
 
   defp chain_kind(:ca), do: :ca
   defp chain_kind({:object, _type}), do: :ee
@@ -203,17 +213,6 @@ defmodule Lumina.Validate do
       end
   end
 
-  defp ours?(cert, ca),
-    do: cert.public_key.key != ca.public_key.key and not other_issuer?(cert, ca)
-
-  defp other_issuer?(cert, ca) do
-    aki = Certificate.extension_value(cert, :authority_key_identifier)
-
-    cert.issuer_der != ca.subject_der and
-      match?(%{key_identifier: kid} when is_binary(kid), aki) and
-      aki.key_identifier != :crypto.hash(:sha, ca.public_key.key)
-  end
-
   # The CA's CRL result for the CRL `cert`'s CRLDP names, read only from
   # the CA's publication point (D-015) and validated once per URI.
   defp crl(cert, ca, path, key, crls, now) do
@@ -263,6 +262,7 @@ defmodule Lumina.Validate do
           max_depth: max_depth,
           visited: MapSet.new(),
           objects: [],
+          unlisted: 0,
           issues: []
         }
 
@@ -275,6 +275,7 @@ defmodule Lumina.Validate do
          %{
            ta: ta,
            objects: Enum.reverse(state.objects),
+           unlisted: state.unlisted,
            issues: Enum.reverse(state.issues)
          }}
     end
@@ -316,8 +317,13 @@ defmodule Lumina.Validate do
 
           true ->
             state = %{state | visited: MapSet.put(state.visited, key)}
-            entries = point(cert, path, key, state.now, objects: true)
-            state = %{state | objects: Enum.reverse(entries, state.objects)}
+            %{point: point, entries: entries} = point(cert, path, key, state.now, objects: true)
+
+            state = %{
+              state
+              | objects: Enum.reverse(entries, state.objects),
+                unlisted: state.unlisted + length(point.unlisted)
+            }
 
             next =
               for %{kind: :ca, valid: true} = entry <- entries,
@@ -374,6 +380,10 @@ defmodule Lumina.Validate do
         warning_line(ta.uri, ta.problems),
         counts("CA certificates", Enum.filter(result.objects, &(&1.kind == :ca))),
         type_counts(result.objects),
+        if(result.unlisted > 0,
+          do: "  files not on a manifest: #{result.unlisted} (not used, RFC 9286 section 6)\n",
+          else: []
+        ),
         Enum.map(result.objects, &object_line/1),
         Enum.map(result.issues, &issue_line/1)
       ]

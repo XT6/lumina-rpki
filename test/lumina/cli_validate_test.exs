@@ -212,6 +212,45 @@ defmodule Lumina.CLIValidateTest do
     end
   end
 
+  describe "publication points (#134)" do
+    @tag :rsync
+    @tag rfc: ["9286#6.3", "9286#6.6"],
+         doc: """
+         m5-pp-manifest-stale's ca1.mft goes stale on 2027-01-01. The sync
+         (2026-11-13) accepted the point; validating at 2030 fails it, and
+         its ROA isn't validated.
+         """
+    test "a point that fails is its manifest's invalid entry, and nothing in it is validated", %{
+      tmp_dir: tmp
+    } do
+      {tal, cache, report} = synced!(tmp, "m5-pp-manifest-stale")
+      assert Enum.all?(report.walk.points, &(&1.status == :accepted))
+
+      assert {0, out, ""} = run(["validate", "--cache", cache, "--tal", tal])
+      assert out =~ "  manifests: 2 valid, 0 invalid\n  ROAs: 1 valid, 0 invalid\n"
+
+      assert {1, out, ""} =
+               run(["validate", "--cache", cache, "--tal", tal, "--now", "2030-01-01"])
+
+      assert out =~ "  manifests: 1 valid, 1 invalid\n"
+      refute out =~ "ROAs:"
+      assert out =~ "    invalid: rsync://localhost:8873/rpki/ca1/ca1.mft (manifest_stale)\n"
+    end
+
+    @tag :rsync
+    @tag rfc: "9286#6",
+         doc: "Files not on the manifest \"MUST NOT be used\": counted, never validated."
+    test "files not on a manifest are counted and not validated", %{tmp_dir: tmp} do
+      {tal, cache, _report} = synced!(tmp, "m0-minimal-valid")
+      dir = Path.join(cache, "rsync/localhost:8873/rpki/ca1")
+      File.write!(Path.join(dir, "junk.roa"), "not DER")
+
+      assert {0, out, ""} = run(["validate", "--cache", cache, "--tal", tal])
+      assert out =~ "  files not on a manifest: 1 (not used, RFC 9286 section 6)\n"
+      refute out =~ "junk.roa"
+    end
+  end
+
   describe "failures and usage" do
     test "a cache without the TAL's TA exits 1 and says to sync first", %{tmp_dir: tmp} do
       tal = Fixture.load!("m0-minimal-valid").tal_path

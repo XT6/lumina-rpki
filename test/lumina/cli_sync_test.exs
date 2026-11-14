@@ -103,6 +103,19 @@ defmodule Lumina.CLISyncTest do
     end
 
     @tag :rsync
+    @tag rfc: ["9286#6.5", "9286#6.6"],
+         doc: "Like an invalid CA, a failed publication point isn't a fetch failure: exit 0."
+    test "a publication point that fails is counted and listed with its reasons", %{tmp_dir: tmp} do
+      {tal, remap} = served_tal(tmp, "m5-pp-hash-mismatch", Path.join(tmp, "tals"))
+
+      assert {0, out, ""} =
+               run(["sync", "--cache", Path.join(tmp, "cache"), "--tal", tal], remap: remap)
+
+      assert out =~ "  publication points: 2 (1 failed)\n"
+      assert out =~ "    point_failed: rsync://localhost:8873/rpki/ca1/ca1.mft (hash_mismatch)\n"
+    end
+
+    @tag :rsync
     @tag rfc: ["8630#3", "6487#7.2"]
     test "a TA that doesn't validate is rejected with its reasons, exit 1", %{tmp_dir: tmp} do
       {tal, remap} = served_tal(tmp, "m4-chain-ta-expired", Path.join(tmp, "tals"))

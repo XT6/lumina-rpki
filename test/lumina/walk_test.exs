@@ -338,21 +338,26 @@ defmodule Lumina.WalkTest do
       assert Enum.map(result.points, & &1.uri) == [@module <> "/ta", @module <> "/ca2"]
     end
 
-    @tag rfc: ["6487#7.2", "9829#3.2"]
-    test "a CA whose CRL is missing isn't walked", %{tmp_dir: tmp} do
+    @tag rfc: ["6487#7.2", "9829#3.2", "9286#6.2"],
+         doc: "The TA's manifest names the missing CRL too, so the TA's point fails (#134)."
+    test "a CRL that is missing fails the publication point, and nothing below is walked", %{
+      tmp_dir: tmp
+    } do
       result = walk!(tmp, "m4-chain-crl-missing")
 
-      assert [%{kind: :invalid, detail: [%{rule: :crl_missing}]}] = result.issues
-      assert length(result.points) == 1
+      assert [%{kind: :point_failed, uri: uri, detail: detail}] = result.issues
+      assert uri == @module <> "/ta/ta.mft"
+      assert Enum.map(detail, & &1.rule) == [:crl_missing, :crl_not_listed]
+      assert [%{status: :failed}] = result.points
     end
 
-    @tag rfc: "6481#5",
+    @tag rfc: ["6481#5", "9286#6"],
          doc: """
          #103: LACNIC publishes its TA certificate in the TA's own
-         publication point. A certificate with the CA's own key is the CA
-         itself, not a child: no loop, no invalid CA.
+         publication point. It isn't on the TA's manifest, so it isn't
+         used (#134): no loop, no invalid CA.
          """
-    test "a TA certificate published in its own publication point is skipped silently", %{
+    test "a TA certificate published in its own publication point is ignored", %{
       tmp_dir: tmp
     } do
       result =
@@ -364,13 +369,12 @@ defmodule Lumina.WalkTest do
       assert Enum.map(result.points, & &1.uri) == [@module <> "/ta", @module <> "/ca1"]
     end
 
-    @tag rfc: ["6481#5", "6487#4.8.3"],
+    @tag rfc: ["6481#5", "9286#6"],
          doc: """
-         Until manifests say what a CA published (M5), a certificate whose
-         issuer name and AKI both name another CA belongs to a CA sharing
-         the directory: here a CA certificate from another fixture.
+         A CA certificate from another fixture, in ta/ but not on the TA's
+         manifest: files not on the manifest "MUST NOT be used" (#134).
          """
-    test "a certificate issued by another CA is skipped, not reported invalid", %{tmp_dir: tmp} do
+    test "a certificate not on the manifest is ignored, not walked or reported", %{tmp_dir: tmp} do
       result =
         walk_changed!(tmp, "m0-minimal-valid", fn copy ->
           File.cp!(
@@ -407,6 +411,25 @@ defmodule Lumina.WalkTest do
                result.issues
 
       assert Enum.map(result.points, & &1.uri) == [@module <> "/ta"]
+    end
+  end
+
+  describe "publication points (RFC 9286 §6, #134)" do
+    @tag rfc: ["9286#6.5", "9286#6.6"],
+         doc:
+           "ca1's manifest lists roa1.roa with a wrong hash: the point fails, the walk goes on elsewhere."
+    test "a publication point that fails is reported, and nothing below it is walked", %{
+      tmp_dir: tmp
+    } do
+      result = walk!(tmp, "m5-pp-hash-mismatch")
+
+      assert [%{kind: :point_failed, uri: uri, detail: [%{rule: :hash_mismatch}]}] = result.issues
+      assert uri == @module <> "/ca1/ca1.mft"
+
+      assert Enum.map(result.points, &{&1.uri, &1.status}) == [
+               {@module <> "/ta", :accepted},
+               {@module <> "/ca1", :failed}
+             ]
     end
   end
 

@@ -202,6 +202,7 @@ defmodule Lumina.PublicationPointTest do
       result = process(dir)
       assert result.status == :accepted
       refute Map.has_key?(result.files, "extra.roa")
+      assert result.unlisted == ["extra.roa"]
       assert result.files["roa1.roa"] == Path.join(dir, "ca1/roa1.roa")
     end
   end
