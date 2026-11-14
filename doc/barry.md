@@ -62,11 +62,15 @@ The install also provides `barry-delta`, `barry-mtim`, `barry-ncu` and `barry-rt
 
 ## Limitations and wishlist
 
-Things Barry can't do yet, found while writing fixtures, and how Lumina works around them:
+Things Barry can't do, or does surprisingly, found while writing fixtures. Each row says how Lumina works around it and what we'd suggest upstream. The RFC findings log keeps the full story of the ones marked with an F-number.
 
-| Missing in Barry (pinned `478ee89`) | Workaround | Tracked |
-| --- | --- | --- |
-| Revoked CRL entries (`revokedCertificates`, listed as unimplemented in its README) | Tests re-encode a Barry CRL with entries added; the signature no longer matches | #52, needed for signature-valid revocation tests in M4 |
-| Mixing a prefix list for one address family with `inherit` for the other | Fixtures use `extnValue = inherit`, which inherits both families | — |
+| Barry (pinned `478ee89`) | Workaround in Lumina | Suggestion for Barry | Tracked |
+| --- | --- | --- | --- |
+| Gives the root certificate serial number 0, because only children are numbered (`rpki_tree.c`). RFC 6487 §4.2 requires a positive serial. | Every `case.repo` sets `obj.tbsCertificate.serialNumber = 1` on `ta.cer`. | Number the root too, starting at 1. | F-029, PR #119 |
+| Can't set the certificatePolicies value; `add_cp_fields` has a TODO. It always writes id-cp-ipAddr-asNumber with no qualifier. | The policy and RFC 7318 qualifier rules are tested on decoded certificates. | Make `extnValue` editable: policy OIDs and qualifiers. | F-030, PR #120 |
+| Writes a hexadecimal INTEGER as raw content octets, so `0x80…` encodes a negative number. Its README describes hexadecimals as byte arrays, so this is documented, but easy to trip on. | Large positive values are written in decimal (`m4-crl-number-too-large`). | Warn when a hexadecimal INTEGER would come out negative, or add a way to write an unsigned value. | PR #122 |
+| `revokedCertificates` works: a list of serials, each revoked at `--now`, and the CRL is signed. Its README still lists the field as unimplemented. A per-entry revocation date or entry extensions can't be set. | None needed for revocation; the entry-extension rule (RFC 6487 §5) is tested on decoded CRLs. | Update the README. Allow `{ userCertificate, revocationDate, crlEntryExtensions }` per entry. | #52 |
+| A GeneralName in an access description must be written `accessLocation = { value = ... }`; the README doesn't show it. | Used in `m4-cert-sia-no-manifest`. | Document it with an SIA example. | PR #120 |
+| Can't mix a prefix list for one address family with `inherit` for the other. | Fixtures use `extnValue = inherit`, which inherits both families. | Allow `inherit` per family. | — |
 
 Improving Barry upstream ([LACNIC/barry](https://github.com/LACNIC/barry)) is the maintainer's call.
