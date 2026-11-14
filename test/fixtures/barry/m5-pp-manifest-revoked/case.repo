@@ -1,0 +1,16 @@
+ta.cer
+	ca1.cer
+		ca1.mft
+		roa1.roa
+		ca1.crl
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: ca1.mft]
+obj.content.certificates.0.tbsCertificate.serialNumber = 77
+
+[node: ca1.crl]
+# Revokes the manifest's EE certificate (D-021).
+obj.tbsCertList.revokedCertificates = [ 77 ]
