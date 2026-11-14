@@ -8,12 +8,12 @@ defmodule Lumina.Manifest do
   holds the decoded envelope (`Lumina.SignedObject`) when the manifest came
   from a full signed object.
 
-  Decoding is structural. The version, manifest number rules (RFC 9286
-  §4.2.1, RFC 9981), time rules, file name rules (§4.2.2) and the rest of
-  manifest validation (§4.4, §6) are checked in M5. In particular, an
-  empty file list decodes: the ASN.1 module allows it, and rejecting it
-  (RFC 9286 §7, erratum 7118) is validation's job (#37, F-001 in
-  doc/rfc-findings.md).
+  Decoding is structural. `check/1` reports what's wrong with the content
+  (#132): version, dates, manifest number, hash algorithm and file names
+  (RFC 9286 §4.2.1, §4.2.2, §4.4). An empty file list decodes: the ASN.1
+  module allows it, and rejecting it (RFC 9286 §7, erratum 7118) is
+  validation's job (#37, F-001 in doc/rfc-findings.md). What a manifest
+  does to its publication point (§6) is #133's.
   """
 
   alias Lumina.{DER, SignedObject, Time}
@@ -30,6 +30,148 @@ defmodule Lumina.Manifest do
           file_hash_alg: tuple(),
           files: [file()]
         }
+
+  @sha256 {2, 16, 840, 1, 101, 3, 4, 2, 1}
+  @number_limit Integer.pow(2, 159)
+
+  # RFC 9286 §4.2.2: "one or more characters chosen from the set a-z, A-Z,
+  # 0-9, - (HYPHEN), or _ (UNDERSCORE), followed by a single . (DOT),
+  # followed by a three-letter extension".
+  @file_name ~r/\A[a-zA-Z0-9_-]+\.[a-zA-Z0-9]{3}\z/
+
+  # The IANA "RPKI Repository Name Schemes" registry (RFC 6481 §7.2), as
+  # published on 2026-11-14 (last updated 2026-07-28), temporary and
+  # deprecated entries included (F-032).
+  @extensions ~w(asa ccr cdr cer crl gbr mft roa sig tak)
+
+  @doc """
+  The problems of `manifest`'s content, in the `Lumina.Profile` shape:
+
+    * `:manifest_version`: not 0 (RFC 9286 §4.2.1, §4.4 item 2);
+    * `:manifest_dates`: thisUpdate not before nextUpdate (§4.4 item 3);
+    * `:manifest_number_range`: negative, or longer than 20 octets
+      (§4.2.1);
+    * `:manifest_hash_algorithm`: fileHashAlg not SHA-256 (§4.2.1, RFC
+      7935 §2);
+    * `:manifest_file_name`, `:manifest_file_extension`: a name outside
+      §4.2.2's grammar, or an extension not in the IANA registry;
+    * `:manifest_duplicate_name`: a name listed twice (names are compared
+      case-sensitively, §4.2.2).
+
+  Dates that differ from the CRL's aren't a problem (§4.4: RPs "MUST NOT
+  reject a manifest solely because these fields are not identical").
+  """
+  @spec check(t()) :: [Lumina.Profile.problem()]
+  def check(%__MODULE__{} = manifest) do
+    version(manifest.version) ++
+      dates(manifest) ++
+      number(manifest.number) ++
+      hash_algorithm(manifest.file_hash_alg) ++
+      Enum.flat_map(manifest.files, &file_name(&1.name)) ++
+      duplicates(manifest.files)
+  end
+
+  defp version(0), do: []
+
+  defp version(version),
+    do: [
+      error(
+        :manifest_version,
+        "9286#4.4",
+        :version,
+        "the manifest version is #{version}; it must be 0"
+      )
+    ]
+
+  defp dates(%{this_update: %{at: this}, next_update: %{at: next}}) do
+    if DateTime.compare(this, next) == :lt,
+      do: [],
+      else: [
+        error(
+          :manifest_dates,
+          "9286#4.4",
+          :this_update,
+          "thisUpdate (#{DateTime.to_iso8601(this)}) is not before nextUpdate (#{DateTime.to_iso8601(next)})"
+        )
+      ]
+  end
+
+  # 20 octets hold 0..2^159-1 as a DER INTEGER, the CRLNumber range RFC
+  # 9286 §4.2.1 points to.
+  defp number(number) when number >= 0 and number < @number_limit, do: []
+
+  defp number(number) when number < 0,
+    do: [
+      error(
+        :manifest_number_range,
+        "9286#4.2.1",
+        :manifest_number,
+        "the manifest number is negative"
+      )
+    ]
+
+  defp number(_number),
+    do: [
+      error(
+        :manifest_number_range,
+        "9286#4.2.1",
+        :manifest_number,
+        "the manifest number is longer than 20 octets"
+      )
+    ]
+
+  defp hash_algorithm(@sha256), do: []
+
+  defp hash_algorithm(oid),
+    do: [
+      error(
+        :manifest_hash_algorithm,
+        "9286#4.2.1",
+        :file_hash_alg,
+        "the file hash algorithm is #{Lumina.OID.format(oid)}; it must be SHA-256 (RFC 7935 section 2)"
+      )
+    ]
+
+  defp file_name(name) do
+    cond do
+      not Regex.match?(@file_name, name) ->
+        [
+          error(
+            :manifest_file_name,
+            "9286#4.2.2",
+            :file_list,
+            "the file name #{inspect(name)} is not letters, digits, - and _, a dot and a three-letter extension"
+          )
+        ]
+
+      String.slice(name, -3, 3) not in @extensions ->
+        [
+          error(
+            :manifest_file_extension,
+            "9286#4.2.2",
+            :file_list,
+            "the extension of #{inspect(name)} is not in the RPKI Repository Name Schemes registry"
+          )
+        ]
+
+      true ->
+        []
+    end
+  end
+
+  defp duplicates(files) do
+    for {name, n} <- Enum.frequencies_by(files, & &1.name), n > 1 do
+      error(
+        :manifest_duplicate_name,
+        "9286#4.2.1",
+        :file_list,
+        "#{inspect(name)} is listed #{n} times"
+      )
+    end
+  end
+
+  defp error(rule, rfc, field, message),
+    do: %{rule: rule, rfc: rfc, field: field, message: message, severity: :error}
 
   @doc """
   Decodes a complete manifest signed object (CMS envelope plus eContent).

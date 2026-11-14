@@ -50,6 +50,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-029](#f-029-barry-gives-the-root-certificate-serial-number-0) | 6487 §4.2; 5280 §4.1.2.2 (Barry) | tooling | n/a | Every fixture sets the TA serial to 1 (#109) |
 | [F-030](#f-030-barry-cant-set-the-certificate-policies-value) | 6487 §4.8.9; 7318 §2 (Barry) | tooling | n/a | Policy rules tested on decoded certificates (#110) |
 | [F-031](#f-031-rfc-7935-2-takes-rsaencryptions-parameters-from-rfc-3370-outside-the-library) | 7935 §2; 3370 §3.2 | reference, tooling | none found (not reported) | RFC 3370 added; rsaEncryption parameters must be NULL, absent only warns because Barry omits them (#129, #130) |
+| [F-032](#f-032-manifest-file-name-extensions-depend-on-an-iana-registry-outside-the-library) | 9286 §4.2.2; 6481 §7.2 | reference | none found (not reported) | Extensions from the IANA registry as of 2026-11-14, temporary and deprecated entries included (#132) |
 
 ## Entries
 
@@ -531,6 +532,15 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Impact:** small; an RP that demanded NULL would reject Barry's objects.
 - **Resolution:** `Lumina.CMS` accepts NULL or absent parameters for both signature algorithms and rejects anything else. Adding RFC 3370 to the library would settle it.
 - **Update (2026-11-14, #130):** RFC 3370 was added to `doc/rfc/`. Its §3.2 says: "When the rsaEncryption algorithm identifier is used, the AlgorithmIdentifier parameters field MUST contain NULL", and unlike RFC 4055 §5 it doesn't ask implementations to accept them absent. Every signed object in the local LACNIC copy (21,259) has NULL; every Barry-generated one leaves them out (tooling). `Lumina.CMS.profile/1` now accepts NULL, warns `signature_algorithm_parameters_absent` (RFC 3370 §3.2) when absent, and rejects anything else. Making absent an error would need every fixture to declare its manifests as tree nodes so Barry can set the parameters, and all fixtures regenerated; the maintainer chose to keep the warning (D-025).
+
+### F-032: Manifest file name extensions depend on an IANA registry outside the library
+
+- **Where:** RFC 9286 §4.2.2: "The extension MUST be one of those enumerated in the 'RPKI Repository Name Schemes' registry maintained by IANA [IANA-NAMING]."
+- **Kind:** reference: the registry's contents aren't in any one RFC. RFC 6481 §7.2 creates it (as "RPKI Repository Name Scheme", singular) with `.cer .crl .mft .roa`; RFC 6493 adds `.gbr`, RFC 9582 updates `.roa`, RFC 9323 §9.3 adds `.sig`, RFC 9691 adds `.tak`. The live registry (<https://www.iana.org/assignments/rpki/>, fetched 2026-11-14, last updated 2026-07-28) has more: `.asa` (ASPA, a temporary registration that "expires 2026-11-08"), `.ccr`, `.cdr` (temporary, expires 2027-06-23), and marks `.gbr` deprecated ("Moving RFC 6493 to Historic").
+- **Official errata:** none relevant found for RFC 9286 or RFC 6481 (2026-11-14; RFC 9286 has 7118, F-001, and the rejected 7243). Not reported.
+- **Found:** writing the manifest content checks (#132).
+- **Impact:** the set of valid manifests changes with the registry. The local LACNIC copy's manifests list 177 `.asa` files: an RP that took the library's RFCs alone, or dropped `.asa` when its temporary registration lapsed, would reject those manifests and so fail whole publication points (RFC 9286 §4.4, §6.2).
+- **Resolution:** `Lumina.Manifest` accepts every extension in the registry as fetched, temporary and deprecated entries included: `asa ccr cdr cer crl gbr mft roa sig tak`. The list is a constant to review when the registry changes; the maintainer may want `.asa` handled explicitly once ASPA is an RFC.
 
 ## Process notes
 

@@ -147,21 +147,23 @@ defmodule Lumina.CLIValidateTest do
     end
   end
 
-  describe "signed objects (#131)" do
+  describe "signed objects (#131, #132)" do
     @tag :rsync
-    @tag rfc: ["6488#3", "9589#4"],
+    @tag rfc: ["6488#3", "9589#4", "9286#4.4"],
          doc: """
-         Driven by the metadata of every m5-cms-* fixture: the object it
-         names is listed invalid with its rule, and nothing else is.
+         Driven by the metadata of every m5-cms-* and m5-mft-* fixture: the
+         object it names is listed invalid with its rule, and nothing else
+         is.
          """
-    test "a signed object whose CMS envelope is invalid is listed with its rule", %{tmp_dir: tmp} do
+    test "a signed object whose CMS envelope or manifest content is invalid is listed with its rule",
+         %{tmp_dir: tmp} do
       ids =
         for dir <- Fixtures.case_dirs(),
             id = Path.basename(dir),
-            String.starts_with?(id, "m5-cms-"),
+            String.starts_with?(id, "m5-cms-") or String.starts_with?(id, "m5-mft-"),
             do: id
 
-      assert length(ids) >= 8
+      assert length(ids) >= 15
 
       for id <- ids do
         {tal, cache, _report} = synced!(Path.join(tmp, id), id)
@@ -171,7 +173,10 @@ defmodule Lumina.CLIValidateTest do
         assert [line] = Regex.scan(~r"    invalid: .*\n", out), "#{id}:\n#{out}"
         assert hd(line) =~ "rsync://localhost:8873/rpki/#{object} (", id
         assert hd(line) =~ Atom.to_string(rule), id
-        assert out =~ "  ROAs: 0 valid, 1 invalid\n", id
+
+        if String.ends_with?(object, ".mft"),
+          do: assert(out =~ "  manifests: 1 valid, 1 invalid\n", id),
+          else: assert(out =~ "  ROAs: 0 valid, 1 invalid\n", id)
       end
     end
   end
