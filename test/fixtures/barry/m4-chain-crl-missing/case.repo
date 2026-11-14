@@ -1,0 +1,12 @@
+ta.cer
+	ca1.cer
+	ta.crl
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: ta.crl]
+# Barry writes the CRL to ta/ta.crl, but the URI it puts in ca1's CRLDP
+# (and nowhere else) names a file that doesn't exist.
+uri = rsync://localhost:8873/rpki/ta/missing.crl

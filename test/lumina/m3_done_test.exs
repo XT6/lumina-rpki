@@ -53,7 +53,10 @@ defmodule Lumina.M3DoneTest do
         do: {Path.relative_to(path, dir), File.read!(path)}
   end
 
-  defp ta_invalid?(%{expected: {:invalid, problems}}),
+  # A TA the TAL check rejects (the M2 fixtures). M4 fixtures whose TA is
+  # invalid only by signature or dates pass the TAL check, and sync as
+  # usual until the walk validates (#113).
+  defp ta_invalid?(%{milestone: "M2", expected: {:invalid, problems}}),
     do: Enum.any?(problems, &(&1.object == "ta.cer"))
 
   defp ta_invalid?(_fixture), do: false
