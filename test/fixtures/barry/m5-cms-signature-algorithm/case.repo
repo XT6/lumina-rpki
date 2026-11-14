@@ -1,0 +1,11 @@
+ta.cer
+	ca1.cer
+		roa1.roa
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: roa1.roa]
+# RFC 7935 section 2: rsaEncryption or sha256WithRSAEncryption only.
+obj.content.signerInfos.0.signatureAlgorithm.algorithm = 1.2.840.113549.1.1.5

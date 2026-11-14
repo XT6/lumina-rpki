@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 45 Barry fixtures: 11 valid, 34 invalid.
+- 52 Barry fixtures: 11 valid, 41 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 596 unit tests in 53 modules.
+- 620 unit tests in 54 modules.
 
 ## Barry fixtures
 
@@ -659,6 +659,92 @@ one reason, and accept everything else.
 - **RFC:** [6487 §5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-5)), [5280 §5.1.2.1](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.2.1))
 - **Files:** [descriptor](../../test/fixtures/barry/m4-crl-version-1/case.repo) · [metadata](../../test/fixtures/barry/m4-crl-version-1/case.exs) · [rsync tree](../../test/fixtures/barry/m4-crl-version-1/rsync)
 
+### M5
+
+#### `m5-cms-content-type-mismatch`: content-type attribute that isn't the eContentType
+
+The baseline tree (m0-minimal-valid) with one change: The content-type signed attribute of roa1.roa names id-ct-rpkiManifest while its eContentType is the ROA type. RFC 6488 section 2.1.6.4.1 and section 3 item 1.h require them to match.
+
+CMS profile (#129): validation must reject roa1.roa with this one
+reason. Its EE certificate is valid.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/roa1.roa`: the content-type attribute is not the eContentType
+- **RFC:** [6488 §2.1.6.4.1](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.4.1)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-cms-content-type-mismatch/case.repo) · [metadata](../../test/fixtures/barry/m5-cms-content-type-mismatch/case.exs) · [rsync tree](../../test/fixtures/barry/m5-cms-content-type-mismatch/rsync)
+
+#### `m5-cms-digest-sha1`: SignerInfo digest algorithm SHA-1
+
+The baseline tree (m0-minimal-valid) with one change: The SignerInfo digestAlgorithm of roa1.roa is SHA-1. RFC 6488 section 3 item 1.j and RFC 7935 section 2 require SHA-256.
+
+CMS profile (#129): validation must reject roa1.roa with this one
+reason. Its EE certificate is valid.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/roa1.roa`: the SignerInfo digest algorithm is SHA-1, not SHA-256
+- **RFC:** [6488 §2.1.6.3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.3)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-cms-digest-sha1/case.repo) · [metadata](../../test/fixtures/barry/m5-cms-digest-sha1/case.exs) · [rsync tree](../../test/fixtures/barry/m5-cms-digest-sha1/rsync)
+
+#### `m5-cms-sid-issuer-serial`: Signer identified by issuer and serial number
+
+The baseline tree (m0-minimal-valid) with one change: The signer of roa1.roa is identified by issuerAndSerialNumber. RFC 6488 section 2.1.6.2 requires the subjectKeyIdentifier choice, matching the EE certificate's SKI (section 3 item 1.c).
+
+CMS profile (#129): validation must reject roa1.roa with this one
+reason. Its EE certificate is valid.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/roa1.roa`: the signer is identified by issuer and serial number, not by SKI
+- **RFC:** [6488 §2.1.6.2](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.2)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-cms-sid-issuer-serial/case.repo) · [metadata](../../test/fixtures/barry/m5-cms-sid-issuer-serial/case.exs) · [rsync tree](../../test/fixtures/barry/m5-cms-sid-issuer-serial/rsync)
+
+#### `m5-cms-sid-mismatch`: Signer SKI that isn't the EE certificate's
+
+The baseline tree (m0-minimal-valid) with one change: The sid of roa1.roa names a key identifier other than the EE certificate's SKI. RFC 6488 section 3 item 1.c requires them to match.
+
+CMS profile (#129): validation must reject roa1.roa with this one
+reason. Its EE certificate is valid.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/roa1.roa`: the sid is not the EE certificate's SKI
+- **RFC:** [6488 §2.1.6.2](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.2)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-cms-sid-mismatch/case.repo) · [metadata](../../test/fixtures/barry/m5-cms-sid-mismatch/case.exs) · [rsync tree](../../test/fixtures/barry/m5-cms-sid-mismatch/rsync)
+
+#### `m5-cms-signature-algorithm`: SignerInfo signature algorithm sha1WithRSAEncryption
+
+The baseline tree (m0-minimal-valid) with one change: The SignerInfo signatureAlgorithm of roa1.roa is sha1WithRSAEncryption. RFC 7935 section 2 lets relying parties accept rsaEncryption or sha256WithRSAEncryption only (RFC 6488 section 3 item 1.k).
+
+CMS profile (#129): validation must reject roa1.roa with this one
+reason. Its EE certificate is valid.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/roa1.roa`: the signature algorithm is sha1WithRSAEncryption
+- **RFC:** [6488 §2.1.6.5](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.5)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-cms-signature-algorithm/case.repo) · [metadata](../../test/fixtures/barry/m5-cms-signature-algorithm/case.exs) · [rsync tree](../../test/fixtures/barry/m5-cms-signature-algorithm/rsync)
+
+#### `m5-cms-signer-version-1`: SignerInfo version 1
+
+The baseline tree (m0-minimal-valid) with one change: The SignerInfo version of roa1.roa is 1. RFC 6488 section 2.1.6.1 requires 3 (the version that goes with a subjectKeyIdentifier sid), checked by section 3 item 1.e.
+
+CMS profile (#129): validation must reject roa1.roa with this one
+reason. Its EE certificate is valid.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/roa1.roa`: the SignerInfo version is 1; RFC 6488 requires 3
+- **RFC:** [6488 §2.1.6.1](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.1)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-cms-signer-version-1/case.repo) · [metadata](../../test/fixtures/barry/m5-cms-signer-version-1/case.exs) · [rsync tree](../../test/fixtures/barry/m5-cms-signer-version-1/rsync)
+
+#### `m5-cms-version-1`: SignedData version 1
+
+The baseline tree (m0-minimal-valid) with one change: The SignedData version of roa1.roa is 1. RFC 6488 section 2.1.1 requires 3, and section 3 item 1.b makes a relying party check it.
+
+CMS profile (#129): validation must reject roa1.roa with this one
+reason. Its EE certificate is valid.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/roa1.roa`: the SignedData version is 1; RFC 6488 requires 3
+- **RFC:** [6488 §2.1.1](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.1)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-cms-version-1/case.repo) · [metadata](../../test/fixtures/barry/m5-cms-version-1/case.exs) · [rsync tree](../../test/fixtures/barry/m5-cms-version-1/rsync)
+
 ## Test TALs
 
 Hand-written Trust Anchor Locators, valid and malformed, and what a correct TAL parser must report for each (RFC 8630 §2.2, D-002).
@@ -1196,6 +1282,53 @@ Syncs run at 2026-11-13, inside the fixtures' default validity.
 - *failures and usage:* a bad --now or --max-invalid, an unknown flag or a stray argument is a usage error
 - *failures and usage:* lumina help validate describes the flags and exit codes
 
+### `Lumina.CMSTest`
+
+[test/lumina/cms_test.exs](../../test/lumina/cms_test.exs)
+
+Tests the CMS profile of signed objects (#129): `Lumina.CMS.profile/1`
+against RFC 6488 §2.1 and §3 item 1, as updated by RFC 9589 §4, with
+the algorithms of RFC 7935 §2.
+
+Every signed object of the positive fixtures must pass, and each
+`m5-cms-*` fixture must fail with exactly its one rule. Barry (pinned
+`478ee89`) can't write signed attributes other than its own, unsigned
+attributes, CRLs or SignedData digest algorithms (doc/barry.md), so
+those rules are tested on a decoded m0-minimal-valid ROA changed in
+memory: the profile checks the decoded structure, so nothing needs
+re-encoding.
+
+- *fixtures:* every signed object of the positive Barry fixtures follows the CMS profile (RFC [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [9589 §4](../rfc/rfc9589.txt) ([html](https://www.rfc-editor.org/rfc/rfc9589.html#section-4)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2)))
+  Manifests and ROAs; Barry writes content-type, signing-time and message-digest.
+- *fixtures:* m5-cms-version-1: a SignedData version other than 3 is rejected (RFC [6488 §2.1.1](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.1)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
+- *fixtures:* m5-cms-signer-version-1: a SignerInfo version other than 3 is rejected (RFC [6488 §2.1.6.1](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.1)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
+- *fixtures:* m5-cms-sid-issuer-serial: a signer identified by issuer and serial number is rejected (RFC [6488 §2.1.6.2](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.2)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
+- *fixtures:* m5-cms-sid-mismatch: a sid that isn't the EE certificate's SKI is rejected (RFC [6488 §2.1.6.2](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.2)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
+- *fixtures:* m5-cms-digest-sha1: a SignerInfo digest algorithm other than SHA-256 is rejected (RFC [6488 §2.1.6.3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.3)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2)))
+- *fixtures:* m5-cms-signature-algorithm: sha1WithRSAEncryption as the signature algorithm is rejected (RFC [6488 §2.1.6.5](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.5)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2)))
+- *fixtures:* m5-cms-content-type-mismatch: a content-type attribute that isn't the eContentType is rejected (RFC [6488 §2.1.6.4.1](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.4.1)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
+- *SignedData:* two digest algorithms, or none, are rejected (RFC [6488 §2.1.2](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.2)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
+- *SignedData:* a SignedData digest algorithm other than SHA-256 is rejected (RFC [6488 §2.1.2](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.2)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2)))
+- *SignedData:* SHA-256 parameters may be absent or NULL, nothing else (RFC [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2)), [5754 §2](../rfc/rfc5754.txt) ([html](https://www.rfc-editor.org/rfc/rfc5754.html#section-2)))
+  RFC 5754 §2: absent and NULL parameters must both be accepted; anything else isn't.
+- *SignedData:* no certificate, or two, is rejected (RFC [6488 §2.1.4](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.4)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
+- *SignedData:* a crls field is rejected, even an empty one (RFC [6488 §2.1.5](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.5)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
+  Decoding keeps an absent crls field as nil and an empty one as [], so both are told apart.
+- *SignedData:* an absent eContent is rejected (RFC [6488 §2.1.3.2](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.3.2)))
+- *SignedData:* two SignerInfos are rejected (RFC [6488 §2.1](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
+- *SignerInfo:* sha256WithRSAEncryption is accepted as the signature algorithm (RFC [6488 §2.1.6.5](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.5)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2)))
+  RFC 7935 §2: RPs accept either; Barry writes rsaEncryption.
+- *SignerInfo:* unsigned attributes are rejected (RFC [6488 §2.1.6.7](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.7)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
+- *signed attributes:* absent signed attributes are rejected (RFC [6488 §2.1.6.4](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.4)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
+- *signed attributes:* a missing signing-time attribute is rejected (RFC [9589 §4](../rfc/rfc9589.txt) ([html](https://www.rfc-editor.org/rfc/rfc9589.html#section-4)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
+  RFC 9589 §4 makes signing-time mandatory; RFC 6488 alone allowed leaving it out.
+- *signed attributes:* a missing content-type or message-digest attribute is rejected (RFC [6488 §2.1.6.4.1](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.4.1)), [6488 §2.1.6.4.2](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.4.2)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
+- *signed attributes:* a binary-signing-time attribute is rejected (RFC [9589 §4](../rfc/rfc9589.txt) ([html](https://www.rfc-editor.org/rfc/rfc9589.html#section-4)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
+  RFC 9589 §4 removes binary-signing-time from the allowed attributes.
+- *signed attributes:* any other attribute is rejected (RFC [6488 §2.1.6.4](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.4)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
+- *signed attributes:* an attribute twice, or with two values, is rejected (RFC [6488 §2.1.6.4](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.4)))
+- *signed attributes:* an attribute value that doesn't decode is rejected (RFC [6488 §2.1.6.4](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.4)))
+
 ### `Lumina.CRLTest`
 
 [test/lumina/crl_test.exs](../../test/lumina/crl_test.exs)
@@ -1502,7 +1635,9 @@ certificate in the cache.
     validated at 2030-01-01, the time the chain and profile tests use.
     The certificates found invalid must be exactly those the fixture's
     `expected` metadata names with a `rule`, each rejected for that
-    rule; a fixture with nothing invalid must validate completely.
+    rule; a fixture with nothing invalid, or of a later milestone (M5
+    and on break signed objects, not certificates), must have every
+    certificate valid.
   * RFC 6487 §4, §5 and §7.2, RFC 7935 §2 and §3, and RFC 9829 §3 are
     covered by tests other than this one.
   * Tagged `:network`, run by hand only (`mix test --only network`):

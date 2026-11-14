@@ -40,7 +40,7 @@ defmodule Lumina.SignedObjectTest do
         assert object.version == :v3
         assert SignedObject.content_type(object) == type
         assert [%Certificate{}] = object.certificates
-        assert object.crls == []
+        assert object.crls == nil
         assert [%{oid: {2, 16, 840, 1, 101, 3, 4, 2, 1}}] = object.digest_algorithms
       end
     end

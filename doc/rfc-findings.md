@@ -49,6 +49,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-028](#f-028-rfc-7935-4-cites-the-public-key-section-for-the-signature-format) | 7935 §4 | reference | none found (not reported) | Signature format from RFC 4055 §3.2 and RFC 5280 §4.1.1.3 (#108) |
 | [F-029](#f-029-barry-gives-the-root-certificate-serial-number-0) | 6487 §4.2; 5280 §4.1.2.2 (Barry) | tooling | n/a | Every fixture sets the TA serial to 1 (#109) |
 | [F-030](#f-030-barry-cant-set-the-certificate-policies-value) | 6487 §4.8.9; 7318 §2 (Barry) | tooling | n/a | Policy rules tested on decoded certificates (#110) |
+| [F-031](#f-031-rfc-7935-2-takes-rsaencryptions-parameters-from-rfc-3370-outside-the-library) | 7935 §2 | reference | none found (not reported) | rsaEncryption parameters: NULL or absent, as RFC 4055 §5 says for sha256WithRSAEncryption (#129) |
 
 ## Entries
 
@@ -520,6 +521,15 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Found:** writing the "wrong certificate policy" fixture that #110 asked for.
 - **Impact:** no Barry fixture can carry another policy, two policies, or a qualifier, so the RFC 7318 rules can't be tested end to end with a signed repository.
 - **Resolution:** the policy rules are tested on decoded fixture certificates with the extension value changed (`test/lumina/profile_extensions_test.exs`); the profile checks don't verify signatures, so that is enough for them. Once Barry writes this value, or the D-017 keys let tests re-sign certificates, a fixture can replace them. Worth raising with the Barry maintainers, with F-029.
+
+### F-031: RFC 7935 §2 takes rsaEncryption's parameters from RFC 3370, outside the library
+
+- **Where:** RFC 7935 §2: "The object identifier and parameters for rsaEncryption [RFC3370] MUST be used for the SignerInfo signatureAlgorithm field when generating CMS SignedData objects. RPKI implementations MUST accept either rsaEncryption or sha256WithRSAEncryption for the SignerInfo signatureAlgorithm field when verifying".
+- **Kind:** reference: RFC 3370 isn't in `doc/rfc/`, so what "the parameters for rsaEncryption" are can't be read from the library. RFC 4055 §5, which is, says for sha256WithRSAEncryption that "the parameters MUST be NULL. Implementations MUST accept the parameters being absent as well as present."
+- **Official errata:** none relevant found for RFC 7935 or RFC 6488 (2026-11-14; RFC 6488 erratum 8307 only corrects the wording of §2). Not reported.
+- **Found:** writing the CMS profile checks (#129). Barry writes rsaEncryption with absent parameters.
+- **Impact:** small; an RP that demanded NULL would reject Barry's objects.
+- **Resolution:** `Lumina.CMS` accepts NULL or absent parameters for both signature algorithms and rejects anything else. Adding RFC 3370 to the library would settle it.
 
 ## Process notes
 

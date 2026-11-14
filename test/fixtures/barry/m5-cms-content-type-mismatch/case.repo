@@ -1,0 +1,12 @@
+ta.cer
+	ca1.cer
+		roa1.roa
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: roa1.roa]
+# RFC 6488 section 2.1.6.4.1: the content-type attribute MUST match the eContentType.
+# This one names the manifest type on a ROA.
+obj.content.signerInfos.0.signedAttrs.content-type = 1.2.840.113549.1.9.16.1.26

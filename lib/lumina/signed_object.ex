@@ -54,7 +54,7 @@ defmodule Lumina.SignedObject do
           econtent_type: tuple(),
           econtent: binary() | nil,
           certificates: [Certificate.t() | {:other, atom(), term()}],
-          crls: [term()],
+          crls: [term()] | nil,
           signers: [signer()]
         }
 
@@ -113,7 +113,7 @@ defmodule Lumina.SignedObject do
          econtent_type: sd.encapContentInfo.eContentType,
          econtent: Map.get(sd.encapContentInfo, :eContent),
          certificates: certificates,
-         crls: Map.get(sd, :crls, []),
+         crls: Map.get(sd, :crls),
          signers: signers
        }}
     end
