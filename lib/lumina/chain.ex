@@ -146,7 +146,11 @@ defmodule Lumina.Chain do
     end
   end
 
-  # Point 5, as RFC 9829 §3.2 updates it.
+  # Point 5, as RFC 9829 §3.2 updates it. A CRL the caller rejected before
+  # validating it (not on the manifest, #116) comes with its reason.
+  defp revocation(_cert, %{crl: nil, problems: [_ | _] = problems}),
+    do: Enum.filter(problems, &(&1.severity == :error))
+
   defp revocation(_cert, %{crl: nil}),
     do: [
       error(

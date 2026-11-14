@@ -207,6 +207,72 @@ defmodule Lumina.PublicationPointTest do
     end
   end
 
+  describe "the CRL on the manifest (RFC 9829, #116)" do
+    @tag rfc: ["9829#3.2", "9829#5", "9286#6.5"]
+    test "m5-pp-crl-hash-mismatch: a manifest hash for the CRL that doesn't match fails the point" do
+      result = process(root("m5-pp-crl-hash-mismatch"))
+      assert {result.status, errors(result)} == {:failed, [:hash_mismatch]}
+
+      assert Enum.any?(
+               result.problems,
+               &(&1.message == "the hash of ca1.crl doesn't match the manifest")
+             )
+    end
+
+    @tag rfc: "9829#3.2",
+         doc: """
+         Barry can't give one certificate a CRLDP of its own, so the point is
+         m0-minimal-valid's, accepted, with ca1.crl taken off its file list:
+         a CRL in the directory that the manifest doesn't list.
+         """
+    test "a certificate whose CRL isn't on the manifest is invalid with crl_not_on_manifest" do
+      root = root("m0-minimal-valid")
+      ca = certificate(Path.join(root, "ta/ca1.cer"))
+      point = process(root)
+      assert point.status == :accepted
+      uri = @key <> "/ca1.crl"
+      path = Path.join(root, "ca1")
+
+      assert %{valid: true} = PublicationPoint.crl(point, uri, path, @key, ca, @now)
+
+      unlisted = %{point | files: Map.delete(point.files, "ca1.crl")}
+      result = PublicationPoint.crl(unlisted, uri, path, @key, ca, @now)
+
+      assert %{crl: nil, valid: false, problems: [%{rule: :crl_not_on_manifest, rfc: "9829#3.2"}]} =
+               result
+
+      {:ok, roa} = Lumina.ROA.decode(File.read!(Path.join(path, "roa1.roa")))
+      ee = Lumina.SignedObject.ee_certificate(roa.object)
+
+      assert [:crl_not_on_manifest] =
+               for(
+                 %{severity: :error, rule: rule} <-
+                   Lumina.Chain.child(ee, :ee, ca, result, @now).problems,
+                 do: rule
+               )
+    end
+
+    @tag rfc: ["9829#3.2", "6487#7.2"]
+    test "a CRL that is neither listed nor published is missing" do
+      root = root("m0-minimal-valid")
+      ca = certificate(Path.join(root, "ta/ca1.cer"))
+      point = process(root)
+
+      assert %{crl: nil, problems: []} =
+               PublicationPoint.crl(
+                 point,
+                 @key <> "/other.crl",
+                 Path.join(root, "ca1"),
+                 @key,
+                 ca,
+                 @now
+               )
+
+      assert %{crl: nil, problems: []} =
+               PublicationPoint.crl(point, nil, Path.join(root, "ca1"), @key, ca, @now)
+    end
+  end
+
   describe "read_crl/3" do
     @tag rfc: "6487#7.2", doc: "D-015: only the publication point's own CRL is read."
     test "reads the CRL a URI names in the point, and nothing outside it" do

@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 67 Barry fixtures: 11 valid, 56 invalid.
+- 68 Barry fixtures: 11 valid, 57 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 662 unit tests in 56 modules.
+- 665 unit tests in 56 modules.
 
 ## Barry fixtures
 
@@ -846,6 +846,22 @@ this one reason. Its envelope and EE certificate are valid.
   - `ca1/ca1.mft`: the manifest version is 1; RFC 9286 requires 0
 - **RFC:** [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)), [9286 §4.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.4))
 - **Files:** [descriptor](../../test/fixtures/barry/m5-mft-version-1/case.repo) · [metadata](../../test/fixtures/barry/m5-mft-version-1/case.exs) · [rsync tree](../../test/fixtures/barry/m5-mft-version-1/rsync)
+
+#### `m5-pp-crl-hash-mismatch`: Manifest whose hash for the CA's CRL doesn't match the CRL
+
+The baseline tree (m0-minimal-valid) with one change: ca1.mft lists
+ca1.crl with a hash that isn't the SHA-256 of the published CRL. RFC
+9829 §3.2 makes the issuer's current CRL the one the current manifest
+identifies, and §5 relies on the manifest's hash to rule out an older
+CRL being replayed; RFC 9286 §6.5 makes the mismatch a failed fetch.
+
+CRL on the manifest (#116): ca1's publication point must fail with this
+one reason, so nothing in it is validated against that CRL.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/ca1.mft`: the hash of ca1.crl doesn't match the manifest
+- **RFC:** [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)), [9829 §5](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-5)), [9286 §6.5](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.5))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-pp-crl-hash-mismatch/case.repo) · [metadata](../../test/fixtures/barry/m5-pp-crl-hash-mismatch/case.exs) · [rsync tree](../../test/fixtures/barry/m5-pp-crl-hash-mismatch/rsync)
 
 #### `m5-pp-crl-renamed`: Manifest that lists the CA's CRL under another name
 
@@ -2243,6 +2259,12 @@ copy of m0-minimal-valid changed on disk.
   The CA's caRepository is taken to be elsewhere, so its manifest URI is outside it.
 - *on disk:* a file not on the manifest is left out of an accepted point (RFC [9286 §6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6)))
   Files not on the manifest "MUST NOT be used": they aren't in the result.
+- *the CRL on the manifest (RFC 9829, #116):* m5-pp-crl-hash-mismatch: a manifest hash for the CRL that doesn't match fails the point (RFC [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)), [9829 §5](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-5)), [9286 §6.5](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.5)))
+- *the CRL on the manifest (RFC 9829, #116):* a certificate whose CRL isn't on the manifest is invalid with crl_not_on_manifest (RFC [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)))
+  Barry can't give one certificate a CRLDP of its own, so the point is
+  m0-minimal-valid's, accepted, with ca1.crl taken off its file list:
+  a CRL in the directory that the manifest doesn't list.
+- *the CRL on the manifest (RFC 9829, #116):* a CRL that is neither listed nor published is missing (RFC [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
 - *read_crl/3:* reads the CRL a URI names in the point, and nothing outside it (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
   D-015: only the publication point's own CRL is read.
 

@@ -98,6 +98,46 @@ defmodule Lumina.PublicationPoint do
   end
 
   @doc """
+  The CRL result (`Lumina.Chain.crl/3`) for a certificate in the accepted
+  `point` whose CRLDP names `uri`: the CRL must be one the manifest lists
+  (RFC 9829 §3.2: the issuer's current CRL is the one "identified by the
+  issuer's current manifest and the CRLDP of the certificate"; #116). Its
+  hash was checked when the point was accepted (§6.5). A CRL in the
+  directory but not on the manifest gives `:crl_not_on_manifest`; one
+  that isn't there at all is missing.
+  """
+  @spec crl(t(), String.t() | nil, Path.t(), String.t(), Certificate.t(), DateTime.t()) ::
+          Chain.crl_result()
+  def crl(point, uri, path, key, ca, now) do
+    with true <- is_binary(uri),
+         {:ok, file} <- file_in(uri, key) do
+      cond do
+        Map.has_key?(point.files, file) ->
+          Chain.crl(read_crl(uri, path, key), ca, now)
+
+        File.regular?(Path.join(path, file)) ->
+          %{
+            crl: nil,
+            valid: false,
+            problems: [
+              error(
+                :crl_not_on_manifest,
+                "9829#3.2",
+                :crl_distribution_points,
+                "the CRL #{file} is not on the issuer's current manifest"
+              )
+            ]
+          }
+
+        true ->
+          Chain.crl(nil, ca, now)
+      end
+    else
+      _ -> Chain.crl(nil, ca, now)
+    end
+  end
+
+  @doc """
   The CRL that `uri` (a CRLDP's rsync URI) names, read from the
   publication point `key` held at `path`, or `nil` if the URI is
   elsewhere, the file is missing or it isn't a CRL (D-015).
