@@ -26,6 +26,8 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-016](#d-016-a-stale-crl-is-used-with-a-warning) | A CRL past its nextUpdate is still used, with a warning | 2026-11-13 | M4 plan |
 | [D-017](#d-017-revocation-fixtures-are-re-signed-by-the-tests) | Revocation fixtures: Barry signs with keys we supply, tests re-sign CRLs with revoked entries | 2026-11-13 | M4 plan, #52 |
 | [D-018](#d-018-public-key-algorithm-rsaencryption-sha256withrsaencryption-warned) | Certificate keys: rsaEncryption; sha256WithRSAEncryption accepted with a warning | 2026-11-13 | #108, #109, F-027 |
+| [D-019](#d-019-known-extensions-outside-the-certificate-profile-are-treated-as-unknown) | Known extensions outside the certificate profile (e.g. CRL extensions) are treated as unknown | 2026-11-13 | #110, PR #120 |
+| [D-020](#d-020-rfc-8360-and-router-certificates-are-out-of-scope-for-now) | RFC 8360 (v2 policy) and router certificates are out of scope for now | 2026-11-13 | #110, PR #120, #121 |
 
 ## D-001: CLI model
 
@@ -271,3 +273,21 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Why:** RFC 7935 §3.1 and RFC 4055 §1.2 disagree (F-027; erratum 5737 rejected on process). Practice and every Barry fixture use rsaEncryption; rejecting a certificate written to the letter of RFC 7935 would be harsher than either text justifies, and the warning makes the case visible.
 - **Where:** PR #118 (#108), for #109.
 - **Consequences:** `Lumina.Crypto.rsa_public_key/1` reads both; the certificate profile check (#109) adds the warning.
+
+## D-019: Known extensions outside the certificate profile are treated as unknown
+
+- **Date:** 2026-11-13
+- **Decision:** an extension Lumina knows but that isn't part of the certificate profile (RFC 6487 §4.8), such as a CRL Number in a certificate, is handled like an unknown extension. If it's critical, the certificate is rejected; if not, it's accepted with a warning (D-013).
+- **Why:** such an extension has no meaning in a resource certificate. RFC 6487 §4 excludes fields it doesn't list, and §4.8's rule for unrecognized extensions is the closest fit. Handling it like an unknown extension keeps one rule for both cases.
+- **Where:** #110, PR #120.
+- **Consequences:** `Lumina.Profile` checks a certificate's extensions against the list of profile extensions, not against the list of extensions the decoder knows.
+
+## D-020: RFC 8360 and router certificates are out of scope for now
+
+- **Date:** 2026-11-13
+- **Decisions:**
+  - Certificates under RFC 8360's id-cp-ipAddr-asNumber-v2 policy are rejected as unsupported. Their v2 resource extensions are unknown critical extensions, so they are rejected anyway.
+  - BGPsec router certificates (RFC 8209) are out of scope. The `:ee` kind in `Lumina.Profile` means the EE certificate of a signed object, so an Extended Key Usage is always rejected (RFC 6487 §4.8.5).
+- **Why:** neither is used for VRPs in today's RPKI, and supporting either is new work beyond the RFC 6487 profile.
+- **Where:** #110, PR #120. RFC 8360 support is backlog issue #121.
+- **Consequences:** when #121 is done, the `:policy` rule accepts the v2 policy and the decoder learns the v2 extensions. Router certificates would need their own certificate kind.
