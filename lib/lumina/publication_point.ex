@@ -35,8 +35,10 @@ defmodule Lumina.PublicationPoint do
   alias Lumina.{Certificate, Chain, CMS, CRL, Manifest, Object, Profile, SignedObject, URI}
 
   @type problem :: Lumina.Profile.problem()
+  # `:failed` (a fallback point's live problems) is added by
+  # `Lumina.Validate.point/5`.
   @type t :: %{
-          status: :accepted | :failed,
+          status: :accepted | :failed | :fallback,
           manifest: String.t() | nil,
           problems: [problem()],
           files: %{String.t() => Path.t()},

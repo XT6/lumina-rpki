@@ -17,7 +17,9 @@ defmodule Lumina.Walk do
   The TA was validated when it was accepted (`Lumina.TA`). A failed
   publication point is reported with its reasons, and so is an invalid
   CA; nothing below either is walked. A valid CA's warnings are reported
-  too. Files not on the manifest are ignored.
+  too. Files not on the manifest are ignored. Each accepted point is
+  kept as its last valid copy (`Lumina.LastValid`, D-023), which stands
+  in when the point later fails, as long as its manifest is current.
 
   **Fetching once:** a publication point in a module already fetched in
   this run (same host and port, same module) isn't fetched again; it's
@@ -43,13 +45,16 @@ defmodule Lumina.Walk do
 
     * `:points`: each publication point walked, with its depth, its cache
       path, the fetch that covered it, whether the copy is `stale` and
-      its `status` (`:accepted` or `:failed`, RFC 9286 §6);
+      its `status` (`:accepted`, `:failed`, or `:fallback` when its last
+      valid copy stands in, RFC 9286 §6, D-023);
     * `:fetches`: each rsync run, by module URI, with its outcome (their number is the
       number of rsync runs);
     * `:issues`: everything reported, as `%{kind, uri, detail}`, `kind` one
       of `:fetch_failed`, `:loop`, `:duplicate`, `:depth_exceeded`,
       `:decode_failed`, `:point_failed` (a publication point RFC 9286 §6
       rejects, by its manifest URI; the detail lists the reasons),
+      `:point_fallback` (one that failed but whose last valid copy, D-023,
+      is used instead; the detail lists why the live copy failed),
       `:invalid` (a CA that doesn't validate; the detail lists its errors), `:warning` (a valid CA's warnings), `:no_repository`,
       `:bad_uri`, `:oversize`,
       `:removed` (symlinks or special files dropped by `Cache.commit/3`)
@@ -69,7 +74,7 @@ defmodule Lumina.Walk do
           path: Path.t(),
           covered_by: String.t(),
           stale: boolean(),
-          status: :accepted | :failed
+          status: :accepted | :failed | :fallback
         }
   @type fetch :: %{uri: String.t(), outcome: :ok | :error, detail: term()}
   @type result :: %{points: [point()], fetches: [fetch()], issues: [issue()]}
@@ -270,12 +275,18 @@ defmodule Lumina.Walk do
   # entries of the next level. A point that fails (RFC 9286 §6) is an
   # issue, and nothing below it is walked (§6.6).
   defp children(ca, path, key, depth, ancestors, state) do
-    case Validate.point(ca, path, key, state.now) do
+    case Validate.point(ca, path, key, state.now, last_valid: state.root, save: true) do
       %{point: %{status: :failed} = point} ->
         errors = Enum.filter(point.problems, &(&1.severity == :error))
         {[], point_status(issue(state, :point_failed, point.manifest || key, errors), :failed)}
 
-      %{entries: entries} ->
+      %{point: point, entries: entries} ->
+        state =
+          if point.status == :fallback,
+            do:
+              point_status(issue(state, :point_fallback, point.manifest, point.failed), :fallback),
+            else: state
+
         entries
         |> Enum.reduce({[], state}, fn
           %{kind: :decode_failed, uri: name, reason: reason}, {acc, state} ->

@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 68 Barry fixtures: 11 valid, 57 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 665 unit tests in 56 modules.
+- 675 unit tests in 57 modules.
 
 ## Barry fixtures
 
@@ -1388,6 +1388,8 @@ repository's certificates to it (`:remap`, see `Lumina.Walk`).
   D-014: an invalid CA isn't a fetch failure; the sync exits 0.
 - *syncing:* a publication point that fails is counted and listed with its reasons (RFC [9286 §6.5](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.5)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)))
   Like an invalid CA, a failed publication point isn't a fetch failure: exit 0.
+- *syncing:* a point that fails after a good sync is counted as served from its last valid copy (RFC [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)))
+  D-023: served from a copy whose ROA changes between two syncs.
 - *syncing:* a TA that doesn't validate is rejected with its reasons, exit 1 (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
 - *syncing:* --tal syncs only the TAL it names
   Requested by the maintainer: --tal syncs that TAL only. The tals
@@ -1491,6 +1493,10 @@ Syncs run at 2026-11-13, inside the fixtures' default validity.
   its ROA isn't validated.
 - *publication points (#134):* files not on a manifest are counted and not validated (RFC [9286 §6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6)))
   Files not on the manifest "MUST NOT be used": counted, never validated.
+- *last valid copy (D-023, #135):* a point that fails offline is validated from its last valid copy (RFC [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)))
+  The sync kept each accepted point. A listed file then changes in
+  the mirror: validate falls back to the kept copy, says so, and the
+  ROA is still validated.
 - *failures and usage:* a cache without the TAL's TA exits 1 and says to sync first
 - *failures and usage:* a valid CA whose publication point isn't in the cache is reported missing, exit 0 (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
   Missing publication points are a fetch problem, reported by sync (D-022).
@@ -1756,6 +1762,31 @@ frames the body (Content-Length, chunked, or until it closes, F-026).
 - *connection failures:* a host that doesn't resolve is :unknown_host
 - *connection failures:* a server that never answers times out
   A server that accepts TCP and never starts TLS hits the connect timeout (D-008).
+
+### `Lumina.LastValidTest`
+
+[test/lumina/last_valid_test.exs](../../test/lumina/last_valid_test.exs)
+
+Tests the last valid copy of publication points (#135, D-023):
+`Lumina.LastValid` keeps an accepted point's manifest and listed files,
+and `Lumina.Validate.point/5` falls back to that copy when the point
+later fails, as long as its manifest is still current (RFC 9286 §6.6).
+
+The publication points are fixture copies on disk (ca1's, caRepository
+`rsync://localhost:8873/rpki/ca1`), changed between runs, at 2026-11-13
+unless a test says otherwise.
+
+- *LastValid:* an accepted point is saved as its manifest and listed files, once per manifest (RFC [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)))
+- *LastValid:* saving the same manifest again leaves the copy alone; a new manifest replaces it
+  Same manifest bytes, same files: nothing is copied again.
+- *LastValid:* a point never accepted has no copy
+- *falling back (D-023):* a point that fails uses its last valid copy, with a warning saying why (RFC [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)))
+  roa1.roa changes, so its hash doesn't match: the saved copy is used instead.
+- *falling back (D-023):* a last valid copy whose manifest is stale isn't used (RFC [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)), [9286 §6.3](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.3)))
+  At 2036-06-01 the saved manifest is past its nextUpdate (2036-01-01).
+- *falling back (D-023):* a point that never validated has no fallback (RFC [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)))
+- *falling back (D-023):* without :save nothing is kept
+  lumina validate reads the copies but never writes them (D-024's rule for state).
 
 ### `Lumina.M1DoneTest`
 
@@ -2673,6 +2704,11 @@ and reports keep the names from the certificates.
   missing Basic Constraints reported (#115); it isn't walked.
 - *publication points (RFC 9286 §6, #134):* a publication point that fails is reported, and nothing below it is walked (RFC [9286 §6.5](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.5)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)))
   ca1's manifest lists roa1.roa with a wrong hash: the point fails, the walk goes on elsewhere.
+- *last valid copy (D-023, #135):* a point that fails is walked from its last valid copy, and nothing below disappears (RFC [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)), [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  m3-walk-deep served from a copy. After a first walk, ca1's listed
+  ca2.cer changes (its hash no longer matches): ca1's point falls
+  back to the copy the first walk kept, and ca2, ca3 and ca4 are
+  still walked from it.
 - *selecting CAs (D-005):* a certificate that isn't a CA isn't followed (RFC [6487 §4.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.1)))
 - *selecting CAs (D-005):* a CA is followed to its rsync caRepository (RFC [6487 §4.8.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.1)))
 

@@ -116,6 +116,42 @@ defmodule Lumina.CLISyncTest do
     end
 
     @tag :rsync
+    @tag rfc: "9286#6.6",
+         doc: "D-023: served from a copy whose ROA changes between two syncs."
+    test "a point that fails after a good sync is counted as served from its last valid copy", %{
+      tmp_dir: tmp
+    } do
+      copy = Path.join(tmp, "copy")
+      File.cp_r!(Fixture.load!("m0-minimal-valid").rsync_root, copy)
+      daemon = RsyncDaemon.start!(Path.join(tmp, "daemon"), %{"rpki" => copy})
+      authority = "127.0.0.1:#{daemon.port}"
+      tal = Path.join(tmp, "copy.tal")
+
+      File.write!(
+        tal,
+        Fixture.load!("m0-minimal-valid").tal_path
+        |> File.read!()
+        |> String.split("\n")
+        |> Enum.reject(&String.starts_with?(&1, "https://"))
+        |> Enum.map_join(
+          "\n",
+          &String.replace(&1, "rsync://localhost:8873", "rsync://" <> authority)
+        )
+      )
+
+      args = ["sync", "--cache", Path.join(tmp, "cache"), "--tal", tal]
+      remap = %{"localhost:8873" => authority}
+      assert {0, _out, ""} = run(args, remap: remap)
+      File.write!(Path.join(copy, "ca1/roa1.roa"), "changed", [:append])
+
+      assert {0, out, ""} = run(args, remap: remap)
+      assert out =~ "  publication points: 2 (1 from the last valid copy)\n"
+
+      assert out =~
+               "    point_fallback: rsync://localhost:8873/rpki/ca1/ca1.mft (hash_mismatch)\n"
+    end
+
+    @tag :rsync
     @tag rfc: ["8630#3", "6487#7.2"]
     test "a TA that doesn't validate is rejected with its reasons, exit 1", %{tmp_dir: tmp} do
       {tal, remap} = served_tal(tmp, "m4-chain-ta-expired", Path.join(tmp, "tals"))
