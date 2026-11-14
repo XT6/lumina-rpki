@@ -32,6 +32,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-022](#d-022-lumina-validate-fails-above-a-share-of-invalid-certificates) | `lumina validate` exits 1 only above a share of invalid certificates per TAL (default 10%) | 2026-11-14 | #114, PR #126 |
 | [D-023](#d-023-a-failed-publication-point-falls-back-to-its-last-valid-copy) | A failed publication point falls back to its last valid copy while that copy's manifest is current | 2026-11-14 | M5 plan, #135 |
 | [D-024](#d-024-manifest-replay-state-is-kept-in-the-cache-and-written-only-by-sync) | Manifest replay state is kept per CA in the cache, written only by `lumina sync` | 2026-11-14 | M5 plan, #136 |
+| [D-025](#d-025-absent-rsaencryption-parameters-in-cms-only-warn) | Absent rsaEncryption parameters in a SignerInfo only warn | 2026-11-14 | #130, PR #140, F-031 |
 
 ## D-001: CLI model
 
@@ -324,6 +325,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Why:** the live RPKI always holds some invalid objects (in 2026-11, 21 expired manifests at one delegated repository out of about 52,000 certificates under LACNIC). Exiting 1 for any of them would make the exit code useless; a large share points at a real problem, such as a broken cache or the wrong `--now`.
 - **Where:** #114, PR #126 (maintainer: "over 10 or 20% of all certificates have to be invalid for an exit 1").
 - **Consequences:** `Lumina.Validate.failed?/2` takes the percentage. Missing publication points are a fetch problem, reported by `lumina sync`.
+- **Since #131:** the share counts CA certificates and signed objects (a signed object is invalid when its CMS envelope or its EE certificate is).
 
 ## D-023: A failed publication point falls back to its last valid copy
 
@@ -346,3 +348,11 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Why:** RFC 9286 §4.2.1 requires each RP to check that a new manifest's number and thisUpdate are higher than those of manifests it validated before, which needs state that outlives a run.
 - **Where:** M5 plan, #136 (maintainer accepted the recommendation).
 - **Consequences:** the cache gains `.state`; deleting the cache resets replay protection.
+
+## D-025: Absent rsaEncryption parameters in CMS only warn
+
+- **Date:** 2026-11-14
+- **Decision:** a SignerInfo whose signatureAlgorithm is rsaEncryption with absent parameters is accepted with a warning (`signature_algorithm_parameters_absent`). NULL passes; any other value is an error.
+- **Why:** RFC 3370 §3.2, which RFC 7935 §2 cites, says the parameters "MUST contain NULL". Every object in the LACNIC repository has NULL, but Barry omits them on every object it writes, and it can override them only on nodes declared in a fixture's tree, which manifests usually aren't. Making it an error would mean declaring the manifests in every fixture and regenerating them all.
+- **Where:** #130, PR #140, F-031 (maintainer: "Keep the warning").
+- **Consequences:** every Barry-generated signed object carries the warning; tests check errors and this warning separately. Revisit if Barry writes NULL.

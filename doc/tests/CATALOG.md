@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 53 Barry fixtures: 11 valid, 42 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 626 unit tests in 54 modules.
+- 627 unit tests in 54 modules.
 
 ## Barry fixtures
 
@@ -1271,22 +1271,25 @@ Each test first fills a cache with a sync of a Barry fixture from a
 local rsync daemon (as `Lumina.CLISyncTest` does), then validates that
 cache without fetching. Validation must give the same verdicts on CA
 certificates as the walk gave during the sync, and adds the EE
-certificates of signed objects.
+signed objects (CMS envelope and EE certificate, #131).
 
 Syncs run at 2026-11-13, inside the fixtures' default validity.
 
 - *verdicts:* validating a synced cache gives the walk's verdicts on every Barry fixture (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
   Every fixture whose TA a sync accepts. The CA certificates found
   invalid offline are exactly those the walk reported invalid, and a
-  positive fixture has no invalid certificate at all, EE certificates
+  positive fixture has nothing invalid at all, signed objects
   included.
 - *verdicts:* an invalid CA is listed with its reasons, nothing below it is validated, exit 1 (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)))
   One of four certificates invalid is more than the default 10% (D-022).
 - *verdicts:* --max-invalid sets the share of invalid certificates a run may have and still exit 0
   m4-chain-revoked-ca has one invalid certificate of four (25%):
   --max-invalid 0 and 24 fail, 25 and 100 pass (D-022).
-- *verdicts:* a valid tree exits 0 and counts CA and EE certificates (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [6487 §4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4)))
-  m0-minimal-valid: ca1, and the EE certificates of two manifests and a ROA.
+- *verdicts:* a valid tree exits 0 and counts CA certificates and signed objects by type (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [6487 §4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4)))
+  m0-minimal-valid: ca1, two manifests and a ROA.
+- *signed objects (#131):* a signed object whose CMS envelope is invalid is listed with its rule (RFC [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [9589 §4](../rfc/rfc9589.txt) ([html](https://www.rfc-editor.org/rfc/rfc9589.html#section-4)))
+  Driven by the metadata of every m5-cms-* fixture: the object it
+  names is listed invalid with its rule, and nothing else is.
 - *--now:* --now after the fixture's expiry finds the TA expired, and nothing below valid (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
   After the fixtures' notAfter (2036-01-01), the TA itself has expired.
 - *--now:* --now sets the validation time for every certificate (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
@@ -1664,9 +1667,9 @@ certificate in the cache.
     validated at 2030-01-01, the time the chain and profile tests use.
     The certificates found invalid must be exactly those the fixture's
     `expected` metadata names with a `rule`, each rejected for that
-    rule; a fixture with nothing invalid, or of a later milestone (M5
-    and on break signed objects, not certificates), must have every
-    certificate valid.
+    rule (since #131 that includes the CMS envelope of signed objects,
+    the `m5-cms-*` fixtures); a fixture with nothing invalid must
+    validate completely.
   * RFC 6487 §4, §5 and §7.2, RFC 7935 §2 and §3, and RFC 9829 §3 are
     covered by tests other than this one.
   * Tagged `:network`, run by hand only (`mix test --only network`):

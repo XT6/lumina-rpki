@@ -7,7 +7,7 @@ defmodule Lumina.CLIValidateTest do
   local rsync daemon (as `Lumina.CLISyncTest` does), then validates that
   cache without fetching. Validation must give the same verdicts on CA
   certificates as the walk gave during the sync, and adds the EE
-  certificates of signed objects.
+  signed objects (CMS envelope and EE certificate, #131).
 
   Syncs run at 2026-11-13, inside the fixtures' default validity.
   """
@@ -61,8 +61,8 @@ defmodule Lumina.CLIValidateTest do
     tal
   end
 
-  defp invalid(certificates, kind),
-    do: for(%{kind: ^kind, valid: false, uri: uri} <- certificates, do: uri)
+  defp invalid(objects, kind),
+    do: for(%{kind: ^kind, valid: false, uri: uri} <- objects, do: uri)
 
   describe "verdicts" do
     @tag :rsync
@@ -70,7 +70,7 @@ defmodule Lumina.CLIValidateTest do
          doc: """
          Every fixture whose TA a sync accepts. The CA certificates found
          invalid offline are exactly those the walk reported invalid, and a
-         positive fixture has no invalid certificate at all, EE certificates
+         positive fixture has nothing invalid at all, signed objects
          included.
          """
     test "validating a synced cache gives the walk's verdicts on every Barry fixture", %{
@@ -85,11 +85,11 @@ defmodule Lumina.CLIValidateTest do
           assert result.ta.valid, id
           walk_invalid = for %{kind: :invalid, uri: uri} <- report.walk.issues, do: uri
 
-          assert invalid(result.certificates, :ca) == walk_invalid, id
+          assert invalid(result.objects, :ca) == walk_invalid, id
 
           if Fixture.load!(id).expected == :valid do
-            assert invalid(result.certificates, :ee) == [], id
-            refute Enum.any?(result.certificates, &(&1.kind == :decode_failed)), id
+            assert invalid(result.objects, :object) == [], id
+            refute Enum.any?(result.objects, &(&1.kind == :decode_failed)), id
           end
         end
       end
@@ -109,7 +109,7 @@ defmodule Lumina.CLIValidateTest do
       assert out =~ "  CA certificates: 1 valid, 1 invalid\n"
       assert out =~ "    invalid: rsync://localhost:8873/rpki/ta/ca1.cer (revoked)\n"
       # ta.mft and ca2.mft; ca1.mft is below the revoked CA.
-      assert out =~ "  EE certificates: 2 valid, 0 invalid\n"
+      assert out =~ "  manifests: 2 valid, 0 invalid\n"
     end
 
     @tag :rsync
@@ -131,16 +131,48 @@ defmodule Lumina.CLIValidateTest do
 
     @tag :rsync
     @tag rfc: ["6487#7.2", "6487#4"],
-         doc: "m0-minimal-valid: ca1, and the EE certificates of two manifests and a ROA."
-    test "a valid tree exits 0 and counts CA and EE certificates", %{tmp_dir: tmp} do
+         doc: "m0-minimal-valid: ca1, two manifests and a ROA."
+    test "a valid tree exits 0 and counts CA certificates and signed objects by type", %{
+      tmp_dir: tmp
+    } do
       {tal, cache, _report} = synced!(tmp, "m0-minimal-valid")
 
       assert {0, out, ""} = run(["validate", "--cache", cache, "--tal", tal])
 
       assert out =~
-               "  CA certificates: 1 valid, 0 invalid\n  EE certificates: 3 valid, 0 invalid\n"
+               "  CA certificates: 1 valid, 0 invalid\n  manifests: 2 valid, 0 invalid\n" <>
+                 "  ROAs: 1 valid, 0 invalid\n"
 
-      assert out =~ "1 TAL(s), 4 certificate(s) valid, 0 invalid, at 2026-11-13T12:00:00Z\n"
+      assert out =~ "1 TAL(s), 4 object(s) valid, 0 invalid, at 2026-11-13T12:00:00Z\n"
+    end
+  end
+
+  describe "signed objects (#131)" do
+    @tag :rsync
+    @tag rfc: ["6488#3", "9589#4"],
+         doc: """
+         Driven by the metadata of every m5-cms-* fixture: the object it
+         names is listed invalid with its rule, and nothing else is.
+         """
+    test "a signed object whose CMS envelope is invalid is listed with its rule", %{tmp_dir: tmp} do
+      ids =
+        for dir <- Fixtures.case_dirs(),
+            id = Path.basename(dir),
+            String.starts_with?(id, "m5-cms-"),
+            do: id
+
+      assert length(ids) >= 8
+
+      for id <- ids do
+        {tal, cache, _report} = synced!(Path.join(tmp, id), id)
+        {:invalid, [%{object: object, rule: rule}]} = Fixture.load!(id).expected
+
+        assert {1, out, ""} = run(["validate", "--cache", cache, "--tal", tal])
+        assert [line] = Regex.scan(~r"    invalid: .*\n", out), "#{id}:\n#{out}"
+        assert hd(line) =~ "rsync://localhost:8873/rpki/#{object} (", id
+        assert hd(line) =~ Atom.to_string(rule), id
+        assert out =~ "  ROAs: 0 valid, 1 invalid\n", id
+      end
     end
   end
 
@@ -157,7 +189,7 @@ defmodule Lumina.CLIValidateTest do
                run(["validate", "--cache", cache, "--tal", tal, "--now", "2036-06-01"])
 
       assert out =~ ": INVALID (expired); nothing below it validated\n"
-      assert out =~ "0 certificate(s) valid, 0 invalid, at 2036-06-01T00:00:00Z\n"
+      assert out =~ "0 object(s) valid, 0 invalid, at 2036-06-01T00:00:00Z\n"
     end
 
     @tag :rsync
@@ -221,10 +253,10 @@ defmodule Lumina.CLIValidateTest do
       assert {0, out, ""} = run(["help", "validate"])
       assert out =~ "Usage: lumina validate [--cache DIR] [--tal FILE]... [--now TIME]"
       assert out =~ "--max-invalid PERCENT"
-      assert out =~ "Exit codes: 0 valid (at most PERCENT invalid certificates per TAL;"
+      assert out =~ "Exit codes: 0 valid (at most PERCENT invalid objects per TAL;"
 
       assert {0, out, ""} = run(["help"])
-      assert out =~ "validate  validate the certificates in the local cache, offline"
+      assert out =~ "validate  validate the certificates and signed objects in the local cache"
     end
   end
 end

@@ -10,9 +10,9 @@ defmodule Lumina.M4DoneTest do
       validated at 2030-01-01, the time the chain and profile tests use.
       The certificates found invalid must be exactly those the fixture's
       `expected` metadata names with a `rule`, each rejected for that
-      rule; a fixture with nothing invalid, or of a later milestone (M5
-      and on break signed objects, not certificates), must have every
-      certificate valid.
+      rule (since #131 that includes the CMS envelope of signed objects,
+      the `m5-cms-*` fixtures); a fixture with nothing invalid must
+      validate completely.
     * RFC 6487 §4, §5 and §7.2, RFC 7935 §2 and §3, and RFC 9829 §3 are
       covered by tests other than this one.
     * Tagged `:network`, run by hand only (`mix test --only network`):
@@ -69,10 +69,9 @@ defmodule Lumina.M4DoneTest do
 
   defp uri(object), do: "rsync://localhost:8873/rpki/" <> object
 
-  # The rejects the fixture states as M4 certificate verdicts. Fixtures of
-  # later milestones break signed objects or publication points, not
-  # certificates: all their certificates must validate.
-  defp ruled(%{milestone: milestone, expected: {:invalid, rejects}}) when milestone <= "M4",
+  # The rejects the fixture states as verdicts lumina validate gives: on
+  # certificates, and since #131 on signed objects' CMS envelopes.
+  defp ruled(%{expected: {:invalid, rejects}}),
     do: Enum.filter(rejects, &Map.has_key?(&1, :rule))
 
   defp ruled(_fixture), do: []
@@ -142,10 +141,10 @@ defmodule Lumina.M4DoneTest do
             assert {:ok, result} = Validate.run(tal, cache, now: @now), fixture.id
             assert result.ta.valid, fixture.id
 
-            refute Enum.any?(result.certificates, &(&1.kind == :decode_failed)), fixture.id
+            refute Enum.any?(result.objects, &(&1.kind == :decode_failed)), fixture.id
 
-            expected = Enum.flat_map(rejects, &expected_invalid(&1, result.certificates))
-            invalid = for %{valid: false} = c <- result.certificates, into: %{}, do: {c.uri, c}
+            expected = Enum.flat_map(rejects, &expected_invalid(&1, result.objects))
+            invalid = for %{valid: false} = c <- result.objects, into: %{}, do: {c.uri, c}
 
             assert Enum.sort(Map.keys(invalid)) ==
                      expected |> Enum.map(&elem(&1, 0)) |> Enum.sort(),
@@ -225,7 +224,7 @@ defmodule Lumina.M4DoneTest do
       assert {:ok, result} = Validate.run(tal, cache)
       assert result.ta.valid
 
-      cas = Enum.filter(result.certificates, &(&1.kind == :ca))
+      cas = Enum.filter(result.objects, &(&1.kind == :ca))
       assert Enum.count(cas, & &1.valid) >= 1_000
 
       refute Enum.any?(

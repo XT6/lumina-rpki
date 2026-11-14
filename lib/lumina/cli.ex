@@ -23,7 +23,7 @@ defmodule Lumina.CLI do
   Commands:
     print     print RPKI objects and TALs in human-readable form
     sync      fetch the trust anchors and repositories into the local cache
-    validate  validate the certificates in the local cache, offline
+    validate  validate the certificates and signed objects in the local cache, offline
     help      show help for lumina or a command
 
   Run "lumina help <command>" for a command's flags.
@@ -94,9 +94,10 @@ defmodule Lumina.CLI do
 
   Validate what the last sync put in the cache, without fetching
   anything: for each TAL, its stored trust anchor certificate, then every
-  CA certificate and the EE certificate of every signed object below it,
-  top down through the CA certificates that validate. Signed objects'
-  own signatures and contents are not checked yet.
+  CA certificate and signed object below it, top down through the CA
+  certificates that validate. A signed object is checked for its CMS
+  envelope, signature and EE certificate; manifest and ROA contents are
+  not checked yet.
 
   Flags:
     --cache DIR   the cache directory (default: as for lumina sync)
@@ -106,18 +107,19 @@ defmodule Lumina.CLI do
                   or a date, 2030-01-01, for its midnight UTC (default:
                   the current time)
     --max-invalid PERCENT
-                  the share of a TAL's certificates that may be invalid
-                  before the run fails, 0 to 100 (default: 10); 0 fails
-                  on any invalid certificate
+                  the share of a TAL's CA certificates and signed objects
+                  that may be invalid before the run fails, 0 to 100
+                  (default: 10); 0 fails on any invalid one
 
   Prints one summary per TAL: the trust anchor, the number of valid and
-  invalid CA and EE certificates, every invalid certificate with its
-  reasons, warnings, and publication points missing from the cache.
+  invalid CA certificates and signed objects of each type, every invalid
+  one with its reasons, warnings, and publication points missing from
+  the cache.
 
-  Exit codes: 0 valid (at most PERCENT invalid certificates per TAL;
-  missing publication points are listed but don't count), 1 a TAL with
-  no trust anchor in the cache, an invalid one, or more than PERCENT
-  invalid certificates, 2 usage error.
+  Exit codes: 0 valid (at most PERCENT invalid objects per TAL; missing
+  publication points are listed but don't count), 1 a TAL with no trust
+  anchor in the cache, an invalid one, or more than PERCENT invalid
+  objects, 2 usage error.
   """
 
   @rsync_hint " (on macOS, /usr/bin/rsync is openrsync: install rsync with Homebrew and put it first in PATH, or give it with --rsync PATH)"
