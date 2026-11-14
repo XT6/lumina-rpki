@@ -143,7 +143,7 @@ The generated files are committed with the descriptor, so tests are reproducible
 | `milestone` | yes | `M0` to `M9`. |
 | `rationale` | yes | **Why the test exists:** the mistake it catches, and anything subtle about the setup. |
 | `rfc` | yes | RFC sections the fixture checks, in the same format as the `:rfc` tag. |
-| `expected` | yes | `:valid`, or `{:invalid, rejects}`. Each reject gives an `object` (a path under `rsync/`, which must exist) and the `reason` a validator must reject it. |
+| `expected` | yes | `:valid`, or `{:invalid, rejects}`. Each reject gives an `object` (a path under `rsync/`, which must exist) and the `reason` a validator must reject it, and optionally the `rule` (an atom) of the certificate verdict that rejects it: a `Lumina.Chain`/`Lumina.Profile` problem rule, or for a `.crl` the CRL's rule, which makes every certificate in its directory `crl_invalid`. The M4 done test checks that the certificates found invalid are exactly those named by rejects with a rule. |
 | `barry` | no | Overrides the validity period passed to Barry: `now:` and `later:`, as UTC timestamps. |
 | `rsync_modules` | no | Extra rsync modules on `localhost:8873`, besides `rpki` (all of `rsync/`): a map of module name to the directory under `rsync/` it serves, such as `%{"s1" => "s1"}`. `fixture.modules` gives the full set for a test daemon. |
 

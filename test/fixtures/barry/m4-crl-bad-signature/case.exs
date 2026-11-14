@@ -10,5 +10,7 @@
   one reason, and accept everything else.
   """,
   rfc: ["6487#7.2", "8017#8.2.2", "7935#2"],
-  expected: {:invalid, [%{object: "ca1/ca1.crl", reason: "the CRL signature doesn't verify"}]}
+  expected:
+    {:invalid,
+     [%{object: "ca1/ca1.crl", reason: "the CRL signature doesn't verify", rule: :bad_signature}]}
 }

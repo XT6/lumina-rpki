@@ -13,8 +13,10 @@ defmodule Lumina.Validate do
       the same top-down walk through valid CAs that `Lumina.Walk` makes,
       over the publication points already in the cache.
 
-  What a CA published is decided by the directory until manifests list it
-  (M5). Two kinds of certificate there aren't the CA's products and are
+  A `.cer` file is a CA certificate when its Basic Constraints say cA or
+  its Key Usage has keyCertSign; other `.cer` files (router certificates,
+  D-020) are skipped. What a CA published is decided by the directory
+  until manifests list it (M5). Two kinds of certificate there aren't the CA's products and are
   skipped without a result: one with the CA's own key (a TA published in
   its own publication point, #103), and one whose issuer name and AKI both
   name another CA (a CA sharing the directory). One mismatch alone is a
@@ -132,7 +134,16 @@ defmodule Lumina.Validate do
   defp ee(%SignedObject{} = object), do: SignedObject.ee_certificate(object)
   defp ee(%{object: %SignedObject{} = object}), do: SignedObject.ee_certificate(object)
 
-  defp ca?(cert), do: match?(%{ca: true}, Certificate.extension_value(cert, :basic_constraints))
+  # A CA certificate says so with Basic Constraints (RFC 6487 §4.8.1) or
+  # keyCertSign (§4.8.4); one with only the latter is checked as a CA, so
+  # the missing Basic Constraints is reported rather than skipped.
+  defp ca?(cert) do
+    match?(%{ca: true}, Certificate.extension_value(cert, :basic_constraints)) or
+      case Certificate.extension_value(cert, :key_usage) do
+        bits when is_list(bits) -> :keyCertSign in bits
+        _ -> false
+      end
+  end
 
   defp ours?(cert, ca),
     do: cert.public_key.key != ca.public_key.key and not other_issuer?(cert, ca)

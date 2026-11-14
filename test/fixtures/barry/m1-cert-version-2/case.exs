@@ -15,5 +15,11 @@
   rfc: ["6487#4.1", "8897#3.1", "5280#4.1.2.1"],
   expected:
     {:invalid,
-     [%{object: "ta/ca1.cer", reason: "version is 2; RFC 6487 section 4.1 requires version 3"}]}
+     [
+       %{
+         object: "ta/ca1.cer",
+         reason: "version is 2; RFC 6487 section 4.1 requires version 3",
+         rule: :version
+       }
+     ]}
 }

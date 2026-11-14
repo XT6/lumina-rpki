@@ -17,7 +17,8 @@
      [
        %{
          object: "ta/ca1.cer",
-         reason: "no Subject Key Identifier; RFC 6487 section 4.8.2 requires it"
+         reason: "no Subject Key Identifier; RFC 6487 section 4.8.2 requires it",
+         rule: :missing_extension
        }
      ]}
 }

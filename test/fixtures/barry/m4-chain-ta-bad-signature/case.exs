@@ -11,5 +11,7 @@
   this one reason.
   """,
   rfc: ["6487#7.2", "8630#3", "7935#2"],
-  expected: {:invalid, [%{object: "ta.cer", reason: "the self-signature doesn't verify"}]}
+  expected:
+    {:invalid,
+     [%{object: "ta.cer", reason: "the self-signature doesn't verify", rule: :bad_signature}]}
 }

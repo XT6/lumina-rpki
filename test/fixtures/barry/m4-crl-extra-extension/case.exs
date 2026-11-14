@@ -13,5 +13,11 @@
   rfc: ["9829#3.1", "6487#5"],
   expected:
     {:invalid,
-     [%{object: "ca1/ca1.crl", reason: "a CRL extension other than AKI and CRL Number"}]}
+     [
+       %{
+         object: "ca1/ca1.crl",
+         reason: "a CRL extension other than AKI and CRL Number",
+         rule: :crl_extension
+       }
+     ]}
 }

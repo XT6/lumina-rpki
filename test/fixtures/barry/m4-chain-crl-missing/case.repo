@@ -7,6 +7,7 @@ ta.cer
 obj.tbsCertificate.serialNumber = 1
 
 [node: ta.crl]
-# Barry writes the CRL to ta/ta.crl, but the URI it puts in ca1's CRLDP
-# (and nowhere else) names a file that doesn't exist.
+# Barry writes the CRL to ta/ta.crl, but the URI it puts in the CRLDP of
+# the TA's children (ca1 and ta.mft's EE certificate) names a file that
+# doesn't exist.
 uri = rsync://localhost:8873/rpki/ta/missing.crl

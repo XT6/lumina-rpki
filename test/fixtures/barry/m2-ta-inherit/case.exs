@@ -18,7 +18,8 @@
      [
        %{
          object: "ta.cer",
-         reason: "IP resources are inherit; RFC 8630 section 2.3 forbids it in a TA"
+         reason: "IP resources are inherit; RFC 8630 section 2.3 forbids it in a TA",
+         rule: :inherit_resources
        }
      ]}
 }

@@ -10,5 +10,6 @@
   one reason, and accept everything else.
   """,
   rfc: ["9829#3.1"],
-  expected: {:invalid, [%{object: "ca1/ca1.crl", reason: "the CRL Number is critical"}]}
+  expected:
+    {:invalid, [%{object: "ca1/ca1.crl", reason: "the CRL Number is critical", rule: :critical}]}
 }

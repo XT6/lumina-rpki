@@ -10,5 +10,7 @@
   certificate with this one reason, and accept everything else.
   """,
   rfc: ["6487#4.8.4"],
-  expected: {:invalid, [%{object: "ta/ca1.cer", reason: "key_usage must be critical"}]}
+  expected:
+    {:invalid,
+     [%{object: "ta/ca1.cer", reason: "key_usage must be critical", rule: :not_critical}]}
 }

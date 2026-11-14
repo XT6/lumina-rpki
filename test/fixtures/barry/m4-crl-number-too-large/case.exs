@@ -10,5 +10,13 @@
   one reason, and accept everything else.
   """,
   rfc: ["9829#3.1", "5280#5.2.3"],
-  expected: {:invalid, [%{object: "ca1/ca1.crl", reason: "the CRL Number is above 2^159-1"}]}
+  expected:
+    {:invalid,
+     [
+       %{
+         object: "ca1/ca1.crl",
+         reason: "the CRL Number is above 2^159-1",
+         rule: :crl_number_range
+       }
+     ]}
 }

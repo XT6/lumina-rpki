@@ -11,5 +11,12 @@
   """,
   rfc: ["6487#5", "5280#5.1.2.1"],
   expected:
-    {:invalid, [%{object: "ca1/ca1.crl", reason: "the CRL is version 1; RPKI CRLs are v2"}]}
+    {:invalid,
+     [
+       %{
+         object: "ca1/ca1.crl",
+         reason: "the CRL is version 1; RPKI CRLs are v2",
+         rule: :crl_version
+       }
+     ]}
 }

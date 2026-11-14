@@ -11,5 +11,6 @@
   this one reason.
   """,
   rfc: ["6487#7.2", "9829#3.2", "6487#5"],
-  expected: {:invalid, [%{object: "ta/ca1.cer", reason: "revoked by the issuer's CRL"}]}
+  expected:
+    {:invalid, [%{object: "ta/ca1.cer", reason: "revoked by the issuer's CRL", rule: :revoked}]}
 }

@@ -392,6 +392,22 @@ defmodule Lumina.WalkTest do
 
       assert [%{kind: :invalid, detail: [%{rule: :aki_mismatch}]}] = result.issues
     end
+
+    @tag rfc: ["6487#4.8.1", "6487#4.8.4"],
+         doc: """
+         Its Key Usage has keyCertSign, so it is checked as a CA and the
+         missing Basic Constraints reported (#115); it isn't walked.
+         """
+    test "a CA certificate without Basic Constraints is reported invalid, not skipped", %{
+      tmp_dir: tmp
+    } do
+      result = walk!(tmp, "m4-cert-ca-no-basic-constraints")
+
+      assert [%{kind: :invalid, detail: [%{rule: :missing_extension, field: :basic_constraints}]}] =
+               result.issues
+
+      assert Enum.map(result.points, & &1.uri) == [@module <> "/ta"]
+    end
   end
 
   describe "selecting CAs (D-005)" do

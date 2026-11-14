@@ -12,5 +12,12 @@
   """,
   rfc: ["6487#7.2", "5280#6.1.3"],
   expected:
-    {:invalid, [%{object: "ta/ca1.cer", reason: "the issuer is not the parent's subject"}]}
+    {:invalid,
+     [
+       %{
+         object: "ta/ca1.cer",
+         reason: "the issuer is not the parent's subject",
+         rule: :issuer_mismatch
+       }
+     ]}
 }

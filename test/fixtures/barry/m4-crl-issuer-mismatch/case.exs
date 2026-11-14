@@ -11,5 +11,12 @@
   """,
   rfc: ["6487#5", "5280#5.1.2.3"],
   expected:
-    {:invalid, [%{object: "ca1/ca1.crl", reason: "the CRL issuer is not the CA's subject"}]}
+    {:invalid,
+     [
+       %{
+         object: "ca1/ca1.crl",
+         reason: "the CRL issuer is not the CA's subject",
+         rule: :crl_issuer_mismatch
+       }
+     ]}
 }

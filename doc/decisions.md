@@ -245,6 +245,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
   - The TA is validated when it is retrieved (`Lumina.TA`, with `Lumina.Chain.ta/3`): an invalid TA counts as a failed URI, so D-003 moves on to the next one. A cached TA is offered as stale only if it still validates.
   - Each CA certificate in a walked publication point is validated against that CA (with the CRL its CRLDP names in that publication point, D-015) before `Walk.repository/1` is asked where it points. An invalid one is an `invalid` issue listing its errors; a valid one's warnings are a `warning` issue. Neither fails the sync.
   - `lumina validate` (#114) runs the same per-publication-point validation (`Lumina.Validate.point/5`) over the cache, offline, from the stored TA at `--now`, and adds the EE certificates of signed objects. Its exit code is set by D-022.
+  - A `.cer` file is checked as a CA certificate when its Basic Constraints say cA or its Key Usage has keyCertSign (RFC 6487 §4.8.1, §4.8.4), so a CA certificate missing Basic Constraints is reported invalid rather than skipped (#115). Other `.cer` files, such as router certificates (D-020), are skipped.
   - Not validated, and not reported: a certificate with the CA's own key (the CA itself, such as LACNIC's TA in its own publication point, #103), and, until manifests list a CA's files (M5), one whose issuer name and AKI both name another CA.
 
 ## D-015: The CRL that decides revocation in M4

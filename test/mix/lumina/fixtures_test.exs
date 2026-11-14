@@ -138,7 +138,11 @@ defmodule Mix.Lumina.FixturesTest do
             {"{:invalid, []}", "expected must be :valid or {:invalid"},
             {~s/{:invalid, [%{object: "ta.cer"}]}/, "expected reject 1 must be"},
             {~s/{:invalid, [%{object: "ta.cer", reason: " "}]}/,
-             "reason must be a non-blank string"}
+             "reason must be a non-blank string"},
+            {~s/{:invalid, [%{object: "ta.cer", reason: "r", rule: "expired"}]}/,
+             "rule must be an atom"},
+            {~s/{:invalid, [%{object: "ta.cer", reason: "r", extra: :x}]}/,
+             "expected reject 1 must be"}
           ] do
         meta =
           edit(@complete, ~s/{:invalid, [%{object: "ta.cer", reason: "sample reason"}]}/, bad)
@@ -150,6 +154,19 @@ defmodule Mix.Lumina.FixturesTest do
 
         File.rm_rf!(case_dir)
       end
+    end
+
+    @tag doc: "The rule names the verdict the M4 done test checks (#115)."
+    test "a reject may name the rule that rejects it", %{tmp_dir: tmp_dir} do
+      meta =
+        edit(
+          @complete,
+          ~s/reason: "sample reason"}/,
+          ~s/reason: "sample reason", rule: :expired}/
+        )
+
+      assert {:ok, %{expected: {:invalid, [%{rule: :expired}]}}} =
+               Fixtures.load(make_case(tmp_dir, meta), @library)
     end
 
     test "a rejected object that isn't in the rsync tree fails", %{tmp_dir: tmp_dir} do

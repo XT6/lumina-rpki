@@ -21,7 +21,8 @@
      [
        %{
          object: "ta/ca1.cer",
-         reason: "unrecognized critical extension 1.3.6.1.4.1.99999.1; RFC 6487 section 4.8"
+         reason: "unrecognized critical extension 1.3.6.1.4.1.99999.1; RFC 6487 section 4.8",
+         rule: :unknown_critical_extension
        }
      ]}
 }

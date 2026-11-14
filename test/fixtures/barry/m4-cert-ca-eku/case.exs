@@ -11,5 +11,12 @@
   """,
   rfc: ["6487#4.8.5"],
   expected:
-    {:invalid, [%{object: "ta/ca1.cer", reason: "extended_key_usage must not be present"}]}
+    {:invalid,
+     [
+       %{
+         object: "ta/ca1.cer",
+         reason: "extended_key_usage must not be present",
+         rule: :extension_present
+       }
+     ]}
 }
