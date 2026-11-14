@@ -10,9 +10,10 @@ defmodule Lumina.Manifest do
 
   Decoding is structural. `check/1` reports what's wrong with the content
   (#132): version, dates, manifest number, hash algorithm and file names
-  (RFC 9286 §4.2.1, §4.2.2, §4.4). An empty file list decodes: the ASN.1
-  module allows it, and rejecting it (RFC 9286 §7, erratum 7118) is
-  validation's job (#37, F-001 in doc/rfc-findings.md). What a manifest
+  (RFC 9286 §4.2.1, §4.2.2, §4.4), and an empty file list (§7, erratum
+  7118, #37). An empty file list decodes, as the ASN.1 module as published
+  allows it, so that `lumina print` can show it (F-001 in
+  doc/rfc-findings.md). What a manifest
   does to its publication point (§6) is #133's.
   """
 
@@ -56,7 +57,10 @@ defmodule Lumina.Manifest do
     * `:manifest_file_name`, `:manifest_file_extension`: a name outside
       §4.2.2's grammar, or an extension not in the IANA registry;
     * `:manifest_duplicate_name`: a name listed twice (names are compared
-      case-sensitively, §4.2.2).
+      case-sensitively, §4.2.2);
+    * `:manifest_empty`: no files listed (§7: "A CA's manifest will always
+      contain at least one entry"; verified erratum 7118 corrects the
+      module's `SIZE (0..MAX)` to `SIZE (1..MAX)`).
 
   Dates that differ from the CRL's aren't a problem (§4.4: RPs "MUST NOT
   reject a manifest solely because these fields are not identical").
@@ -67,6 +71,7 @@ defmodule Lumina.Manifest do
       dates(manifest) ++
       number(manifest.number) ++
       hash_algorithm(manifest.file_hash_alg) ++
+      empty(manifest.files) ++
       Enum.flat_map(manifest.files, &file_name(&1.name)) ++
       duplicates(manifest.files)
   end
@@ -131,6 +136,18 @@ defmodule Lumina.Manifest do
         "the file hash algorithm is #{Lumina.OID.format(oid)}; it must be SHA-256 (RFC 7935 section 2)"
       )
     ]
+
+  defp empty([]),
+    do: [
+      error(
+        :manifest_empty,
+        "9286#7",
+        :file_list,
+        "manifest has no entries (RFC 9286 section 7, erratum 7118)"
+      )
+    ]
+
+  defp empty(_files), do: []
 
   defp file_name(name) do
     cond do

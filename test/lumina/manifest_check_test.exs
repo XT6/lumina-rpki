@@ -81,6 +81,33 @@ defmodule Lumina.ManifestCheckTest do
     end
   end
 
+  describe "empty file list (#37)" do
+    @tag rfc: "9286#7",
+         doc: """
+         Verified erratum 7118 corrects the module's SIZE (0..MAX) to
+         SIZE (1..MAX). The module is kept as published (F-001), so the
+         manifest decodes, as a file and as a repository object.
+         """
+    test "m5-mft-empty-file-list decodes but is rejected as empty" do
+      path =
+        Path.join(Fixture.load!("m5-mft-empty-file-list").rsync_root, "ca1/ca1.mft")
+
+      assert {:ok, %Lumina.Object{type: :manifest, value: %Manifest{files: []}}} =
+               Lumina.Object.decode_file(path)
+
+      assert [%{rule: :manifest_empty, rfc: "9286#7", field: :file_list, message: message}] =
+               Manifest.check(manifest("m5-mft-empty-file-list"))
+
+      assert message == "manifest has no entries (RFC 9286 section 7, erratum 7118)"
+    end
+
+    @tag rfc: "9286#7", doc: "Erratum 7118: SIZE (1..MAX), so one entry is enough."
+    test "a manifest listing a single file is not empty" do
+      assert rules(named(["a.roa"])) == []
+      assert rules(named([])) == [:manifest_empty]
+    end
+  end
+
   describe "dates and numbers" do
     @tag rfc: "9286#4.4", doc: "\"thisUpdate precedes nextUpdate\": equal times don't."
     test "thisUpdate equal to nextUpdate is rejected" do

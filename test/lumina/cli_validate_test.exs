@@ -152,8 +152,8 @@ defmodule Lumina.CLIValidateTest do
     @tag rfc: ["6488#3", "9589#4", "9286#4.4"],
          doc: """
          Driven by the metadata of every m5-cms-* and m5-mft-* fixture: the
-         object it names is listed invalid with its rule, and nothing else
-         is.
+         object it names is listed invalid with its (first) rule, and nothing
+         else is.
          """
     test "a signed object whose CMS envelope or manifest content is invalid is listed with its rule",
          %{tmp_dir: tmp} do
@@ -167,7 +167,7 @@ defmodule Lumina.CLIValidateTest do
 
       for id <- ids do
         {tal, cache, _report} = synced!(Path.join(tmp, id), id)
-        {:invalid, [%{object: object, rule: rule}]} = Fixture.load!(id).expected
+        {:invalid, [%{object: object, rule: rule} | _]} = Fixture.load!(id).expected
 
         assert {1, out, ""} = run(["validate", "--cache", cache, "--tal", tal])
         assert [line] = Regex.scan(~r"    invalid: .*\n", out), "#{id}:\n#{out}"
