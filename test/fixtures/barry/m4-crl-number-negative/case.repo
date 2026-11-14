@@ -1,0 +1,12 @@
+ta.cer
+	ca1.cer
+		ca1.crl
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: ca1.crl]
+# Barry writes hexadecimal INTEGERs as raw content octets, so this is the
+# DER INTEGER 80 00 ... 00 (20 octets): -2^159.
+obj.tbsCertList.crlExtensions.cn.extnValue = 0x8000000000000000000000000000000000000000

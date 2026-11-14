@@ -81,13 +81,22 @@ defmodule Lumina.CryptoTest do
     binary_part(bytes, 0, byte_size(bytes) - 1) <> <<Bitwise.bxor(last, 1)>>
   end
 
+  # Objects whose issuer link or signature a fixture breaks on purpose.
+  @broken_on_purpose [
+    {"m4-crl-aki-mismatch", "ca1/ca1.crl"},
+    {"m4-crl-issuer-mismatch", "ca1/ca1.crl"},
+    {"m4-crl-bad-signature", "ca1/ca1.crl"}
+  ]
+
   describe "valid signatures" do
     @tag rfc: ["7935#2", "8017#8.2.2", "5280#4.1.1.3", "5280#5.1.1.3"],
          doc: """
          Certificates (TA, CA, and the EE certificates in manifests and
          ROAs) and CRLs, each checked with the key of the certificate whose
          subject and key identifier its issuer and AKI name; a TA with its
-         own key.
+         own key. Three CRL fixtures break exactly that link or the
+         signature, and are left out (their own tests are in
+         Lumina.ProfileCRLTest).
          """
     test "every certificate and CRL signature in every Barry fixture verifies with its issuer's key" do
       for dir <- Fixtures.case_dirs(), id = Path.basename(dir) do
@@ -95,7 +104,7 @@ defmodule Lumina.CryptoTest do
         certs = for {_, %Certificate{} = cert} <- items, do: cert
         assert certs != [], id
 
-        for {path, item} <- items do
+        for {path, item} <- items, {id, path} not in @broken_on_purpose do
           issuer = issuer(item, certs)
           assert issuer, "#{id} #{path}: no issuer"
           assert Crypto.verify(item, issuer.public_key) == :ok, "#{id} #{path}"
