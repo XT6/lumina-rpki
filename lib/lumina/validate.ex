@@ -7,7 +7,9 @@ defmodule Lumina.Validate do
       each validated against it (`Lumina.Chain.child/5`) with the CRL its
       CRL Distribution Point names in that publication point (D-015). The
       walk asks only for CA certificates; `lumina validate` also asks for
-      the EE certificates of signed objects.
+      signed objects, each valid when its CMS envelope is
+      (`Lumina.CMS.check/1`) and its EE certificate validates (RFC 6488
+      §3, #131).
     * `run/3`: offline validation of one TAL's tree, from the TA stored in
       the cache (`Lumina.TA.stored/2`), at a given time, without fetching:
       the same top-down walk through valid CAs that `Lumina.Walk` makes,
@@ -22,44 +24,76 @@ defmodule Lumina.Validate do
   name another CA (a CA sharing the directory). One mismatch alone is a
   fault, left to validation to report.
 
-  An EE certificate is checked as a certificate only. The CMS signature
-  of its signed object and the object's content are M5.
+  A signed object's eContent (manifest, ROA, ...) isn't judged here yet:
+  manifests come later in M5, ROAs in M7, the other types in M9.
   """
 
-  alias Lumina.{Cache, Certificate, Chain, CRL, Object, SignedObject, TA, TAL, URI, Walk}
+  alias Lumina.{
+    Cache,
+    Certificate,
+    Chain,
+    CMS,
+    CRL,
+    Object,
+    Profile,
+    SignedObject,
+    TA,
+    TAL,
+    URI,
+    Walk
+  }
 
   @default_max_depth 32
 
   @type entry ::
           %{
             uri: String.t(),
-            kind: :ca | :ee,
+            kind: :ca,
             certificate: Certificate.t(),
             valid: boolean(),
             problems: [map()]
           }
+          | %{
+              uri: String.t(),
+              kind: :object,
+              type: Object.type(),
+              certificate: Certificate.t(),
+              valid: boolean(),
+              problems: [map()]
+            }
           | %{uri: String.t(), kind: :decode_failed, reason: term()}
 
   @type result :: %{
           ta: %{uri: String.t(), path: Path.t(), valid: boolean(), problems: [map()]} | nil,
-          certificates: [entry()],
+          objects: [entry()],
           issues: [Walk.issue()]
         }
 
   @signed [".mft", ".roa", ".gbr", ".sig", ".tak"]
 
+  # Summary lines for signed objects, in this order.
+  @labels [
+    manifest: "manifests",
+    roa: "ROAs",
+    ghostbusters: "Ghostbusters records",
+    rsc: "RSCs",
+    tak: "TAKs"
+  ]
+
   @doc """
   Validates the certificates in the publication point `key` of the valid
   CA certificate `ca`, held at `path`, at time `now`. Returns one entry
-  per certificate (or file that doesn't decode), in file name order.
+  per CA certificate or signed object (or file that doesn't decode), in
+  file name order.
 
-  Options: `ee: true` also validates the EE certificates of signed objects
-  (`.mft .roa .gbr .sig .tak`); by default only CA certificates (`.cer`
-  files with cA true) are.
+  Options: `objects: true` also validates signed objects (`.mft .roa .gbr
+  .sig .tak`): the EE certificate against the CA, and the CMS envelope
+  (`Lumina.CMS.check/1`), whose problems are added to the entry's. By
+  default only CA certificates are validated.
   """
   @spec point(Certificate.t(), Path.t(), String.t(), DateTime.t(), keyword()) :: [entry()]
   def point(%Certificate{} = ca, path, key, %DateTime{} = now, opts \\ []) do
-    ee? = Keyword.get(opts, :ee, false)
+    objects? = Keyword.get(opts, :objects, false)
 
     {entries, _crls} =
       path
@@ -69,26 +103,25 @@ defmodule Lumina.Validate do
       |> Enum.flat_map_reduce(%{}, fn file, crls ->
         name = key <> "/" <> file
 
-        case candidate(Path.join(path, file), ee?) do
+        case candidate(Path.join(path, file), objects?) do
           :skip ->
             {[], crls}
 
           {:error, reason} ->
             {[%{uri: name, kind: :decode_failed, reason: reason}], crls}
 
-          {kind, cert} ->
+          {kind, cert, object} ->
             if ours?(cert, ca) do
               {crl, crls} = crl(cert, ca, path, key, crls, now)
-              result = Chain.child(cert, kind, ca, crl, now)
 
               {[
-                 %{
-                   uri: name,
-                   kind: kind,
-                   certificate: cert,
-                   valid: result.valid,
-                   problems: result.problems
-                 }
+                 entry(
+                   name,
+                   kind,
+                   cert,
+                   object,
+                   Chain.child(cert, chain_kind(kind), ca, crl, now)
+                 )
                ], crls}
             else
               {[], crls}
@@ -99,26 +132,49 @@ defmodule Lumina.Validate do
     entries
   end
 
-  # What a file holds for validation: a CA certificate, the EE certificate
-  # of a signed object (with `ee?`), a decode error, or nothing to check.
-  defp candidate(file, ee?) do
+  defp entry(name, :ca, cert, nil, result),
+    do: %{uri: name, kind: :ca, certificate: cert, valid: result.valid, problems: result.problems}
+
+  # RFC 6488 §3: the envelope (items 1, 2) and the EE certificate (item 3).
+  defp entry(name, {:object, type}, ee, object, result) do
+    cms = CMS.check(object)
+
+    %{
+      uri: name,
+      kind: :object,
+      type: type,
+      certificate: ee,
+      valid: result.valid and Profile.passes?(cms),
+      problems: result.problems ++ cms
+    }
+  end
+
+  defp chain_kind(:ca), do: :ca
+  defp chain_kind({:object, _type}), do: :ee
+
+  # What a file holds for validation: a CA certificate, a signed object
+  # with its EE certificate (with `objects?`), a decode error, or nothing
+  # to check.
+  defp candidate(file, objects?) do
     ext = Path.extname(file)
 
     cond do
       ext == ".cer" ->
         case Object.decode_file(file) do
           {:ok, %Object{value: %Certificate{} = cert}} ->
-            if ca?(cert), do: {:ca, cert}, else: :skip
+            if ca?(cert), do: {:ca, cert, nil}, else: :skip
 
           {:error, reason} ->
             {:error, reason}
         end
 
-      ee? and ext in @signed ->
+      objects? and ext in @signed ->
         case Object.decode_file(file) do
-          {:ok, %Object{value: value}} ->
-            case ee(value) do
-              %Certificate{} = cert -> {:ee, cert}
+          {:ok, %Object{type: type, value: value}} ->
+            object = signed_object(value)
+
+            case SignedObject.ee_certificate(object) do
+              %Certificate{} = cert -> {{:object, type}, cert, object}
               nil -> {:error, {:envelope, :no_ee_certificate}}
             end
 
@@ -131,8 +187,8 @@ defmodule Lumina.Validate do
     end
   end
 
-  defp ee(%SignedObject{} = object), do: SignedObject.ee_certificate(object)
-  defp ee(%{object: %SignedObject{} = object}), do: SignedObject.ee_certificate(object)
+  defp signed_object(%SignedObject{} = object), do: object
+  defp signed_object(%{object: %SignedObject{} = object}), do: object
 
   # A CA certificate says so with Basic Constraints (RFC 6487 §4.8.1) or
   # keyCertSign (§4.8.4); one with only the latter is checked as a CA, so
@@ -190,7 +246,8 @@ defmodule Lumina.Validate do
 
   Starts from the TA stored by the last sync that accepted one, validates
   it at `:now` (`Lumina.Chain.ta/3`), then each publication point of a
-  valid CA that is in the cache, CA and EE certificates (`point/5`),
+  valid CA that is in the cache, CA certificates and signed objects
+  (`point/5`),
   breadth first. Returns `{:error, :no_ta}` if no TA is stored.
 
   `:issues` are those of the walk (`Lumina.Walk`): `:missing` (a valid
@@ -217,7 +274,7 @@ defmodule Lumina.Validate do
           now: now,
           max_depth: max_depth,
           visited: MapSet.new(),
-          certificates: [],
+          objects: [],
           issues: []
         }
 
@@ -229,7 +286,7 @@ defmodule Lumina.Validate do
         {:ok,
          %{
            ta: ta,
-           certificates: Enum.reverse(state.certificates),
+           objects: Enum.reverse(state.objects),
            issues: Enum.reverse(state.issues)
          }}
     end
@@ -271,8 +328,8 @@ defmodule Lumina.Validate do
 
           true ->
             state = %{state | visited: MapSet.put(state.visited, key)}
-            entries = point(cert, path, key, state.now, ee: true)
-            state = %{state | certificates: Enum.reverse(entries, state.certificates)}
+            entries = point(cert, path, key, state.now, objects: true)
+            state = %{state | objects: Enum.reverse(entries, state.objects)}
 
             next =
               for %{kind: :ca, valid: true} = entry <- entries,
@@ -286,16 +343,17 @@ defmodule Lumina.Validate do
   @doc """
   Whether a report of `run/3` (or `{:error, :no_ta}`) should fail
   `lumina validate` (D-022): no TA, an invalid TA, or more than
-  `max_invalid` percent of the certificates below it invalid or not
-  decoding. Warnings and missing publication points don't count.
+  `max_invalid` percent of the CA certificates and signed objects below
+  it invalid or not decoding. Warnings and missing publication points
+  don't count.
   """
   @spec failed?({:ok, result()} | {:error, :no_ta}, number()) :: boolean()
   def failed?(report, max_invalid \\ 10)
   def failed?({:error, :no_ta}, _max_invalid), do: true
 
   def failed?({:ok, result}, max_invalid) do
-    invalid = Enum.count(result.certificates, &(&1[:valid] != true))
-    not result.ta.valid or invalid * 100 > max_invalid * length(result.certificates)
+    invalid = Enum.count(result.objects, &(&1[:valid] != true))
+    not result.ta.valid or invalid * 100 > max_invalid * length(result.objects)
   end
 
   @doc """
@@ -304,15 +362,15 @@ defmodule Lumina.Validate do
   """
   @spec summary([{Path.t(), {:ok, result()} | {:error, :no_ta}}], DateTime.t()) :: String.t()
   def summary(reports, %DateTime{} = now) do
-    certificates = for {_path, {:ok, r}} <- reports, c <- r.certificates, do: c
-    valid = Enum.count(certificates, &(&1[:valid] == true))
+    objects = for {_path, {:ok, r}} <- reports, o <- r.objects, do: o
+    valid = Enum.count(objects, &(&1[:valid] == true))
 
     blocks = Enum.map(reports, fn {path, report} -> [path, "\n", tal_lines(report)] end)
 
     IO.iodata_to_binary([
       Enum.intersperse(blocks, "\n"),
-      "\n#{length(reports)} TAL(s), #{valid} certificate(s) valid, " <>
-        "#{length(certificates) - valid} invalid, at #{DateTime.to_iso8601(now)}\n"
+      "\n#{length(reports)} TAL(s), #{valid} object(s) valid, " <>
+        "#{length(objects) - valid} invalid, at #{DateTime.to_iso8601(now)}\n"
     ])
   end
 
@@ -326,9 +384,9 @@ defmodule Lumina.Validate do
       [
         accepted <> ": valid\n",
         warning_line(ta.uri, ta.problems),
-        counts("CA", result.certificates, :ca),
-        counts("EE", result.certificates, :ee),
-        Enum.map(result.certificates, &certificate_line/1),
+        counts("CA certificates", Enum.filter(result.objects, &(&1.kind == :ca))),
+        type_counts(result.objects),
+        Enum.map(result.objects, &object_line/1),
         Enum.map(result.issues, &issue_line/1)
       ]
     else
@@ -336,19 +394,25 @@ defmodule Lumina.Validate do
     end
   end
 
-  defp counts(label, certificates, kind) do
-    of_kind = Enum.filter(certificates, &(&1.kind == kind))
-    valid = Enum.count(of_kind, & &1.valid)
-    "  #{label} certificates: #{valid} valid, #{length(of_kind) - valid} invalid\n"
+  defp type_counts(objects) do
+    for {type, label} <- @labels,
+        of_type = Enum.filter(objects, &(&1[:type] == type)),
+        of_type != [],
+        do: counts(label, of_type)
   end
 
-  defp certificate_line(%{kind: :decode_failed, uri: uri, reason: reason}),
+  defp counts(label, entries) do
+    valid = Enum.count(entries, & &1.valid)
+    "  #{label}: #{valid} valid, #{length(entries) - valid} invalid\n"
+  end
+
+  defp object_line(%{kind: :decode_failed, uri: uri, reason: reason}),
     do: "    decode_failed: #{uri} (#{Lumina.Print.error(reason, uri)})\n"
 
-  defp certificate_line(%{valid: false, uri: uri, problems: problems}),
+  defp object_line(%{valid: false, uri: uri, problems: problems}),
     do: "    invalid: #{uri} (#{rules(problems, :error)})\n"
 
-  defp certificate_line(%{uri: uri, problems: problems}), do: warning_line(uri, problems)
+  defp object_line(%{uri: uri, problems: problems}), do: warning_line(uri, problems)
 
   defp warning_line(_uri, []), do: []
   defp warning_line(uri, problems), do: "    warning: #{uri} (#{rules(problems, :warning)})\n"
