@@ -1,0 +1,11 @@
+ta.cer
+	ca1.cer
+		roa1.roa
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: roa1.roa]
+# RFC 6488 section 3 item 1.c: the sid MUST match the EE certificate's SKI.
+obj.content.signerInfos.0.sid.subjectKeyIdentifier = 0x0102030405060708090A0B0C0D0E0F1011121314

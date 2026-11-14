@@ -1,0 +1,12 @@
+ta.cer
+	ca1.cer
+		roa1.roa
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: roa1.roa]
+# RFC 6488 section 2.1.6.2: the sid MUST be the subjectKeyIdentifier.
+obj.content.signerInfos.0.sid.issuerAndSerialNumber.issuer.rdnSequence = [ [ { type = 2.5.4.3, value = ca1 } ] ]
+obj.content.signerInfos.0.sid.issuerAndSerialNumber.serialNumber = 1

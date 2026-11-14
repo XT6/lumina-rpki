@@ -30,6 +30,8 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-020](#d-020-rfc-8360-and-router-certificates-are-out-of-scope-for-now) | RFC 8360 (v2 policy) and router certificates are out of scope for now | 2026-11-13 | #110, PR #120, #121 |
 | [D-021](#d-021-revocation-fixtures-use-barrys-revokedcertificates) | Revocation fixtures are plain Barry descriptors using `revokedCertificates` (supersedes D-017) | 2026-11-13 | #112, #52 |
 | [D-022](#d-022-lumina-validate-fails-above-a-share-of-invalid-certificates) | `lumina validate` exits 1 only above a share of invalid certificates per TAL (default 10%) | 2026-11-14 | #114, PR #126 |
+| [D-023](#d-023-a-failed-publication-point-falls-back-to-its-last-valid-copy) | A failed publication point falls back to its last valid copy while that copy's manifest is current | 2026-11-14 | M5 plan, #135 |
+| [D-024](#d-024-manifest-replay-state-is-kept-in-the-cache-and-written-only-by-sync) | Manifest replay state is kept per CA in the cache, written only by `lumina sync` | 2026-11-14 | M5 plan, #136 |
 
 ## D-001: CLI model
 
@@ -265,6 +267,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Why:** RFC 6487 and RFC 9829 don't say what a relying party does with a CRL past its nextUpdate. Treating it as invalid would invalidate every certificate it covers because a CA published late. M5's manifest rules (RFC 9286 §6) deal with stale publication points, so this is revisited there.
 - **Where:** M4 plan.
 - **Consequences:** the CRL checks report `stale_crl` as a warning.
+- **Revisited (2026-11-14, M5 plan, #133):** kept. RFC 9286 makes a stale *manifest* a failed fetch but says nothing about a stale CRL on a current manifest, and §4.2.1 expects the CRL to be reissued with the manifest.
 
 ## D-017: Revocation fixtures are re-signed by the tests
 
@@ -321,3 +324,25 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Why:** the live RPKI always holds some invalid objects (in 2026-11, 21 expired manifests at one delegated repository out of about 52,000 certificates under LACNIC). Exiting 1 for any of them would make the exit code useless; a large share points at a real problem, such as a broken cache or the wrong `--now`.
 - **Where:** #114, PR #126 (maintainer: "over 10 or 20% of all certificates have to be invalid for an exit 1").
 - **Consequences:** `Lumina.Validate.failed?/2` takes the percentage. Missing publication points are a fetch problem, reported by `lumina sync`.
+
+## D-023: A failed publication point falls back to its last valid copy
+
+- **Date:** 2026-11-14
+- **Decision:**
+  - After a publication point is accepted (RFC 9286 §6), Lumina keeps its manifest and listed files as the CA's last valid copy (under `<cache>/.valid/`), replacing the previous one.
+  - When the point later fails, that copy is used, with a warning saying why, as long as its manifest is still current. Once its manifest is stale, the point is unusable.
+  - `lumina validate` applies the same rule offline.
+- **Why:** RFC 9286 §6.6 says the RP "SHOULD continue to use cached versions of the objects associated with this CA instance, until such time as they become stale". The rsync cache keeps the last *fetched* copy of a module (D-012), which may be the broken one.
+- **Where:** M5 plan, #135 (maintainer accepted the recommendation).
+- **Consequences:** a second store in the cache, written when a point is accepted; summaries say which points were served from it.
+
+## D-024: Manifest replay state is kept in the cache and written only by sync
+
+- **Date:** 2026-11-14
+- **Decision:**
+  - For each CA (by its SKI and manifest URI), Lumina keeps the manifestNumber, thisUpdate and file name of the last accepted manifest under `<cache>/.state/`.
+  - `lumina sync` updates it when it accepts a point. `lumina validate` reads it but never writes it, so an offline run at another `--now` can't move it.
+  - A manifest whose number or thisUpdate goes backwards is a failed fetch (D-023 then applies), with a warning naming both values. A changed manifest file name resets the number check and gives a warning (RFC 9981 §2-3).
+- **Why:** RFC 9286 §4.2.1 requires each RP to check that a new manifest's number and thisUpdate are higher than those of manifests it validated before, which needs state that outlives a run.
+- **Where:** M5 plan, #136 (maintainer accepted the recommendation).
+- **Consequences:** the cache gains `.state`; deleting the cache resets replay protection.

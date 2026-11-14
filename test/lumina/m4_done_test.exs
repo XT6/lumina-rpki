@@ -10,7 +10,9 @@ defmodule Lumina.M4DoneTest do
       validated at 2030-01-01, the time the chain and profile tests use.
       The certificates found invalid must be exactly those the fixture's
       `expected` metadata names with a `rule`, each rejected for that
-      rule; a fixture with nothing invalid must validate completely.
+      rule; a fixture with nothing invalid, or of a later milestone (M5
+      and on break signed objects, not certificates), must have every
+      certificate valid.
     * RFC 6487 §4, §5 and §7.2, RFC 7935 §2 and §3, and RFC 9829 §3 are
       covered by tests other than this one.
     * Tagged `:network`, run by hand only (`mix test --only network`):
@@ -67,8 +69,12 @@ defmodule Lumina.M4DoneTest do
 
   defp uri(object), do: "rsync://localhost:8873/rpki/" <> object
 
-  # The rejects the fixture states as M4 certificate verdicts.
-  defp ruled(%{expected: {:invalid, rejects}}), do: Enum.filter(rejects, &Map.has_key?(&1, :rule))
+  # The rejects the fixture states as M4 certificate verdicts. Fixtures of
+  # later milestones break signed objects or publication points, not
+  # certificates: all their certificates must validate.
+  defp ruled(%{milestone: milestone, expected: {:invalid, rejects}}) when milestone <= "M4",
+    do: Enum.filter(rejects, &Map.has_key?(&1, :rule))
+
   defp ruled(_fixture), do: []
 
   defp errors(problems), do: for(%{severity: :error} = p <- problems, do: p)
