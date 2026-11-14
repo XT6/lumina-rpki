@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 72 Barry fixtures: 14 valid, 58 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 707 unit tests in 60 modules.
+- 721 unit tests in 61 modules.
 
 ## Barry fixtures
 
@@ -1779,6 +1779,51 @@ m1-resources-inherit fixtures check the same through real chains, at
 - *fixtures:* m6-inherit-ee: an EE certificate that inherits holds its CA's addresses (RFC [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10)))
 - *fixtures:* m6-inherit-from-empty: inheriting IPv6 from an IPv4-only issuer holds no IPv6, and is valid (RFC [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [9286 §5.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-5.1)))
 - *fixtures:* m1-resources-inherit: ca2 inherits everything from ca1 (RFC [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [3779 §3.2.3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.3)))
+
+### `Lumina.EncompassTest`
+
+[test/lumina/encompass_test.exs](../../test/lumina/encompass_test.exs)
+
+Tests the resource set operations resource inclusion needs (#152):
+`Lumina.Resources.intervals/2`, `encompasses?/2` and `outside/2`.
+
+RFC 6487 §7.1 defines "encompass" through "more specific" and "equal"
+ranges; RFC 3779 §2.3 and §3.3 say a certificate's resources must be
+"subsumed by" its issuer's. IPv4, IPv6 and AS numbers are compared
+separately (erratum 5188 to RFC 6487 §7.1), and as sets, not range by
+range (D-027, F-034): a child range spanning two adjacent ranges of a
+parent is encompassed. `outside/2` gives exactly what an overclaim
+claims beyond the issuer, for reporting (#155).
+
+- *encompassed:* equal sets encompass each other (RFC [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)), [3779 §3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.3)))
+- *encompassed:* more specific ranges are encompassed (RFC [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)), [3779 §3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.3)))
+- *encompassed:* a prefix and a range covering the same addresses are equal (RFC [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §2.2.3.7](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.7)))
+  10.0.0.0/8 written as the range 10.0.0.0-10.255.255.255, either way round.
+- *encompassed:* AS ids and ranges mix: ids inside a range, and a range made of ids (RFC [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.3)))
+- *encompassed:* a child range spanning two adjacent parent ranges is encompassed (set semantics) (RFC [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)))
+  D-027, F-034. The parent lists 10.0.0.0/9 and 10.128.0.0/9, which
+  RFC 3779 §2.2.3.6 says must be combined (the profile rejects
+  that); the child's 10.0.0.0/8 spans both. Read literally, RFC
+  6487 §7.1 wants one range of the parent to cover it.
+- *encompassed:* the empty set is encompassed by anything, even the empty set (RFC [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)), [3779 §3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.3)))
+- *not encompassed:* one address outside, at either boundary, and the difference is exactly that address (RFC [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)))
+  One address below 10.0.0.0/8, then one above; the difference is that address.
+- *not encompassed:* one AS number outside, at either boundary, and the difference is exactly that number (RFC [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.3)))
+- *not encompassed:* the difference is shown as prefixes where they fit, ranges otherwise (RFC [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)))
+  The gap between two parent ranges is shown as prefixes where it is one, else a range.
+- *not encompassed:* nothing non-empty is encompassed by the empty set (RFC [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)), [3779 §3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.3)))
+- *not encompassed:* IPv4, IPv6 and AS numbers are independent (RFC [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)))
+  Erratum 5188: §7.1 compares "two IP address or two AS number sets".
+  The IPv4 and IPv6 address families are separate too: 0.0.0.0/0
+  doesn't cover ::/96, though both are the integers 0 to 2^32-1.
+- *extremes:* the ends of the address and AS number spaces (RFC [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)), [3779 §3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.3)))
+  0.0.0.0/0, ::/0 and AS0-AS4294967295 hold everything; the last address or number of each is outside anything that stops one short.
+- *intervals/2:* sorts, merges overlapping and adjacent entries, and drops inverted ranges (RFC [3779 §2.2.3.6](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.6)), [3779 §3.2.3.4](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.4)))
+  Unsorted, overlapping and adjacent entries, as a non-canonical certificate might list them.
+- *against brute force:* outside/2 matches a number-by-number set difference (RFC [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.3)))
+  1,000 pairs of random AS sets within 0..63 (fixed seed), mixing
+  ids and ranges, overlapping and adjacent: `outside/2` must give
+  exactly the numbers of y not in x, and `encompasses?/2` must agree.
 
 ### `Lumina.Fixtures.M0MinimalValidTest`
 

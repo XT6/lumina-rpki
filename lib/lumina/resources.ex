@@ -105,6 +105,126 @@ defmodule Lumina.Resources do
   defp resolve(:inherit, issuer, kind), do: Map.fetch!(issuer, kind)
   defp resolve(list, _issuer, _kind) when is_list(list), do: list
 
+  @typedoc """
+  One kind of resources as a set: sorted, inclusive integer intervals
+  that neither overlap nor touch.
+  """
+  @type intervals :: [{non_neg_integer(), non_neg_integer()}]
+
+  @doc """
+  The resources of one kind (`:ipv4`, `:ipv6` or `:as`) as a set of
+  intervals: prefixes, ranges and AS ids become intervals, and
+  overlapping or adjacent ones merge. A range whose min is above its max
+  covers nothing (the profile rejects it, RFC 3779 §2.2.3.9, §3.2.3.8).
+
+  ## Examples
+
+      iex> Lumina.Resources.intervals([{:prefix, 0x0A000000, 8}, {:range, 0x0B000000, 0x0B0000FF}], :ipv4)
+      [{0x0A000000, 0x0B0000FF}]
+
+      iex> Lumina.Resources.intervals([{:id, 7}, {:range, 1, 5}, {:id, 6}], :as)
+      [{1, 7}]
+
+  """
+  @spec intervals([ip_resource()] | [as_resource()], :ipv4 | :ipv6 | :as) :: intervals()
+  def intervals(resources, kind) do
+    resources
+    |> Enum.map(&interval(&1, kind))
+    |> Enum.reject(fn {min, max} -> min > max end)
+    |> Enum.sort()
+    |> merge([])
+  end
+
+  defp interval({:id, id}, :as), do: {id, id}
+  defp interval({:range, min, max}, :as), do: {min, max}
+  defp interval(resource, afi), do: bounds(resource, afi)
+
+  defp merge([], acc), do: Enum.reverse(acc)
+
+  defp merge([{min, max} | rest], [{lo, hi} | acc]) when min <= hi + 1,
+    do: merge(rest, [{lo, max(hi, max)} | acc])
+
+  defp merge([interval | rest], acc), do: merge(rest, [interval | acc])
+
+  @doc """
+  Whether `x` encompasses `y` (RFC 6487 §7.1; "subsumed by" in RFC 3779
+  §2.3 and §3.3): every IPv4 address, IPv6 address and AS number `y`
+  holds, `x` holds too. Both are `t:effective/0` sets.
+
+  The kinds are compared separately (erratum 5188 to RFC 6487 §7.1), and
+  as sets (D-027): a range of `y` spanning two adjacent ranges of `x` is
+  encompassed, although §7.1 read literally wants a single range of `x`
+  to cover it (F-034). The empty set is encompassed by anything.
+  """
+  @spec encompasses?(effective(), effective()) :: boolean()
+  def encompasses?(x, y), do: outside(y, x) == %{ipv4: [], ipv6: [], as: []}
+
+  @doc """
+  The part of `y` that `x` doesn't hold, per kind, as resources that
+  `format/2` shows: a prefix wherever an interval is one, else a range
+  (an id for a single AS number). Empty lists when `x` encompasses `y`.
+
+  ## Examples
+
+      iex> Lumina.Resources.outside(
+      ...>   %{ipv4: [{:prefix, 0x0A000000, 8}], ipv6: [], as: [{:range, 64496, 64511}]},
+      ...>   %{ipv4: [{:prefix, 0x0A000000, 9}], ipv6: [], as: [{:range, 64496, 64510}]}
+      ...> )
+      %{ipv4: [{:prefix, 0x0A800000, 9}], ipv6: [], as: [{:id, 64511}]}
+
+  """
+  @spec outside(effective(), effective()) :: effective()
+  def outside(y, x) do
+    Map.new([:ipv4, :ipv6, :as], fn kind ->
+      left =
+        subtract(intervals(Map.get(y, kind, []), kind), intervals(Map.get(x, kind, []), kind))
+
+      {kind, Enum.map(left, &resource(&1, kind))}
+    end)
+  end
+
+  # Set difference of two interval sets, both sorted and merged.
+  defp subtract([], _x), do: []
+  defp subtract(y, []), do: y
+
+  defp subtract([{ymin, ymax} | yrest] = y, [{xmin, xmax} | xrest] = x) do
+    cond do
+      xmax < ymin -> subtract(y, xrest)
+      xmin > ymax -> [{ymin, ymax} | subtract(yrest, x)]
+      xmin > ymin -> [{ymin, xmin - 1} | subtract([{xmin, ymax} | yrest], x)]
+      xmax >= ymax -> subtract(yrest, x)
+      true -> subtract([{xmax + 1, ymax} | yrest], xrest)
+    end
+  end
+
+  defp resource({id, id}, :as), do: {:id, id}
+  defp resource({min, max}, :as), do: {:range, min, max}
+
+  defp resource({min, max}, afi) do
+    size = max - min + 1
+
+    if (size &&& size - 1) == 0 and (min &&& size - 1) == 0,
+      do: {:prefix, min, @widths[afi] - length(Integer.digits(size, 2)) + 1},
+      else: {:range, min, max}
+  end
+
+  @doc """
+  Formats a resource of the given kind with `format_ip/2` or
+  `format_as/1`.
+
+  ## Examples
+
+      iex> Lumina.Resources.format({:prefix, 0x0A000000, 8}, :ipv4)
+      "10.0.0.0/8"
+
+      iex> Lumina.Resources.format({:id, 64496}, :as)
+      "AS64496"
+
+  """
+  @spec format(ip_resource() | as_resource(), :ipv4 | :ipv6 | :as) :: String.t()
+  def format(resource, :as), do: format_as(resource)
+  def format(resource, afi), do: format_ip(resource, afi)
+
   @doc """
   Decodes the DER of an `IPAddrBlocks` value (the contents of the
   id-pe-ipAddrBlocks extension's extnValue).

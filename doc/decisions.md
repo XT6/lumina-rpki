@@ -373,3 +373,12 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Where:** M6 plan, #153.
 - **Consequences:** no rule for it. Whether a manifest's EE certificate actually uses inherit, as RFC 9286 §5.1 asks RPs to check, is a separate check (#157).
 - **As implemented (#153):** `Lumina.Resources.effective(cert, issuer_effective)` returns the certificate's IPv4, IPv6 and AS sets, `inherit` resolved from the issuer's, an empty list for a kind held by nobody. `Lumina.Chain.child/6` returns the child's effective resources as `resources`; `Chain.ta/3` returns the TA's. The walk, `lumina validate` and publication point processing (the manifest's EE certificate) carry each CA's effective resources to its children.
+
+## D-027: Resources are compared as sets
+
+- **Date:** 2026-11-14
+- **Decision:** "X encompasses Y" (RFC 6487 §7.1) holds when every IPv4 address, IPv6 address and AS number in Y is also in X. Each kind is compared on its own, and as a set of numbers, not range by range: a range of Y that spans two adjacent ranges of X is encompassed.
+- **Why:** RFC 6487 §7.1 words it per range ("the range element is either 'more specific' than or 'equal' to a contiguous range element within the set X"), which read literally rejects a child whose range spans two adjacent ranges of its parent. RFC 3779 §2.3 says the child's addresses "MUST be subsumed by IP addresses in the ... issuer's certificate", which is about addresses, not ranges. The two readings differ only when the parent's set isn't in canonical form (RFC 3779 §2.2.3.6 requires adjacent blocks to be combined), so the set reading is the one that doesn't depend on how the parent happens to be encoded (F-034).
+- **Where:** #152 (maintainer, comment on the issue: "compare as sets").
+- **Consequences:** in Lumina the profile already rejects a non-canonical resource extension, so a valid parent never has adjacent ranges and the two readings give the same verdict; the set reading keeps the inclusion check correct on its own, whatever the profile does.
+- **As implemented (#152):** `Lumina.Resources.intervals/2` turns one kind into sorted, merged integer intervals; `encompasses?/2` and `outside/2` (the part of Y outside X, for reporting) work on `effective/0` sets.

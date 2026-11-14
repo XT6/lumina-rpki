@@ -52,6 +52,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-031](#f-031-rfc-7935-2-takes-rsaencryptions-parameters-from-rfc-3370-outside-the-library) | 7935 §2; 3370 §3.2 | reference, tooling | none found (not reported) | RFC 3370 added; rsaEncryption parameters must be NULL, absent only warns because Barry omits them (#129, #130) |
 | [F-032](#f-032-manifest-file-name-extensions-depend-on-an-iana-registry-outside-the-library) | 9286 §4.2.2; 6481 §7.2 | reference | none found (not reported) | Extensions from the IANA registry as of 2026-11-14, temporary and deprecated entries included (#132) |
 | [F-033](#f-033-inheriting-resources-the-issuer-doesnt-hold) | 3779 §2.2.3.5, §3.2.3.3; 9286 §5.1 | ambiguity | none found (not reported) | Inheriting nothing is holding nothing (D-026, #153) |
+| [F-034](#f-034-encompass-is-worded-range-by-range) | 6487 §7.1; 3779 §2.3, §3.3 | ambiguity | [5188](https://www.rfc-editor.org/errata/eid5188), held (related); otherwise none found (not reported) | Compared as sets (D-027, #152) |
 
 ## Entries
 
@@ -553,6 +554,17 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Resolution:** inheriting a kind nobody above holds is holding nothing of it, with no error or warning (D-026, as revised, #153). Nothing is claimed, so nothing can be overclaimed.
 - **Suggested text (RFC 3779 §2.2.3.5):** *"If no such certificate is located, the certificate holds no IP addresses for that AFI."* And likewise in §3.2.3.3.
 - **Talk note:** a validator decision that looked cautious ("refuse to resolve an inherit to nothing") would have rejected 20% of a real repository. One SHOULD-sized sentence elsewhere (RFC 9286 §5.1) turns a corner case into the common case.
+
+### F-034: "Encompass" is worded range by range
+
+- **Where:** RFC 6487 §7.1: "Given two IP address and AS number sets, X and Y, X 'encompasses' Y if, for every contiguous range of IP addresses or AS numbers elements in set Y, the range element is either 'more specific' than or 'equal' to a contiguous range element within the set X." RFC 3779 §2.3: "the IP addresses in the IP address delegation extension of that certificate MUST be subsumed by IP addresses in the IP address delegation extension in the issuer's certificate" (§3.3 likewise for AS identifiers).
+- **Kind:** ambiguity.
+- **Official errata:** [5188](https://www.rfc-editor.org/errata/eid5188) (editorial, held for document update) changes "two IP address and AS number sets" to "two IP address or two AS number sets": the kinds are compared separately, which Lumina does. It doesn't touch the range-by-range wording. Nothing relevant for RFC 3779 §2.3 or §3.3 (checked 2026-11-14). **Not reported.**
+- **The problem:** read literally, RFC 6487 §7.1 compares ranges: each range of the child must sit inside one range of the parent. RFC 3779 compares addresses. They differ when the parent lists adjacent ranges, say 10.0.0.0/9 and 10.128.0.0/9, and the child holds 10.0.0.0/8: every address of the child is the parent's, but no single parent range covers the child's.
+- **Impact:** small in practice. RFC 3779 §2.2.3.6 requires adjacent blocks to be combined, so a canonical parent never lists 10.0.0.0/9 and 10.128.0.0/9; Lumina's profile rejects one that does. An RP that checks inclusion range by range without enforcing canonical form would reject valid delegations from a sloppy issuer.
+- **Resolution:** compare as sets of numbers (D-027, #152).
+- **Suggested text (RFC 6487 §7.1):** *"X 'encompasses' Y if every IP address or AS number in Y is also in X."*
+- **Talk note:** the per-range wording is only safe together with a canonical-form rule from another document.
 
 ## Process notes
 
