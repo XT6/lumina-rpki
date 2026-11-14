@@ -25,7 +25,7 @@ defmodule Lumina.M4DoneTest do
   """
   use ExUnit.Case, async: true
 
-  alias Lumina.{CLI, PublicationPoint, TAL, Validate}
+  alias Lumina.{CLI, TAL, Validate}
   alias Lumina.Test.{Fixture, RsyncDaemon}
   alias Mix.Lumina.{Fixtures, RFC, TestScanner}
 
@@ -70,12 +70,10 @@ defmodule Lumina.M4DoneTest do
   defp uri(object), do: "rsync://localhost:8873/rpki/" <> object
 
   # The rejects the fixture states as verdicts lumina validate gives: on
-  # certificates, and since #131 on signed objects' CMS envelopes.
-  # Publication point verdicts (#133) aren't per-object; the M5 done test
-  # checks those.
+  # certificates, on signed objects' CMS envelopes (#131) and, through
+  # each point's manifest entry, on publication points (#134).
   defp ruled(%{expected: {:invalid, rejects}}),
-    do:
-      Enum.filter(rejects, &(Map.has_key?(&1, :rule) and &1.rule not in PublicationPoint.rules()))
+    do: Enum.filter(rejects, &Map.has_key?(&1, :rule))
 
   defp ruled(_fixture), do: []
 
@@ -150,7 +148,7 @@ defmodule Lumina.M4DoneTest do
             invalid = for %{valid: false} = c <- result.objects, into: %{}, do: {c.uri, c}
 
             assert Enum.sort(Map.keys(invalid)) ==
-                     expected |> Enum.map(&elem(&1, 0)) |> Enum.sort(),
+                     expected |> Enum.map(&elem(&1, 0)) |> Enum.uniq() |> Enum.sort(),
                    "#{fixture.id}:\n#{out}"
 
             for {uri, check} <- expected,

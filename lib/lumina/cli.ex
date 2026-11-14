@@ -55,7 +55,10 @@ defmodule Lumina.CLI do
   For each TAL, fetch its trust anchor certificate (HTTPS first, then
   rsync) and validate it, then walk the repository from it and mirror
   every publication point into the cache with rsync, following only CA
-  certificates that validate. A failed fetch keeps the last good copy.
+  certificates that are on their issuer's current manifest and validate.
+  A publication point whose manifest check fails (RFC 9286 section 6) is
+  listed with its reasons and nothing below it is walked. A failed fetch
+  keeps the last good copy.
   Needs rsync 3.1.0 or later, on PATH or given with --rsync.
 
   Flags:
@@ -95,9 +98,11 @@ defmodule Lumina.CLI do
   Validate what the last sync put in the cache, without fetching
   anything: for each TAL, its stored trust anchor certificate, then every
   CA certificate and signed object below it, top down through the CA
-  certificates that validate. A signed object is checked for its CMS
-  envelope, signature and EE certificate; manifest and ROA contents are
-  not checked yet.
+  certificates that validate. Only files on each CA's current manifest
+  are used, and a publication point the manifest checks reject (RFC 9286
+  section 6) counts as one invalid manifest, with nothing in it
+  validated. A signed object is checked for its CMS envelope, signature
+  and EE certificate; ROA contents are not checked yet.
 
   Flags:
     --cache DIR   the cache directory (default: as for lumina sync)

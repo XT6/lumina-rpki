@@ -250,6 +250,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
   - `lumina validate` (#114) runs the same per-publication-point validation (`Lumina.Validate.point/5`) over the cache, offline, from the stored TA at `--now`, and adds the EE certificates of signed objects. Its exit code is set by D-022.
   - A `.cer` file is checked as a CA certificate when its Basic Constraints say cA or its Key Usage has keyCertSign (RFC 6487 §4.8.1, §4.8.4), so a CA certificate missing Basic Constraints is reported invalid rather than skipped (#115). Other `.cer` files, such as router certificates (D-020), are skipped.
   - Not validated, and not reported: a certificate with the CA's own key (the CA itself, such as LACNIC's TA in its own publication point, #103), and, until manifests list a CA's files (M5), one whose issuer name and AKI both name another CA.
+- **Since #134 (manifests):** a CA's products are the files its current manifest lists, in a publication point RFC 9286 §6 accepts (`Lumina.PublicationPoint`). The two directory rules above are gone: neither the CA's own certificate nor another CA's is on the manifest. A failed point is a `point_failed` walk issue with its reasons and nothing below it is walked (§6.6); like an invalid CA, it doesn't change `lumina sync`'s exit code. In `lumina validate` each point is represented by its manifest's entry (valid when the point is accepted, with every reason when not), and files not on a manifest are only counted.
 
 ## D-015: The CRL that decides revocation in M4
 
@@ -326,6 +327,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Where:** #114, PR #126 (maintainer: "over 10 or 20% of all certificates have to be invalid for an exit 1").
 - **Consequences:** `Lumina.Validate.failed?/2` takes the percentage. Missing publication points are a fetch problem, reported by `lumina sync`.
 - **Since #131:** the share counts CA certificates and signed objects (a signed object is invalid when its CMS envelope or its EE certificate is).
+- **Since #134:** a failed publication point counts once, as its manifest's invalid entry; the objects in it aren't validated, so they don't count.
 
 ## D-023: A failed publication point falls back to its last valid copy
 

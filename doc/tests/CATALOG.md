@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 67 Barry fixtures: 11 valid, 56 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 658 unit tests in 56 modules.
+- 662 unit tests in 56 modules.
 
 ## Barry fixtures
 
@@ -474,12 +474,15 @@ ta/missing.crl, which isn't published. RFC 6487 section 7.2 point 5 (as updated 
 3.2) needs that CRL to decide revocation, so both are invalid (D-015).
 
 Chain validation (#112): validation must reject both certificates with
-this one reason.
+this one reason. Since manifests decide publication points (#134), the
+invalid ta.mft fails the TA's point (RFC 9286 §6.2), and its CRL isn't
+on the manifest either (§6), so ca1 is never reached.
 
 - **Expected:** invalid. A validator must reject:
   - `ta/ca1.cer`: the CRL named by the CRLDP is missing
   - `ta/ta.mft`: the CRL named by the CRLDP is missing
-- **RFC:** [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)), [6487 §4.8.6](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.6))
+  - `ta/ta.mft`: the CRL missing.crl is not on the manifest
+- **RFC:** [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)), [6487 §4.8.6](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.6)), [9286 §6.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.2))
 - **Files:** [descriptor](../../test/fixtures/barry/m4-chain-crl-missing/case.repo) · [metadata](../../test/fixtures/barry/m4-chain-crl-missing/case.exs) · [rsync tree](../../test/fixtures/barry/m4-chain-crl-missing/rsync)
 
 #### `m4-chain-issuer-mismatch`: CA certificate whose issuer isn't the TA's subject
@@ -1367,6 +1370,8 @@ repository's certificates to it (`:remap`, see `Lumina.Walk`).
 - *syncing:* a full sync exits 0 and prints the TA URI, publication points and fetches (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
 - *syncing:* an invalid CA is listed with its reasons, and isn't walked (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
   D-014: an invalid CA isn't a fetch failure; the sync exits 0.
+- *syncing:* a publication point that fails is counted and listed with its reasons (RFC [9286 §6.5](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.5)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)))
+  Like an invalid CA, a failed publication point isn't a fetch failure: exit 0.
 - *syncing:* a TA that doesn't validate is rejected with its reasons, exit 1 (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
 - *syncing:* --tal syncs only the TAL it names
   Requested by the maintainer: --tal syncs that TAL only. The tals
@@ -1464,6 +1469,12 @@ Syncs run at 2026-11-13, inside the fixtures' default validity.
   After the fixtures' notAfter (2036-01-01), the TA itself has expired.
 - *--now:* --now sets the validation time for every certificate (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
   m4-cert-expired's ca1 expires before 2030; the sync, in 2026, followed it.
+- *publication points (#134):* a point that fails is its manifest's invalid entry, and nothing in it is validated (RFC [9286 §6.3](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.3)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)))
+  m5-pp-manifest-stale's ca1.mft goes stale on 2027-01-01. The sync
+  (2026-11-13) accepted the point; validating at 2030 fails it, and
+  its ROA isn't validated.
+- *publication points (#134):* files not on a manifest are counted and not validated (RFC [9286 §6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6)))
+  Files not on the manifest "MUST NOT be used": counted, never validated.
 - *failures and usage:* a cache without the TAL's TA exits 1 and says to sync first
 - *failures and usage:* a valid CA whose publication point isn't in the cache is reported missing, exit 0 (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
   Missing publication points are a fetch problem, reported by sync (D-022).
@@ -2624,20 +2635,22 @@ and reports keep the names from the certificates.
 - *validation (D-014):* a CA that doesn't validate is reported with its reasons, and nothing below it is walked (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
   ca1's directory arrives with the module (D-012), but it isn't walked.
 - *validation (D-014):* a revoked CA isn't walked, and its sibling is (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)))
-- *validation (D-014):* a CA whose CRL is missing isn't walked (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)))
-- *validation (D-014):* a TA certificate published in its own publication point is skipped silently (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+- *validation (D-014):* a CRL that is missing fails the publication point, and nothing below is walked (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)), [9286 §6.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.2)))
+  The TA's manifest names the missing CRL too, so the TA's point fails (#134).
+- *validation (D-014):* a TA certificate published in its own publication point is ignored (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [9286 §6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6)))
   #103: LACNIC publishes its TA certificate in the TA's own
-  publication point. A certificate with the CA's own key is the CA
-  itself, not a child: no loop, no invalid CA.
-- *validation (D-014):* a certificate issued by another CA is skipped, not reported invalid (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [6487 §4.8.3](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.3)))
-  Until manifests say what a CA published (M5), a certificate whose
-  issuer name and AKI both name another CA belongs to a CA sharing
-  the directory: here a CA certificate from another fixture.
+  publication point. It isn't on the TA's manifest, so it isn't
+  used (#134): no loop, no invalid CA.
+- *validation (D-014):* a certificate not on the manifest is ignored, not walked or reported (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [9286 §6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6)))
+  A CA certificate from another fixture, in ta/ but not on the TA's
+  manifest: files not on the manifest "MUST NOT be used" (#134).
 - *validation (D-014):* a certificate naming the CA as issuer but with another AKI is reported invalid (RFC [6487 §4.8.3](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.3)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
   Only one of the two names another CA: a fault, reported.
 - *validation (D-014):* a CA certificate without Basic Constraints is reported invalid, not skipped (RFC [6487 §4.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.1)), [6487 §4.8.4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.4)))
   Its Key Usage has keyCertSign, so it is checked as a CA and the
   missing Basic Constraints reported (#115); it isn't walked.
+- *publication points (RFC 9286 §6, #134):* a publication point that fails is reported, and nothing below it is walked (RFC [9286 §6.5](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.5)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)))
+  ca1's manifest lists roa1.roa with a wrong hash: the point fails, the walk goes on elsewhere.
 - *selecting CAs (D-005):* a certificate that isn't a CA isn't followed (RFC [6487 §4.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.1)))
 - *selecting CAs (D-005):* a CA is followed to its rsync caRepository (RFC [6487 §4.8.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.1)))
 
