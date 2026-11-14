@@ -1,0 +1,13 @@
+ta.cer
+	ca1.cer
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: ca1.cer]
+# Barry's default SIA (caRepository, rpkiNotify) without the rpkiManifest.
+obj.tbsCertificate.extensions.sia.extnValue = [
+	{ accessMethod = 1.3.6.1.5.5.7.48.5, accessLocation = { value = rsync://localhost:8873/rpki/ca1 } },
+	{ accessMethod = 1.3.6.1.5.5.7.48.13, accessLocation = { value = "https://localhost:8443/rrdp/notification.xml" } }
+]

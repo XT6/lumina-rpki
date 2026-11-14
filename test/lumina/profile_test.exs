@@ -1,7 +1,7 @@
 defmodule Lumina.ProfileTest do
   @moduledoc """
   Tests the basic-field checks of the resource certificate profile
-  (`Lumina.Profile.certificate/2`, #109): RFC 6487 §4.1 to §4.7, with the
+  (`Lumina.Profile.basic_fields/2`, #109): RFC 6487 §4.1 to §4.7, with the
   validity check of §7.2.
 
   Every certificate of the positive Barry fixtures must pass, and each
@@ -33,7 +33,7 @@ defmodule Lumina.ProfileTest do
   end
 
   defp ca1(id), do: cert!(id, "ta/ca1.cer")
-  defp rules(cert, at \\ @at), do: Enum.map(Profile.certificate(cert, at), & &1.rule)
+  defp rules(cert, at \\ @at), do: Enum.map(Profile.basic_fields(cert, at), & &1.rule)
 
   # A DER Name of one RDN with the given attributes ({oid bytes, tag,
   # value}), and the decoded form, as a certificate holds both.
@@ -70,7 +70,7 @@ defmodule Lumina.ProfileTest do
           Fixture.load!(id).expected == :valid,
           path <- Path.wildcard(Path.join(dir, "rsync/**/*.{cer,mft,roa}")) do
         file = Path.relative_to(path, Path.join(dir, "rsync"))
-        assert Profile.certificate(cert!(id, file), @at) == [], "#{id} #{file}"
+        assert Profile.basic_fields(cert!(id, file), @at) == [], "#{id} #{file}"
       end
     end
 
@@ -117,11 +117,11 @@ defmodule Lumina.ProfileTest do
       id = "m4-cert-name-extra-attribute"
 
       assert [%{rule: :name_attribute, field: :subject, rfc: "6487#4.5"}] =
-               Profile.certificate(ca1(id), @at)
+               Profile.basic_fields(ca1(id), @at)
 
       for file <- ["ca1/ca1.mft", "ca1/roa1.roa"] do
         assert [%{rule: :name_attribute, field: :issuer, rfc: "6487#4.4"}] =
-                 Profile.certificate(cert!(id, file), @at),
+                 Profile.basic_fields(cert!(id, file), @at),
                file
       end
     end
@@ -165,7 +165,7 @@ defmodule Lumina.ProfileTest do
     test "a commonName that isn't a PrintableString is rejected" do
       ca = with_subject(ca1("m0-minimal-valid"), [{@cn, @utf8, "ca1"}])
 
-      assert [%{rule: :common_name_encoding, field: :subject}] = Profile.certificate(ca, @at)
+      assert [%{rule: :common_name_encoding, field: :subject}] = Profile.basic_fields(ca, @at)
     end
 
     @tag rfc: "6487#4.5"
@@ -221,7 +221,7 @@ defmodule Lumina.ProfileTest do
           }
       }
 
-      problems = Profile.certificate(ca, @at)
+      problems = Profile.basic_fields(ca, @at)
       assert [%{rule: :key_algorithm_sha256_with_rsa, severity: :warning}] = problems
       assert Profile.passes?(problems)
     end
@@ -242,7 +242,7 @@ defmodule Lumina.ProfileTest do
       }
 
       assert [%{rule: :key_size, field: :public_key, severity: :error}] =
-               Profile.certificate(ca, @at)
+               Profile.basic_fields(ca, @at)
     end
   end
 end

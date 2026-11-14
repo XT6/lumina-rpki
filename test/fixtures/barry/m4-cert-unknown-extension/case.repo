@@ -1,0 +1,13 @@
+ta.cer
+	ca1.cer
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: ca1.cer]
+# Barry's default CA list plus a second Basic Constraints whose OID is
+# changed to one no validator recognizes, non-critical.
+obj.tbsCertificate.extensions = [ bc, ski, aki, ku, cdp, aia, sia, cp, ip, as, bc2 ]
+obj.tbsCertificate.extensions.bc2.extnID = 1.3.6.1.4.1.99999.2
+obj.tbsCertificate.extensions.bc2.critical = false

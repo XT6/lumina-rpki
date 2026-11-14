@@ -48,6 +48,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-027](#f-027-rfc-7935-names-a-signature-algorithm-as-the-public-key-algorithm) | 7935 §3.1; 4055 §1.2 | erratum | [5737](https://www.rfc-editor.org/errata/eid5737) (Rejected) | Accept both for reading the key; the profile check is #109 |
 | [F-028](#f-028-rfc-7935-4-cites-the-public-key-section-for-the-signature-format) | 7935 §4 | reference | none found (not reported) | Signature format from RFC 4055 §3.2 and RFC 5280 §4.1.1.3 (#108) |
 | [F-029](#f-029-barry-gives-the-root-certificate-serial-number-0) | 6487 §4.2; 5280 §4.1.2.2 (Barry) | tooling | n/a | Every fixture sets the TA serial to 1 (#109) |
+| [F-030](#f-030-barry-cant-set-the-certificate-policies-value) | 6487 §4.8.9; 7318 §2 (Barry) | tooling | n/a | Policy rules tested on decoded certificates (#110) |
 
 ## Entries
 
@@ -301,7 +302,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Impact:** a CA that adds an unknown non-critical extension gets its certificate accepted by some validators and rejected by others, which means different VRP sets. This is the same parser-differential risk as F-010.
 - **Resolution:**
   - Version: reject v1/v2 (fixture `m1-cert-version-2`).
-  - Unknown non-critical extensions: **accepted with a warning** (D-013, maintainer decision 2026-11-13, #42).
+  - Unknown non-critical extensions: **accepted with a warning** (D-013, maintainer decision 2026-11-13, #42; fixture `m4-cert-unknown-extension`, `Lumina.Profile.extensions/2`, #110). A CRL extension in a certificate is treated the same way: Lumina knows it, but it has no meaning there.
   - Unknown critical extensions: reject, as §4.8 requires (fixture `m1-cert-unknown-critical-extension`).
   - The decoder keeps every unknown extension, with its criticality, so any decision can be implemented.
 - **Data point (2026-11-12):** in a full rsync copy of LACNIC's repository, **none of the 3,514 certificates** carries an unknown extension, critical or not, and all are version 3. So for LACNIC's repository today, the #42 decision changes no verdicts.
@@ -510,6 +511,15 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Found:** writing the profile check for #109; every Barry fixture's TA failed it. The LACNIC repository copy in `test/realrepos/` has no certificate with a serial of 0 or below.
 - **Impact:** an RP that checks §4.2 rejects every Barry-generated TA; one that doesn't check it passes tests that never exercise the rule.
 - **Resolution:** every fixture's `case.repo` sets `obj.tbsCertificate.serialNumber = 1` on `ta.cer`, and all fixtures were regenerated. Worth raising with the Barry maintainers.
+
+### F-030: Barry can't set the certificate policies value
+
+- **Where:** RFC 6487 §4.8.9 as updated by RFC 7318 §2: exactly one policy, the RPKI CP, with at most one qualifier, a CPS pointer.
+- **Kind:** tooling: Barry (pinned `478ee89`) can change the certificatePolicies extension's OID and criticality, but not its value (`ext.c`, `add_cp_fields`: "extnValue ... TODO not implemented yet"). It always writes id-cp-ipAddr-asNumber with no qualifier.
+- **Official errata:** n/a.
+- **Found:** writing the "wrong certificate policy" fixture that #110 asked for.
+- **Impact:** no Barry fixture can carry another policy, two policies, or a qualifier, so the RFC 7318 rules can't be tested end to end with a signed repository.
+- **Resolution:** the policy rules are tested on decoded fixture certificates with the extension value changed (`test/lumina/profile_extensions_test.exs`); the profile checks don't verify signatures, so that is enough for them. Once Barry writes this value, or the D-017 keys let tests re-sign certificates, a fixture can replace them. Worth raising with the Barry maintainers, with F-029.
 
 ## Process notes
 

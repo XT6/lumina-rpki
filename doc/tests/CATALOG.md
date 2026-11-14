@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 23 Barry fixtures: 9 valid, 14 invalid.
+- 29 Barry fixtures: 10 valid, 19 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 502 unit tests in 48 modules.
+- 539 unit tests in 49 modules.
 
 ## Barry fixtures
 
@@ -259,6 +259,32 @@ them, to have a last good copy, and then take the host away.
 
 ### M4
 
+#### `m4-cert-ca-eku`: CA certificate with an Extended Key Usage
+
+The baseline tree with one change: the CA certificate carries an Extended Key Usage extension. RFC 6487
+section 4.8.5 says it MUST NOT appear in any CA certificate.
+
+Certificate profile check (#110): validation must reject the CA
+certificate with this one reason, and accept everything else.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta/ca1.cer`: extended_key_usage must not be present
+- **RFC:** [6487 §4.8.5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.5))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-cert-ca-eku/case.repo) · [metadata](../../test/fixtures/barry/m4-cert-ca-eku/case.exs) · [rsync tree](../../test/fixtures/barry/m4-cert-ca-eku/rsync)
+
+#### `m4-cert-ca-no-basic-constraints`: CA certificate without Basic Constraints
+
+The baseline tree with one change: the CA certificate has no Basic Constraints extension. RFC 6487
+section 4.8.1 requires it, critical with cA set, in every CA certificate.
+
+Certificate profile check (#110): validation must reject the CA
+certificate with this one reason, and accept everything else.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta/ca1.cer`: basic_constraints is missing
+- **RFC:** [6487 §4.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.1))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-cert-ca-no-basic-constraints/case.repo) · [metadata](../../test/fixtures/barry/m4-cert-ca-no-basic-constraints/case.exs) · [rsync tree](../../test/fixtures/barry/m4-cert-ca-no-basic-constraints/rsync)
+
 #### `m4-cert-expired`: CA certificate already expired at validation time
 
 The baseline tree with one change: the CA certificate's notAfter is 2029-01-01, before the validation time the
@@ -288,6 +314,19 @@ certificate with this one reason, and accept everything else.
 - **RFC:** [6487 §4.3](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.3)), [5280 §4.1.1.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.1.2)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2))
 - **Files:** [descriptor](../../test/fixtures/barry/m4-cert-inner-signature-algorithm/case.repo) · [metadata](../../test/fixtures/barry/m4-cert-inner-signature-algorithm/case.exs) · [rsync tree](../../test/fixtures/barry/m4-cert-inner-signature-algorithm/rsync)
 
+#### `m4-cert-key-usage-not-critical`: CA certificate whose Key Usage is not critical
+
+The baseline tree with one change: the CA certificate's Key Usage extension is not marked critical. RFC
+6487 section 4.8.4 requires it to be.
+
+Certificate profile check (#110): validation must reject the CA
+certificate with this one reason, and accept everything else.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta/ca1.cer`: key_usage must be critical
+- **RFC:** [6487 §4.8.4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.4))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-cert-key-usage-not-critical/case.repo) · [metadata](../../test/fixtures/barry/m4-cert-key-usage-not-critical/case.exs) · [rsync tree](../../test/fixtures/barry/m4-cert-key-usage-not-critical/rsync)
+
 #### `m4-cert-name-extra-attribute`: CA certificate whose subject has an organizationName
 
 The baseline tree with one change: the CA certificate's subject holds an organizationName besides its
@@ -306,6 +345,19 @@ issuer breaks the same rule; the CRL profile is #111.
   - `ca1/roa1.roa`: the EE certificate's issuer holds an organizationName
 - **RFC:** [6487 §4.4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.4)), [6487 §4.5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.5))
 - **Files:** [descriptor](../../test/fixtures/barry/m4-cert-name-extra-attribute/case.repo) · [metadata](../../test/fixtures/barry/m4-cert-name-extra-attribute/case.exs) · [rsync tree](../../test/fixtures/barry/m4-cert-name-extra-attribute/rsync)
+
+#### `m4-cert-no-resources`: CA certificate with neither IP nor AS resources
+
+The baseline tree with one change: the CA certificate has neither an IP Resources nor an AS Resources
+extension. RFC 6487 sections 4.8.10 and 4.8.11 require at least one.
+
+Certificate profile check (#110): validation must reject the CA
+certificate with this one reason, and accept everything else.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta/ca1.cer`: neither IP nor AS resources are present
+- **RFC:** [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10)), [6487 §4.8.11](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.11))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-cert-no-resources/case.repo) · [metadata](../../test/fixtures/barry/m4-cert-no-resources/case.exs) · [rsync tree](../../test/fixtures/barry/m4-cert-no-resources/rsync)
 
 #### `m4-cert-not-yet-valid`: CA certificate not yet valid at validation time
 
@@ -358,6 +410,34 @@ certificate with this one reason, and accept everything else.
   - `ta/ca1.cer`: serial number is 0; it must be positive
 - **RFC:** [6487 §4.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.2)), [5280 §4.1.2.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.2))
 - **Files:** [descriptor](../../test/fixtures/barry/m4-cert-serial-zero/case.repo) · [metadata](../../test/fixtures/barry/m4-cert-serial-zero/case.exs) · [rsync tree](../../test/fixtures/barry/m4-cert-serial-zero/rsync)
+
+#### `m4-cert-sia-no-manifest`: CA certificate whose SIA has no rpkiManifest
+
+The baseline tree with one change: the CA certificate's Subject Information Access names the caRepository
+but no rpkiManifest. RFC 6487 section 4.8.8.1 requires an rsync URI for
+both.
+
+Certificate profile check (#110): validation must reject the CA
+certificate with this one reason, and accept everything else.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta/ca1.cer`: no rpki_manifest rsync URI
+- **RFC:** [6487 §4.8.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.1))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-cert-sia-no-manifest/case.repo) · [metadata](../../test/fixtures/barry/m4-cert-sia-no-manifest/case.exs) · [rsync tree](../../test/fixtures/barry/m4-cert-sia-no-manifest/rsync)
+
+#### `m4-cert-unknown-extension`: CA certificate with an unknown non-critical extension
+
+The baseline tree with one change: the CA certificate carries an extension with an unknown OID
+(1.3.6.1.4.1.99999.2), marked non-critical. RFC 6487 section 4.8 lets
+an RP ignore it; D-013 accepts it with a warning naming the OID (#42).
+The counterpart of m1-cert-unknown-critical-extension.
+
+Certificate profile check (#110): the repository is valid; the
+CA certificate gets one warning.
+
+- **Expected:** valid
+- **RFC:** [6487 §4.8](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8)), [5280 §4.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.2))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-cert-unknown-extension/case.repo) · [metadata](../../test/fixtures/barry/m4-cert-unknown-extension/case.exs) · [rsync tree](../../test/fixtures/barry/m4-cert-unknown-extension/rsync)
 
 ## Test TALs
 
@@ -1213,12 +1293,75 @@ are, under the strict grammar (D-002).
   Byte for byte: a changed key, URI, line ending or comment in either copy fails.
 - every production TAL parses with no warnings (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
 
+### `Lumina.ProfileExtensionsTest`
+
+[test/lumina/profile_extensions_test.exs](../../test/lumina/profile_extensions_test.exs)
+
+Tests the extension checks of the resource certificate profile
+(`Lumina.Profile.extensions/2`, #110): RFC 6487 §4.8, as updated by
+RFC 7318, for TA, CA and EE certificates.
+
+Every certificate of the positive Barry fixtures must pass the whole
+profile (`certificate/3`), and each `m4-cert-*` extension fixture, plus
+`m1-cert-no-ski` and `m1-cert-unknown-critical-extension`, breaks one
+rule. `m4-cert-unknown-extension` is valid with one warning (D-013,
+#42). Cases Barry can't produce (it can't set the certificatePolicies
+value, F-030) change one extension of a decoded fixture certificate;
+the profile checks don't verify signatures, so it needn't be re-signed.
+
+- *fixtures:* every certificate of every positive Barry fixture passes the whole profile (RFC [6487 §4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4)), [6487 §4.8](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8)))
+  TA, CA and EE certificates (from manifests and ROAs) of every
+  fixture expected valid; m4-cert-unknown-extension passes with a
+  warning, the others without any problem.
+- *fixtures:* m1-cert-no-ski: a certificate without a Subject Key Identifier is rejected (RFC [6487 §4.8.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.2)))
+- *fixtures:* m1-cert-unknown-critical-extension: an unknown critical extension is rejected (RFC [6487 §4.8](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8)))
+- *fixtures:* m4-cert-unknown-extension: an unknown non-critical extension is accepted with a warning (RFC [6487 §4.8](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8)), [5280 §4.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.2)))
+  D-013, #42: accepted, with a warning that names the OID.
+- *fixtures:* m4-cert-ca-no-basic-constraints: a CA certificate without Basic Constraints is rejected (RFC [6487 §4.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.1)))
+- *fixtures:* m4-cert-key-usage-not-critical: a non-critical Key Usage is rejected (RFC [6487 §4.8.4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.4)))
+- *fixtures:* m4-cert-ca-eku: an Extended Key Usage in a CA certificate is rejected (RFC [6487 §4.8.5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.5)))
+- *fixtures:* m4-cert-sia-no-manifest: a CA certificate whose SIA has no rpkiManifest is rejected (RFC [6487 §4.8.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.1)))
+- *fixtures:* m4-cert-no-resources: a certificate with neither IP nor AS resources is rejected (RFC [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10)), [6487 §4.8.11](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.11)))
+- *general rules:* an extension that appears twice is rejected (RFC [5280 §4.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.2)))
+- *general rules:* a profile extension whose value doesn't decode is rejected as malformed (RFC [5280 §4.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.2)))
+- *general rules:* a known extension outside the certificate profile is handled like an unknown one (RFC [6487 §4.8](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8)))
+  A CRL extension is known to Lumina but has no place in a certificate.
+- *basic constraints, key identifiers, key usage:* an EE certificate with Basic Constraints is rejected (RFC [6487 §4.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.1)))
+- *basic constraints, key identifiers, key usage:* a CA certificate with a path length constraint or without cA is rejected (RFC [6487 §4.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.1)))
+- *basic constraints, key identifiers, key usage:* a Subject Key Identifier that isn't the SHA-1 of the key is rejected (RFC [6487 §4.8.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.2)))
+- *basic constraints, key identifiers, key usage:* a CA certificate without an Authority Key Identifier is rejected; a TA may omit it (RFC [6487 §4.8.3](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.3)))
+- *basic constraints, key identifiers, key usage:* a TA whose Authority Key Identifier differs from its SKI is rejected (RFC [6487 §4.8.3](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.3)))
+- *basic constraints, key identifiers, key usage:* an Authority Key Identifier with authorityCertSerialNumber is rejected (RFC [6487 §4.8.3](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.3)))
+- *basic constraints, key identifiers, key usage:* Key Usage bits other than the kind's are rejected (RFC [6487 §4.8.4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.4)))
+- *basic constraints, key identifiers, key usage:* an Extended Key Usage in the EE certificate of a signed object is rejected (RFC [6487 §4.8.5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.5)))
+  A well-formed EKU (id-kp-bgpsec-router) on the EE certificate of a ROA.
+- *CRLDP, AIA and SIA:* a self-signed certificate with a CRLDP or an AIA is rejected (RFC [6487 §4.8.6](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.6)), [6487 §4.8.7](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.7)))
+- *CRLDP, AIA and SIA:* a CA certificate without a CRLDP or an AIA is rejected (RFC [6487 §4.8.6](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.6)), [6487 §4.8.7](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.7)))
+- *CRLDP, AIA and SIA:* a CRLDP with two DistributionPoints, a cRLIssuer or no rsync URI is rejected (RFC [6487 §4.8.6](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.6)))
+- *CRLDP, AIA and SIA:* an AIA without an rsync caIssuers URI is rejected (RFC [6487 §4.8.7](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.7)))
+- *CRLDP, AIA and SIA:* an EE certificate's SIA with an access method other than signedObject is rejected (RFC [6487 §4.8.8.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.2)))
+- *CRLDP, AIA and SIA:* a CA certificate's SIA without an rsync caRepository is rejected (RFC [6487 §4.8.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.1)))
+- *CRLDP, AIA and SIA:* a critical SIA is rejected (RFC [6487 §4.8.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.1)))
+- *certificate policies (RFC 7318):* a policy other than the RPKI CP is rejected (RFC [6487 §4.8.9](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.9)))
+  F-030: Barry can't write this, so the decoded value is changed.
+- *certificate policies (RFC 7318):* the RFC 8360 policy is rejected as unsupported (RFC [6487 §4.8.9](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.9)))
+  RFC 8360's policy needs the v2 resource extensions, which Lumina doesn't support.
+- *certificate policies (RFC 7318):* two policies are rejected (RFC [6487 §4.8.9](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.9)))
+- *certificate policies (RFC 7318):* one CPS pointer qualifier is accepted, any other qualifier is rejected (RFC [7318 §2](../rfc/rfc7318.txt) ([html](https://www.rfc-editor.org/rfc/rfc7318.html#section-2)))
+- *certificate policies (RFC 7318):* non-critical certificate policies are rejected (RFC [6487 §4.8.9](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.9)))
+- *resources:* IP resources with a SAFI are rejected (RFC [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10)))
+- *resources:* AS resources with RDIs are rejected (RFC [6487 §4.8.11](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.11)))
+- *resources:* an empty resource set is rejected, and inherit is accepted (RFC [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10)), [6487 §4.8.11](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.11)))
+- *resources:* non-critical resource extensions are rejected (RFC [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10)), [6487 §4.8.11](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.11)))
+- *resources:* one resource extension is enough (RFC [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10)))
+  An EE certificate of a ROA carries IP resources only.
+
 ### `Lumina.ProfileTest`
 
 [test/lumina/profile_test.exs](../../test/lumina/profile_test.exs)
 
 Tests the basic-field checks of the resource certificate profile
-(`Lumina.Profile.certificate/2`, #109): RFC 6487 §4.1 to §4.7, with the
+(`Lumina.Profile.basic_fields/2`, #109): RFC 6487 §4.1 to §4.7, with the
 validity check of §7.2.
 
 Every certificate of the positive Barry fixtures must pass, and each

@@ -1,0 +1,10 @@
+ta.cer
+	ca1.cer
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: ca1.cer]
+# Barry's default CA list without bc (Basic Constraints).
+obj.tbsCertificate.extensions = [ ski, aki, ku, cdp, aia, sia, cp, ip, as ]
