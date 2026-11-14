@@ -11,6 +11,8 @@ defmodule Lumina.CMS do
       once with one value, and nothing else (so binary-signing-time is
       rejected, RFC 9589); content-type equal to the eContentType;
       SHA-256 digests and an RSA signature algorithm.
+    * `verify/1` (#130): the message digest and the signature.
+    * `check/1`: both.
 
   Problems have the same shape as `Lumina.Profile`'s: `rule`, `rfc`,
   `field`, `message` and `severity`. DER (item 1.l) and the SignedData
@@ -18,7 +20,7 @@ defmodule Lumina.CMS do
   `Lumina.SignedObject.decode/1`, so a decoded object meets them.
   """
 
-  alias Lumina.{Certificate, SignedObject}
+  alias Lumina.{Certificate, Crypto, SignedObject}
 
   @type problem :: Lumina.Profile.problem()
 
@@ -28,6 +30,12 @@ defmodule Lumina.CMS do
   @null <<5, 0>>
 
   @required [:content_type, :message_digest, :signing_time]
+
+  @doc """
+  Every problem of `object`'s envelope: `profile/1` and `verify/1`.
+  """
+  @spec check(SignedObject.t()) :: [problem()]
+  def check(%SignedObject{} = object), do: profile(object) ++ verify(object)
 
   @doc """
   The problems of `object`'s CMS envelope (RFC 6488 §3 item 1, RFC 9589
@@ -56,6 +64,63 @@ defmodule Lumina.CMS do
           ]
       end
   end
+
+  @doc """
+  The cryptographic problems of `object`'s envelope (RFC 6488 §3 item 2):
+  the message-digest attribute must be the SHA-256 of the eContent (RFC
+  5652 §5.4, §11.2), and the signature must verify over the DER of the
+  signed attributes with the EE certificate's key (`Lumina.Crypto`).
+  Parts that `profile/1` already reports missing (no single signer, no
+  signed attributes, no EE certificate, no eContent) are skipped.
+  """
+  @spec verify(SignedObject.t()) :: [problem()]
+  def verify(%SignedObject{signers: [signer]} = object) do
+    message_digest(signer, object.econtent) ++
+      signature(signer, SignedObject.ee_certificate(object))
+  end
+
+  def verify(%SignedObject{}), do: []
+
+  # RFC 5652 §5.4: the digest covers the eContent's contents octets.
+  defp message_digest(_signer, nil), do: []
+
+  defp message_digest(%{signed_attrs: attrs}, econtent) when is_list(attrs) do
+    case for(%{name: :message_digest, values: [digest]} <- attrs, do: digest) do
+      [digest] when is_binary(digest) ->
+        if digest == :crypto.hash(:sha256, econtent),
+          do: [],
+          else: [
+            error(
+              :message_digest_mismatch,
+              "5652#5.4",
+              :message_digest,
+              "the message-digest attribute is not the SHA-256 of the eContent"
+            )
+          ]
+
+      _ ->
+        []
+    end
+  end
+
+  defp message_digest(_signer, _econtent), do: []
+
+  # A signature algorithm other than RSA is profile/1's to report.
+  defp signature(
+         %{signed_attrs_der: der, signature_algorithm: %{oid: oid}} = signer,
+         %Certificate{} = ee
+       )
+       when is_binary(der) and oid in [@rsa_encryption, @sha256_with_rsa] do
+    case Crypto.verify_cms(der, signer.signature_algorithm, signer.signature, ee.public_key) do
+      :ok ->
+        []
+
+      {:error, %{rule: rule, rfc: rfc, message: message}} ->
+        [error(rule, rfc, :signature, message)]
+    end
+  end
+
+  defp signature(_signer, _ee), do: []
 
   # §2.1.1 (item 1.b) and §2.1.2 (item 1.j).
   defp signed_data(object) do
@@ -197,12 +262,26 @@ defmodule Lumina.CMS do
   end
 
   # RFC 7935 §2: RPs accept rsaEncryption or sha256WithRSAEncryption.
-  # Parameters NULL or absent: RFC 4055 §5 for sha256WithRSAEncryption;
-  # rsaEncryption's are in RFC 3370, outside the library (F-031), and
-  # read the same way.
-  defp signature_algorithm(%{oid: oid, parameters: parameters})
-       when oid in [@rsa_encryption, @sha256_with_rsa] and parameters in [nil, @null],
+  # sha256WithRSAEncryption: parameters NULL, or absent (RFC 4055 §5).
+  # rsaEncryption: NULL (RFC 3370 §3.2, which RFC 7935 §2 cites); absent
+  # only warns, since Barry writes it that way (F-031).
+  defp signature_algorithm(%{oid: @sha256_with_rsa, parameters: parameters})
+       when parameters in [nil, @null],
        do: []
+
+  defp signature_algorithm(%{oid: @rsa_encryption, parameters: @null}), do: []
+
+  defp signature_algorithm(%{oid: @rsa_encryption, parameters: nil}) do
+    [
+      %{
+        rule: :signature_algorithm_parameters_absent,
+        rfc: "3370#3.2",
+        field: :signature_algorithm,
+        message: "the rsaEncryption parameters are absent; they must be NULL",
+        severity: :warning
+      }
+    ]
+  end
 
   defp signature_algorithm(%{oid: oid}) when oid in [@rsa_encryption, @sha256_with_rsa] do
     [
@@ -210,7 +289,7 @@ defmodule Lumina.CMS do
         :signature_algorithm_parameters,
         "7935#2",
         :signature_algorithm,
-        "the signature algorithm parameters must be NULL or absent"
+        "the signature algorithm parameters must be NULL"
       )
     ]
   end

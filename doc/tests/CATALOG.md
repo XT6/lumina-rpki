@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 52 Barry fixtures: 11 valid, 41 invalid.
+- 53 Barry fixtures: 11 valid, 42 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 620 unit tests in 54 modules.
+- 626 unit tests in 54 modules.
 
 ## Barry fixtures
 
@@ -661,6 +661,21 @@ one reason, and accept everything else.
 
 ### M5
 
+#### `m5-cms-bad-signature`: Signed object whose signature doesn't verify
+
+The baseline tree (m0-minimal-valid) with one change: the SignerInfo
+signature of roa1.roa is replaced by 256 octets that aren't a signature
+of its signed attributes. RFC 6488 section 3 item 2 requires the EE
+certificate's key to verify it.
+
+CMS signature (#130): validation must reject roa1.roa with this one
+reason. Its EE certificate and the rest of its envelope are valid.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/roa1.roa`: the signature doesn't verify with the EE certificate's key
+- **RFC:** [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [5652 §5.4](../rfc/rfc5652.txt) ([html](https://www.rfc-editor.org/rfc/rfc5652.html#section-5.4)), [8017 §8.2.2](../rfc/rfc8017.txt) ([html](https://www.rfc-editor.org/rfc/rfc8017.html#section-8.2.2))
+- **Files:** [descriptor](../../test/fixtures/barry/m5-cms-bad-signature/case.repo) · [metadata](../../test/fixtures/barry/m5-cms-bad-signature/case.exs) · [rsync tree](../../test/fixtures/barry/m5-cms-bad-signature/rsync)
+
 #### `m5-cms-content-type-mismatch`: content-type attribute that isn't the eContentType
 
 The baseline tree (m0-minimal-valid) with one change: The content-type signed attribute of roa1.roa names id-ct-rpkiManifest while its eContentType is the ROA type. RFC 6488 section 2.1.6.4.1 and section 3 item 1.h require them to match.
@@ -1286,20 +1301,25 @@ Syncs run at 2026-11-13, inside the fixtures' default validity.
 
 [test/lumina/cms_test.exs](../../test/lumina/cms_test.exs)
 
-Tests the CMS profile of signed objects (#129): `Lumina.CMS.profile/1`
-against RFC 6488 §2.1 and §3 item 1, as updated by RFC 9589 §4, with
-the algorithms of RFC 7935 §2.
+Tests the CMS envelope of signed objects: `Lumina.CMS.profile/1`
+(#129) against RFC 6488 §2.1 and §3 item 1, as updated by RFC 9589 §4,
+with the algorithms of RFC 7935 §2; and `Lumina.CMS.verify/1` (#130),
+the message digest (RFC 5652 §5.4) and signature (RFC 6488 §3 item 2).
 
-Every signed object of the positive fixtures must pass, and each
-`m5-cms-*` fixture must fail with exactly its one rule. Barry (pinned
+Every signed object of the positive fixtures must pass and verify, and
+each `m5-cms-*` fixture must fail with exactly its one rule. Barry (pinned
 `478ee89`) can't write signed attributes other than its own, unsigned
 attributes, CRLs or SignedData digest algorithms (doc/barry.md), so
 those rules are tested on a decoded m0-minimal-valid ROA changed in
 memory: the profile checks the decoded structure, so nothing needs
 re-encoding.
 
-- *fixtures:* every signed object of the positive Barry fixtures follows the CMS profile (RFC [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [9589 §4](../rfc/rfc9589.txt) ([html](https://www.rfc-editor.org/rfc/rfc9589.html#section-4)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2)))
-  Manifests and ROAs; Barry writes content-type, signing-time and message-digest.
+- *fixtures:* every signed object of the positive Barry fixtures follows the CMS profile and verifies (RFC [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [9589 §4](../rfc/rfc9589.txt) ([html](https://www.rfc-editor.org/rfc/rfc9589.html#section-4)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2)), [5652 §5.4](../rfc/rfc5652.txt) ([html](https://www.rfc-editor.org/rfc/rfc5652.html#section-5.4)))
+  Manifests and ROAs; Barry writes content-type, signing-time and
+  message-digest. The only problem allowed is the warning for
+  rsaEncryption parameters left absent, which Barry always does
+  (F-031).
+- *fixtures:* m5-cms-bad-signature: a signature that doesn't verify with the EE certificate's key is rejected (RFC [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [8017 §8.2.2](../rfc/rfc8017.txt) ([html](https://www.rfc-editor.org/rfc/rfc8017.html#section-8.2.2)))
 - *fixtures:* m5-cms-version-1: a SignedData version other than 3 is rejected (RFC [6488 §2.1.1](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.1)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
 - *fixtures:* m5-cms-signer-version-1: a SignerInfo version other than 3 is rejected (RFC [6488 §2.1.6.1](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.1)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
 - *fixtures:* m5-cms-sid-issuer-serial: a signer identified by issuer and serial number is rejected (RFC [6488 §2.1.6.2](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.2)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
@@ -1316,6 +1336,15 @@ re-encoding.
   Decoding keeps an absent crls field as nil and an empty one as [], so both are told apart.
 - *SignedData:* an absent eContent is rejected (RFC [6488 §2.1.3.2](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.3.2)))
 - *SignedData:* two SignerInfos are rejected (RFC [6488 §2.1](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
+- *signature algorithm parameters:* rsaEncryption parameters NULL pass, absent warn, anything else fails (RFC [3370 §3.2](../rfc/rfc3370.txt) ([html](https://www.rfc-editor.org/rfc/rfc3370.html#section-3.2)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2)))
+  F-031: RFC 3370 §3.2 requires NULL; Barry leaves them out, so absent only warns.
+- *verification:* an eContent changed after signing fails the message digest (RFC [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [5652 §5.4](../rfc/rfc5652.txt) ([html](https://www.rfc-editor.org/rfc/rfc5652.html#section-5.4)), [5652 §11.2](../rfc/rfc5652.txt) ([html](https://www.rfc-editor.org/rfc/rfc5652.html#section-11.2)))
+  The signature covers the signed attributes, so only the digest check sees the change.
+- *verification:* signed attributes changed after signing fail the signature (RFC [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [5652 §5.4](../rfc/rfc5652.txt) ([html](https://www.rfc-editor.org/rfc/rfc5652.html#section-5.4)))
+- *verification:* the signature verifies with sha256WithRSAEncryption named instead of rsaEncryption (RFC [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2)))
+  RFC 7935 §2: RPs accept either; Barry signs with rsaEncryption.
+- *verification:* verification skips what the profile already reports missing
+  Those are profile/1's problems; verify/1 doesn't report them twice.
 - *SignerInfo:* sha256WithRSAEncryption is accepted as the signature algorithm (RFC [6488 §2.1.6.5](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.5)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2)))
   RFC 7935 §2: RPs accept either; Barry writes rsaEncryption.
 - *SignerInfo:* unsigned attributes are rejected (RFC [6488 §2.1.6.7](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-2.1.6.7)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))

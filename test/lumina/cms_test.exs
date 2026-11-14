@@ -1,11 +1,12 @@
 defmodule Lumina.CMSTest do
   @moduledoc """
-  Tests the CMS profile of signed objects (#129): `Lumina.CMS.profile/1`
-  against RFC 6488 §2.1 and §3 item 1, as updated by RFC 9589 §4, with
-  the algorithms of RFC 7935 §2.
+  Tests the CMS envelope of signed objects: `Lumina.CMS.profile/1`
+  (#129) against RFC 6488 §2.1 and §3 item 1, as updated by RFC 9589 §4,
+  with the algorithms of RFC 7935 §2; and `Lumina.CMS.verify/1` (#130),
+  the message digest (RFC 5652 §5.4) and signature (RFC 6488 §3 item 2).
 
-  Every signed object of the positive fixtures must pass, and each
-  `m5-cms-*` fixture must fail with exactly its one rule. Barry (pinned
+  Every signed object of the positive fixtures must pass and verify, and
+  each `m5-cms-*` fixture must fail with exactly its one rule. Barry (pinned
   `478ee89`) can't write signed attributes other than its own, unsigned
   attributes, CRLs or SignedData digest algorithms (doc/barry.md), so
   those rules are tested on a decoded m0-minimal-valid ROA changed in
@@ -33,7 +34,12 @@ defmodule Lumina.CMSTest do
   defp roa(id \\ "m0-minimal-valid"),
     do: signed_object!(Path.join(Fixture.load!(id).rsync_root, "ca1/roa1.roa"))
 
-  defp rules(object), do: Enum.map(CMS.profile(object), & &1.rule)
+  # Error rules only: every Barry object carries the absent-parameters
+  # warning (F-031), tested on its own below.
+  defp rules(object), do: errors(CMS.profile(object))
+  defp errors(problems), do: for(%{severity: :error, rule: rule} <- problems, do: rule)
+
+  defp error_problems(object), do: for(%{severity: :error} = p <- CMS.profile(object), do: p)
 
   defp with_signer(object, fun) do
     [signer] = object.signers
@@ -46,14 +52,26 @@ defmodule Lumina.CMSTest do
   defp attr(object, name), do: Enum.find(hd(object.signers).signed_attrs, &(&1.name == name))
 
   describe "fixtures" do
-    @tag rfc: ["6488#3", "9589#4", "7935#2"],
-         doc: "Manifests and ROAs; Barry writes content-type, signing-time and message-digest."
-    test "every signed object of the positive Barry fixtures follows the CMS profile" do
+    @tag rfc: ["6488#3", "9589#4", "7935#2", "5652#5.4"],
+         doc: """
+         Manifests and ROAs; Barry writes content-type, signing-time and
+         message-digest. The only problem allowed is the warning for
+         rsaEncryption parameters left absent, which Barry always does
+         (F-031).
+         """
+    test "every signed object of the positive Barry fixtures follows the CMS profile and verifies" do
       for dir <- Fixtures.case_dirs(),
           Fixture.load!(Path.basename(dir)).expected == :valid,
           path <- Path.wildcard(Path.join(dir, "rsync/**/*.{mft,roa}")) do
-        assert CMS.profile(signed_object!(path)) == [], path
+        object = signed_object!(path)
+        assert [%{rule: :signature_algorithm_parameters_absent}] = CMS.profile(object), path
+        assert CMS.verify(object) == [], path
       end
+    end
+
+    @tag rfc: ["6488#3", "8017#8.2.2"]
+    test "m5-cms-bad-signature: a signature that doesn't verify with the EE certificate's key is rejected" do
+      assert errors(CMS.check(roa("m5-cms-bad-signature"))) == [:bad_signature]
     end
 
     @tag rfc: ["6488#2.1.1", "6488#3"]
@@ -79,7 +97,7 @@ defmodule Lumina.CMSTest do
     @tag rfc: ["6488#2.1.6.3", "7935#2"]
     test "m5-cms-digest-sha1: a SignerInfo digest algorithm other than SHA-256 is rejected" do
       assert [%{rule: :digest_algorithm, field: :digest_algorithm}] =
-               CMS.profile(roa("m5-cms-digest-sha1"))
+               error_problems(roa("m5-cms-digest-sha1"))
     end
 
     @tag rfc: ["6488#2.1.6.5", "7935#2"]
@@ -105,7 +123,7 @@ defmodule Lumina.CMSTest do
     @tag rfc: ["6488#2.1.2", "7935#2"]
     test "a SignedData digest algorithm other than SHA-256 is rejected" do
       assert [%{rule: :digest_algorithm, field: :digest_algorithms}] =
-               CMS.profile(%{roa() | digest_algorithms: [%{oid: @sha1, parameters: nil}]})
+               error_problems(%{roa() | digest_algorithms: [%{oid: @sha1, parameters: nil}]})
     end
 
     @tag rfc: ["7935#2", "5754#2"],
@@ -147,6 +165,82 @@ defmodule Lumina.CMSTest do
     end
   end
 
+  describe "signature algorithm parameters" do
+    @tag rfc: ["3370#3.2", "7935#2"],
+         doc: "F-031: RFC 3370 §3.2 requires NULL; Barry leaves them out, so absent only warns."
+    test "rsaEncryption parameters NULL pass, absent warn, anything else fails" do
+      with_parameters = fn parameters ->
+        with_signer(roa(), fn signer ->
+          %{signer | signature_algorithm: %{signer.signature_algorithm | parameters: parameters}}
+        end)
+      end
+
+      assert CMS.profile(with_parameters.(<<5, 0>>)) == []
+
+      assert [
+               %{
+                 rule: :signature_algorithm_parameters_absent,
+                 rfc: "3370#3.2",
+                 severity: :warning
+               }
+             ] =
+               CMS.profile(with_parameters.(nil))
+
+      assert rules(with_parameters.(<<4, 0>>)) == [:signature_algorithm_parameters]
+    end
+  end
+
+  describe "verification" do
+    @tag rfc: ["6488#3", "5652#5.4", "5652#11.2"],
+         doc:
+           "The signature covers the signed attributes, so only the digest check sees the change."
+    test "an eContent changed after signing fails the message digest" do
+      object = roa()
+      changed = %{object | econtent: object.econtent <> <<0>>}
+
+      assert errors(CMS.verify(changed)) == [:message_digest_mismatch]
+    end
+
+    @tag rfc: ["6488#3", "5652#5.4"]
+    test "signed attributes changed after signing fail the signature" do
+      object = roa()
+
+      changed =
+        with_signer(object, fn %{signed_attrs_der: der} = signer ->
+          last = :binary.last(der)
+
+          %{
+            signer
+            | signed_attrs_der:
+                binary_part(der, 0, byte_size(der) - 1) <> <<Bitwise.bxor(last, 1)>>
+          }
+        end)
+
+      assert errors(CMS.verify(changed)) == [:bad_signature]
+    end
+
+    @tag rfc: ["6488#3", "7935#2"],
+         doc: "RFC 7935 §2: RPs accept either; Barry signs with rsaEncryption."
+    test "the signature verifies with sha256WithRSAEncryption named instead of rsaEncryption" do
+      object =
+        with_signer(roa(), fn signer ->
+          %{signer | signature_algorithm: %{oid: {1, 2, 840, 113_549, 1, 1, 11}, parameters: nil}}
+        end)
+
+      assert CMS.verify(object) == []
+    end
+
+    @tag doc: "Those are profile/1's problems; verify/1 doesn't report them twice."
+    test "verification skips what the profile already reports missing" do
+      object = roa()
+
+      assert CMS.verify(%{object | econtent: nil}) == []
+      assert CMS.verify(%{object | signers: []}) == []
+      assert CMS.verify(%{object | certificates: []}) == []
+      assert CMS.verify(with_attrs(object, fn _ -> nil end)) == []
+    end
+  end
+
   describe "SignerInfo" do
     @tag rfc: ["6488#2.1.6.5", "7935#2"],
          doc: "RFC 7935 §2: RPs accept either; Barry writes rsaEncryption."
@@ -181,14 +275,14 @@ defmodule Lumina.CMSTest do
       object = with_attrs(roa(), fn attrs -> Enum.reject(attrs, &(&1.name == :signing_time)) end)
 
       assert [%{rule: :missing_signed_attribute, field: :signing_time, rfc: "9589#4"}] =
-               CMS.profile(object)
+               error_problems(object)
     end
 
     @tag rfc: ["6488#2.1.6.4.1", "6488#2.1.6.4.2", "6488#3"]
     test "a missing content-type or message-digest attribute is rejected" do
       for name <- [:content_type, :message_digest] do
         object = with_attrs(roa(), fn attrs -> Enum.reject(attrs, &(&1.name == name)) end)
-        assert [%{rule: :missing_signed_attribute, field: ^name}] = CMS.profile(object)
+        assert [%{rule: :missing_signed_attribute, field: ^name}] = error_problems(object)
       end
     end
 
@@ -203,7 +297,7 @@ defmodule Lumina.CMSTest do
 
       object = with_attrs(roa(), &(&1 ++ [bst]))
 
-      assert [%{rule: :signed_attribute_not_allowed, rfc: "9589#4"}] = CMS.profile(object)
+      assert [%{rule: :signed_attribute_not_allowed, rfc: "9589#4"}] = error_problems(object)
     end
 
     @tag rfc: ["6488#2.1.6.4", "6488#3"]
@@ -212,7 +306,7 @@ defmodule Lumina.CMSTest do
       object = with_attrs(roa(), &(&1 ++ [other]))
 
       assert [%{rule: :signed_attribute_not_allowed, field: {:attribute, {1, 2, 3}}}] =
-               CMS.profile(object)
+               error_problems(object)
     end
 
     @tag rfc: "6488#2.1.6.4"
