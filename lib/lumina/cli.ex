@@ -7,27 +7,29 @@ defmodule Lumina.CLI do
       lumina <command> [flags] [arguments]
       lumina print [--brief] FILE...
       lumina sync [--cache DIR] [--tal FILE]... [--timeout SECONDS] [--max-depth N]
+      lumina validate [--cache DIR] [--tal FILE]... [--now TIME]
       lumina help [command]
 
   Exit codes, shared by all commands: 0 success, 1 a file failed to
-  decode or a fetch failed, 2 a usage error (including an unknown command
-  or flag).
+  decode, a fetch failed or something is invalid, 2 a usage error
+  (including an unknown command or flag).
   """
 
-  alias Lumina.{Object, Print, Progress, Rsync, Sync, TAL}
+  alias Lumina.{Object, Print, Progress, Rsync, Sync, TAL, Validate}
 
   @usage """
   Usage: lumina <command> [flags] [arguments]
 
   Commands:
-    print   print RPKI objects and TALs in human-readable form
-    sync    fetch the trust anchors and repositories into the local cache
-    help    show help for lumina or a command
+    print     print RPKI objects and TALs in human-readable form
+    sync      fetch the trust anchors and repositories into the local cache
+    validate  validate the certificates in the local cache, offline
+    help      show help for lumina or a command
 
   Run "lumina help <command>" for a command's flags.
 
-  Exit codes: 0 success, 1 a file failed to decode or a fetch failed,
-  2 usage error.
+  Exit codes: 0 success, 1 a file failed to decode, a fetch failed or
+  something is invalid, 2 usage error.
   """
 
   @print_usage """
@@ -51,10 +53,10 @@ defmodule Lumina.CLI do
                      [--per-host N] [--rsync PATH] [--progress | --quiet]
 
   For each TAL, fetch its trust anchor certificate (HTTPS first, then
-  rsync) and check it against the TAL, then walk the repository from it
-  and mirror every publication point into the cache with rsync. A failed
-  fetch keeps the last good copy. Nothing is validated yet: this only
-  fetches. Needs rsync 3.1.0 or later, on PATH or given with --rsync.
+  rsync) and validate it, then walk the repository from it and mirror
+  every publication point into the cache with rsync, following only CA
+  certificates that validate. A failed fetch keeps the last good copy.
+  Needs rsync 3.1.0 or later, on PATH or given with --rsync.
 
   Flags:
     --cache DIR        the cache directory (default: the user cache
@@ -77,16 +79,43 @@ defmodule Lumina.CLI do
     --quiet            no progress report
 
   Prints one summary per TAL: the TA URI used, the publication points
-  and rsync fetches, and every failure with its reason.
+  and rsync fetches, every failure with its reason, and the CA
+  certificates that don't validate.
 
-  Exit codes: 0 everything fetched, 1 some fetch failed (the cache is
-  still usable), another sync holds the cache, or rsync is missing or
-  too old, 2 usage error.
+  Exit codes: 0 everything fetched (an invalid CA certificate doesn't
+  change that), 1 some fetch failed (the cache is still usable), no TA
+  validated, another sync holds the cache, or rsync is missing or too
+  old, 2 usage error.
+  """
+
+  @validate_usage """
+  Usage: lumina validate [--cache DIR] [--tal FILE]... [--now TIME]
+
+  Validate what the last sync put in the cache, without fetching
+  anything: for each TAL, its stored trust anchor certificate, then every
+  CA certificate and the EE certificate of every signed object below it,
+  top down through the CA certificates that validate. Signed objects'
+  own signatures and contents are not checked yet.
+
+  Flags:
+    --cache DIR   the cache directory (default: as for lumina sync)
+    --tal FILE    validate only this TAL's tree; repeat to pick several
+                  (default: every .tal file in ./tals/)
+    --now TIME    validate as of this time, ISO 8601: 2030-01-01T00:00:00Z,
+                  or a date, 2030-01-01, for its midnight UTC (default:
+                  the current time)
+
+  Prints one summary per TAL: the trust anchor, the number of valid and
+  invalid CA and EE certificates, every invalid certificate with its
+  reasons, warnings, and publication points missing from the cache.
+
+  Exit codes: 0 everything valid, 1 something invalid or missing (no
+  trust anchor in the cache included), 2 usage error.
   """
 
   @rsync_hint " (on macOS, /usr/bin/rsync is openrsync: install rsync with Homebrew and put it first in PATH, or give it with --rsync PATH)"
 
-  @help %{"print" => @print_usage, "sync" => @sync_usage}
+  @help %{"print" => @print_usage, "sync" => @sync_usage, "validate" => @validate_usage}
 
   @doc "Escript entry point."
   @spec main([String.t()]) :: no_return()
@@ -120,6 +149,7 @@ defmodule Lumina.CLI do
       ["help", command] -> help(command, out, err)
       ["print" | rest] -> print_command(rest, out, err)
       ["sync" | rest] -> sync_command(rest, out, err, internal)
+      ["validate" | rest] -> validate_command(rest, out, err, internal)
       _ -> written(err, @usage, 2)
     end
   end
@@ -200,6 +230,49 @@ defmodule Lumina.CLI do
 
       {_opts, [arg | _], []} ->
         written(err, "lumina sync: unexpected argument #{arg}\n\n" <> @sync_usage, 2)
+    end
+  end
+
+  @validate_flags [cache: :string, tal: :keep, now: :string, help: :boolean]
+
+  defp validate_command(args, out, err, internal) do
+    case OptionParser.parse(args, strict: @validate_flags, aliases: [h: :help]) do
+      {[help: true], [], []} ->
+        written(out, @validate_usage, 0)
+
+      {opts, [], []} ->
+        with {:ok, paths} <- tal_paths(opts, internal),
+             {:ok, tals} <- read_tals(paths),
+             {:ok, now} <- now_flag(opts[:now], internal) do
+          cache = opts[:cache] || default_cache()
+
+          reports =
+            for {path, tal} <- tals, do: {path, Validate.run(tal, cache, now: now)}
+
+          IO.write(out, Validate.summary(reports, now))
+
+          if Enum.any?(reports, fn {_path, report} -> Validate.failed?(report) end),
+            do: 1,
+            else: 0
+        else
+          {:error, message} -> written(err, "lumina validate: #{message}\n", 2)
+        end
+
+      {_opts, _args, [{flag, _} | _]} ->
+        written(err, "lumina validate: unknown or invalid flag #{flag}\n\n" <> @validate_usage, 2)
+
+      {_opts, [arg | _], []} ->
+        written(err, "lumina validate: unexpected argument #{arg}\n\n" <> @validate_usage, 2)
+    end
+  end
+
+  defp now_flag(nil, internal), do: {:ok, Keyword.get_lazy(internal, :now, &DateTime.utc_now/0)}
+
+  defp now_flag(text, _internal) do
+    case {DateTime.from_iso8601(text), Date.from_iso8601(text)} do
+      {{:ok, time, _offset}, _} -> {:ok, time}
+      {_, {:ok, date}} -> {:ok, DateTime.new!(date, ~T[00:00:00], "Etc/UTC")}
+      _ -> {:error, "--now must be an ISO 8601 time, such as 2030-01-01T00:00:00Z, or a date"}
     end
   end
 

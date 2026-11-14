@@ -103,7 +103,7 @@ defmodule Lumina.CLITest do
       for args <- [["help"], ["-h"], ["--help"]] do
         {0, out, ""} = run(args)
         assert out =~ "Usage: lumina <command> [flags] [arguments]", inspect(args)
-        assert out =~ "print   print RPKI objects"
+        assert out =~ "print     print RPKI objects"
       end
     end
 

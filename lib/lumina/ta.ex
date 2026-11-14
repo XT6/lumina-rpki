@@ -102,13 +102,27 @@ defmodule Lumina.TA do
   """
   @spec cached(Path.t(), TAL.t(), DateTime.t()) :: accepted() | nil
   def cached(root, %TAL{} = tal, %DateTime{} = now) do
+    with %{certificate: cert} = accepted <- stored(root, tal),
+         %{valid: true} <- Chain.ta(cert, tal, now) do
+      accepted
+    else
+      _ -> nil
+    end
+  end
+
+  @doc """
+  The TA certificate stored for `tal` in the cache at `root`, as it was
+  accepted, without validating it again; `nil` if there is none or it
+  can't be read. `lumina validate` validates it at its own time.
+  """
+  @spec stored(Path.t(), TAL.t()) :: accepted() | nil
+  def stored(root, %TAL{} = tal) do
     {cer, json} = paths(root, tal)
 
     with {:ok, bytes} <- File.read(cer),
          {:ok, %Object{value: %Certificate{} = cert}} <- Object.decode("ta.cer", bytes),
-         %{valid: true} <- Chain.ta(cert, tal, now),
          {:ok, text} <- File.read(json),
-         %{"uri" => uri, "fetched_at" => at} <- JSON.decode!(text),
+         {:ok, %{"uri" => uri, "fetched_at" => at}} <- JSON.decode(text),
          {:ok, fetched_at, 0} <- DateTime.from_iso8601(at) do
       %{certificate: cert, uri: uri, path: cer, fetched_at: fetched_at}
     else

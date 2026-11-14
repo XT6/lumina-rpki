@@ -11,17 +11,13 @@ defmodule Lumina.Walk do
 
   **Which certificates are followed** (D-005, D-014): a CA certificate
   in the publication point of a CA already walked, that validates against
-  that CA (`Lumina.Chain.child/5`, at `:now`, with the CRL its CRL
-  Distribution Point names in that publication point, D-015) and has an
-  rsync `caRepository` (`repository/1`). The TA was validated when it was
-  accepted (`Lumina.TA`). An invalid CA is reported with its reasons and
-  nothing below it is walked; a valid one's warnings are reported too.
-
-  Two kinds of certificate in a publication point aren't the CA's
-  products and are skipped without an issue: one with the CA's own key
-  (a TA published in its own publication point, #103), and, until
-  manifests list what a CA published (M5), one whose issuer name and AKI
-  both name another CA (a CA sharing the directory).
+  that CA at `:now` (`Lumina.Validate.point/5`, shared with `lumina
+  validate`) and has an rsync `caRepository` (`repository/1`). The TA was
+  validated when it was accepted (`Lumina.TA`). An invalid CA is reported
+  with its reasons and nothing below it is walked; a valid one's warnings
+  are reported too. Certificates that aren't the CA's products (its own,
+  another CA's) are skipped without an issue, as `Lumina.Validate`
+  describes.
 
   **Fetching once:** a publication point in a module already fetched in
   this run (same host and port, same module) isn't fetched again; it's
@@ -59,7 +55,7 @@ defmodule Lumina.Walk do
       no copy).
   """
 
-  alias Lumina.{Cache, Certificate, Chain, CRL, Object, Progress, Rsync, URI}
+  alias Lumina.{Cache, Certificate, Progress, Rsync, URI, Validate}
 
   @default_max_depth 32
   @default_per_host 8
@@ -266,89 +262,25 @@ defmodule Lumina.Walk do
   end
 
   # The CA certificates directly in the publication point of `ca`, at
-  # `path`, that validate against it, as entries of the next level.
+  # `path`, that validate against it (`Lumina.Validate.point/5`), as
+  # entries of the next level.
   defp children(ca, path, key, depth, ancestors, state) do
-    {children, {state, _crls}} =
-      path
-      |> File.ls!()
-      |> Enum.sort()
-      |> Enum.filter(&(Path.extname(&1) == ".cer" and File.regular?(Path.join(path, &1))))
-      |> Enum.reduce({[], {state, %{}}}, fn file, {acc, {state, crls}} ->
-        name = key <> "/" <> file
+    ca
+    |> Validate.point(path, key, state.now)
+    |> Enum.reduce({[], state}, fn
+      %{kind: :decode_failed, uri: name, reason: reason}, {acc, state} ->
+        {acc, issue(state, :decode_failed, name, reason)}
 
-        case Object.decode_file(Path.join(path, file)) do
-          {:ok, %Object{value: %Certificate{} = cert}} ->
-            if followed?(cert, ca) do
-              {crl, crls} = crl(cert, ca, path, key, crls, state.now)
-              result = Chain.child(cert, :ca, ca, crl, state.now)
-              {acc, state} = validated(result, {cert, name, depth + 1, ancestors}, acc, state)
-              {acc, {state, crls}}
-            else
-              {acc, {state, crls}}
-            end
+      %{valid: true, problems: [], certificate: cert, uri: name}, {acc, state} ->
+        {[{cert, name, depth + 1, ancestors} | acc], state}
 
-          {:error, reason} ->
-            {acc, {issue(state, :decode_failed, name, reason), crls}}
-        end
-      end)
+      %{valid: true, problems: warnings, certificate: cert, uri: name}, {acc, state} ->
+        {[{cert, name, depth + 1, ancestors} | acc], issue(state, :warning, name, warnings)}
 
-    {Enum.reverse(children), state}
-  end
-
-  # Whether `cert`, found in the publication point of `ca`, is validated
-  # and followed: a CA certificate that is one of `ca`'s products.
-  defp followed?(cert, ca) do
-    repository(cert) != :not_ca and cert.public_key.key != ca.public_key.key and
-      not other_issuer?(cert, ca)
-  end
-
-  # Until manifests say which files a CA published (M5), a certificate
-  # whose issuer name and AKI both name someone else belongs to another CA
-  # sharing the directory. One mismatch alone is a fault, left to
-  # validation to report.
-  defp other_issuer?(cert, ca) do
-    aki = Certificate.extension_value(cert, :authority_key_identifier)
-
-    cert.issuer_der != ca.subject_der and
-      match?(%{key_identifier: kid} when is_binary(kid), aki) and
-      aki.key_identifier != :crypto.hash(:sha, ca.public_key.key)
-  end
-
-  defp validated(%{valid: true, problems: []}, entry, acc, state), do: {[entry | acc], state}
-
-  defp validated(%{valid: true, problems: warnings}, {_, name, _, _} = entry, acc, state),
-    do: {[entry | acc], issue(state, :warning, name, warnings)}
-
-  defp validated(%{problems: problems}, {_, name, _, _}, acc, state),
-    do: {acc, issue(state, :invalid, name, Enum.filter(problems, &(&1.severity == :error)))}
-
-  # The CA's CRL result for the CRL `cert`'s CRLDP names, read only from
-  # the CA's publication point (D-015) and validated once per URI.
-  defp crl(cert, ca, path, key, crls, now) do
-    uri = Chain.crl_uri(cert)
-
-    case Map.fetch(crls, uri) do
-      {:ok, result} ->
-        {result, crls}
-
-      :error ->
-        result = Chain.crl(read_crl(uri, path, key), ca, now)
-        {result, Map.put(crls, uri, result)}
-    end
-  end
-
-  defp read_crl(uri, path, key) do
-    with true <- is_binary(uri),
-         {:ok, parsed} <- URI.parse(uri),
-         prefix = key <> "/",
-         true <- String.starts_with?(to_string(parsed), prefix),
-         file = String.replace_prefix(to_string(parsed), prefix, ""),
-         false <- String.contains?(file, "/"),
-         {:ok, %Object{value: %CRL{} = crl}} <- Object.decode_file(Path.join(path, file)) do
-      crl
-    else
-      _ -> nil
-    end
+      %{problems: problems, uri: name}, {acc, state} ->
+        {acc, issue(state, :invalid, name, Enum.filter(problems, &(&1.severity == :error)))}
+    end)
+    |> then(fn {children, state} -> {Enum.reverse(children), state} end)
   end
 
   defp covering(pp, fetched) do
