@@ -240,6 +240,10 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Why:** RFC 6481 §5 describes a top-down walk through *valid* certificates. Following invalid CAs fetches repositories that can't contribute anything, and invalid certificates are exactly where an attacker would point a walk.
 - **Where:** M4 plan.
 - **Consequences:** `Walk.repository/1` (D-005's single selection point) takes the validation result. Validation needs the parent's key and CRL, so the walk carries the parent's validated certificate down.
+- **As implemented (#113):**
+  - The TA is validated when it is retrieved (`Lumina.TA`, with `Lumina.Chain.ta/3`): an invalid TA counts as a failed URI, so D-003 moves on to the next one. A cached TA is offered as stale only if it still validates.
+  - Each CA certificate in a walked publication point is validated against that CA (with the CRL its CRLDP names in that publication point, D-015) before `Walk.repository/1` is asked where it points. An invalid one is an `invalid` issue listing its errors; a valid one's warnings are a `warning` issue. Neither fails the sync.
+  - Not validated, and not reported: a certificate with the CA's own key (the CA itself, such as LACNIC's TA in its own publication point, #103), and, until manifests list a CA's files (M5), one whose issuer name and AKI both name another CA.
 
 ## D-015: The CRL that decides revocation in M4
 

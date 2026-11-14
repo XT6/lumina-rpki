@@ -3,7 +3,8 @@ defmodule Lumina.CLISyncTest do
   Tests `lumina sync` (#76) through `Lumina.CLI.run/4`, against real rsync
   daemons serving Barry fixtures: the summary, `--tal` picking TALs,
   exit codes (0 everything fetched, 1 a fetch failed, 2 usage error), the
-  cache lock and `lumina help sync`. Output goes to StringIO devices.
+  cache lock and `lumina help sync`, and how invalid TAs and CAs are
+  reported (#113). Output goes to StringIO devices.
 
   The fixture TALs name `https://localhost:8443` and
   `rsync://localhost:8873`. Each test writes a copy of the TAL whose rsync
@@ -86,6 +87,34 @@ defmodule Lumina.CLISyncTest do
       assert out =~ "  publication points: 2\n  rsync fetches: 1, 0 failed\n"
       assert out =~ "1 TAL(s), 1 rsync fetch(es), 0 TAL(s) with failures"
       assert File.exists?(Path.join(cache, "rsync/localhost:8873/rpki/ca1/roa1.roa"))
+    end
+
+    @tag :rsync
+    @tag rfc: ["6481#5", "6487#7.2"],
+         doc: "D-014: an invalid CA isn't a fetch failure; the sync exits 0."
+    test "an invalid CA is listed with its reasons, and isn't walked", %{tmp_dir: tmp} do
+      {tal, remap} = served_tal(tmp, "m4-chain-ca-bad-signature", Path.join(tmp, "tals"))
+
+      assert {0, out, ""} =
+               run(["sync", "--cache", Path.join(tmp, "cache"), "--tal", tal], remap: remap)
+
+      assert out =~ "  publication points: 1\n"
+      assert out =~ "    invalid: rsync://localhost:8873/rpki/ta/ca1.cer (bad_signature)\n"
+    end
+
+    @tag :rsync
+    @tag rfc: ["8630#3", "6487#7.2"]
+    test "a TA that doesn't validate is rejected with its reasons, exit 1", %{tmp_dir: tmp} do
+      {tal, remap} = served_tal(tmp, "m4-chain-ta-expired", Path.join(tmp, "tals"))
+      cache = Path.join(tmp, "cache")
+
+      assert {1, out, ""} = run(["sync", "--cache", cache, "--tal", tal], remap: remap)
+
+      assert out =~
+               ~r"    tried rsync://127\.0\.0\.1:\d+/rpki/ta\.cer: check_failed \(expired\)\n"
+
+      assert out =~ "  ta: no earlier copy; repository not walked\n"
+      refute File.exists?(Path.join(cache, "rsync"))
     end
 
     @tag :rsync

@@ -53,10 +53,9 @@ defmodule Lumina.M3DoneTest do
         do: {Path.relative_to(path, dir), File.read!(path)}
   end
 
-  # A TA the TAL check rejects (the M2 fixtures). M4 fixtures whose TA is
-  # invalid only by signature or dates pass the TAL check, and sync as
-  # usual until the walk validates (#113).
-  defp ta_invalid?(%{milestone: "M2", expected: {:invalid, problems}}),
+  # A TA that retrieval rejects: by the TAL check (the M2 fixtures) or by
+  # validation, signature or dates (M4, #113).
+  defp ta_invalid?(%{expected: {:invalid, problems}}),
     do: Enum.any?(problems, &(&1.object == "ta.cer"))
 
   defp ta_invalid?(_fixture), do: false
@@ -212,7 +211,7 @@ defmodule Lumina.M3DoneTest do
       assert code in [0, 1]
 
       {:ok, tal} = TAL.decode_file("tals/lacnic.tal")
-      assert %{certificate: _} = TA.cached(cache, tal)
+      assert %{certificate: _} = TA.cached(cache, tal, @now)
 
       assert out =~ "  ta: https://rrdp.lacnic.net/" or
                out =~ "  ta: rsync://repository.lacnic.net/"

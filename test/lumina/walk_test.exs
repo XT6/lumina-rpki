@@ -10,7 +10,8 @@ defmodule Lumina.WalkTest do
   The `m3-walk-*` fixtures each exercise one part of the walk: a
   delegation to a second rsync host, a nested publication point, an SIA
   loop, a deep chain, an unreachable host and CAs in separate modules of
-  one host. The fixtures name `localhost:8873` (and `other.example:8873`),
+  one host. The walk follows only CAs that validate (D-014, #113): the
+  `m4-chain-*` fixtures show what isn't followed. The fixtures name `localhost:8873` (and `other.example:8873`),
   so each test remaps those to its own daemons with `:remap`; cache paths
   and reports keep the names from the certificates.
   """
@@ -42,6 +43,20 @@ defmodule Lumina.WalkTest do
     daemon = RsyncDaemon.start!(Path.join(tmp, "localhost"), Fixture.load!(id).modules)
     remap = Map.put(opts[:remap] || %{}, "localhost:8873", "127.0.0.1:#{daemon.port}")
     Walk.run(ta!(id), cache(tmp), [now: @now, remap: remap] ++ Keyword.delete(opts, :remap))
+  end
+
+  # Walks a copy of fixture `id`'s single module after `change` (given the
+  # copy's root) has altered it.
+  defp walk_changed!(tmp, id, change) do
+    copy = Path.join(tmp, "copy")
+    File.cp_r!(rsync_root(id), copy)
+    change.(copy)
+    daemon = RsyncDaemon.start!(Path.join(tmp, "localhost"), %{"rpki" => copy})
+
+    Walk.run(ta!(id), cache(tmp),
+      now: @now,
+      remap: %{"localhost:8873" => "127.0.0.1:#{daemon.port}"}
+    )
   end
 
   defp rsync_root(id), do: Fixture.load!(id).rsync_root
@@ -283,6 +298,99 @@ defmodule Lumina.WalkTest do
 
       assert Enum.map(result.points, & &1.uri) ==
                [@module <> "/ta" | for(i <- 1..8, do: "#{base}/s#{i}/ca#{i}")]
+    end
+  end
+
+  describe "validation (D-014)" do
+    @tag rfc: ["6481#5", "6487#7.2"],
+         doc: """
+         Same points as M3 gave: no CA of a positive fixture is reported
+         invalid. Warnings are allowed (m4-cert-unknown-extension, D-013).
+         """
+    test "every positive Barry fixture walks without an invalid CA", %{tmp_dir: tmp} do
+      for dir <- Fixtures.case_dirs(),
+          id = Path.basename(dir),
+          Fixture.load!(id).expected == :valid,
+          id not in ["m3-walk-delegation", "m3-walk-unreachable"] do
+        result = walk!(Path.join(tmp, id), id)
+
+        assert Enum.filter(result.issues, &(&1.kind == :invalid)) == [], id
+      end
+    end
+
+    @tag rfc: ["6481#5", "6487#7.2"],
+         doc: "ca1's directory arrives with the module (D-012), but it isn't walked."
+    test "a CA that doesn't validate is reported with its reasons, and nothing below it is walked",
+         %{tmp_dir: tmp} do
+      result = walk!(tmp, "m4-chain-ca-bad-signature")
+
+      assert kinds(result) == [{:invalid, @module <> "/ta/ca1.cer"}]
+      assert [%{detail: [%{rule: :bad_signature}]}] = result.issues
+      assert Enum.map(result.points, & &1.uri) == [@module <> "/ta"]
+    end
+
+    @tag rfc: ["6487#7.2", "9829#3.2"]
+    test "a revoked CA isn't walked, and its sibling is", %{tmp_dir: tmp} do
+      result = walk!(tmp, "m4-chain-revoked-ca")
+
+      assert kinds(result) == [{:invalid, @module <> "/ta/ca1.cer"}]
+      assert [%{detail: [%{rule: :revoked}]}] = result.issues
+      assert Enum.map(result.points, & &1.uri) == [@module <> "/ta", @module <> "/ca2"]
+    end
+
+    @tag rfc: ["6487#7.2", "9829#3.2"]
+    test "a CA whose CRL is missing isn't walked", %{tmp_dir: tmp} do
+      result = walk!(tmp, "m4-chain-crl-missing")
+
+      assert [%{kind: :invalid, detail: [%{rule: :crl_missing}]}] = result.issues
+      assert length(result.points) == 1
+    end
+
+    @tag rfc: "6481#5",
+         doc: """
+         #103: LACNIC publishes its TA certificate in the TA's own
+         publication point. A certificate with the CA's own key is the CA
+         itself, not a child: no loop, no invalid CA.
+         """
+    test "a TA certificate published in its own publication point is skipped silently", %{
+      tmp_dir: tmp
+    } do
+      result =
+        walk_changed!(tmp, "m0-minimal-valid", fn copy ->
+          File.cp!(Path.join(copy, "ta.cer"), Path.join(copy, "ta/ta.cer"))
+        end)
+
+      assert result.issues == []
+      assert Enum.map(result.points, & &1.uri) == [@module <> "/ta", @module <> "/ca1"]
+    end
+
+    @tag rfc: ["6481#5", "6487#4.8.3"],
+         doc: """
+         Until manifests say what a CA published (M5), a certificate whose
+         issuer name and AKI both name another CA belongs to a CA sharing
+         the directory: here a CA certificate from another fixture.
+         """
+    test "a certificate issued by another CA is skipped, not reported invalid", %{tmp_dir: tmp} do
+      result =
+        walk_changed!(tmp, "m0-minimal-valid", fn copy ->
+          File.cp!(
+            Path.join(rsync_root("m3-walk-deep"), "ca1/ca2.cer"),
+            Path.join(copy, "ta/x.cer")
+          )
+        end)
+
+      assert result.issues == []
+      assert Enum.map(result.points, & &1.uri) == [@module <> "/ta", @module <> "/ca1"]
+    end
+
+    @tag rfc: ["6487#4.8.3", "6487#7.2"],
+         doc: "Only one of the two names another CA: a fault, reported."
+    test "a certificate naming the CA as issuer but with another AKI is reported invalid", %{
+      tmp_dir: tmp
+    } do
+      result = walk!(tmp, "m4-chain-aki-mismatch")
+
+      assert [%{kind: :invalid, detail: [%{rule: :aki_mismatch}]}] = result.issues
     end
   end
 

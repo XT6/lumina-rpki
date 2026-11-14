@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 45 Barry fixtures: 11 valid, 34 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 570 unit tests in 51 modules.
+- 581 unit tests in 51 modules.
 
 ## Barry fixtures
 
@@ -524,9 +524,11 @@ this one reason.
 
 #### `m4-chain-ta-expired`: TA certificate already expired at validation time
 
-The baseline tree with one change: the TA certificate's notAfter is 2029-01-01, before the validation time
-the tests use (2030-01-01). TAL checks (M2) leave dates to validation;
-RFC 6487 section 7.2 point 2 makes the TA invalid.
+The baseline tree with one change: the TA certificate's notAfter is
+2026-06-01, before every validation time the tests use (2026-11-13 for
+retrieval and sync, 2030-01-01 for chain validation). TAL checks (M2)
+leave dates to validation; RFC 6487 section 7.2 point 2 makes the TA
+invalid, so it is never accepted (#113).
 
 Chain validation (#112): validation must reject this certificate with
 this one reason.
@@ -1082,7 +1084,8 @@ Fixtures validate at 2030-01-01.
 Tests `lumina sync` (#76) through `Lumina.CLI.run/4`, against real rsync
 daemons serving Barry fixtures: the summary, `--tal` picking TALs,
 exit codes (0 everything fetched, 1 a fetch failed, 2 usage error), the
-cache lock and `lumina help sync`. Output goes to StringIO devices.
+cache lock and `lumina help sync`, and how invalid TAs and CAs are
+reported (#113). Output goes to StringIO devices.
 
 The fixture TALs name `https://localhost:8443` and
 `rsync://localhost:8873`. Each test writes a copy of the TAL whose rsync
@@ -1090,6 +1093,9 @@ URI points at its own daemon, and remaps `localhost:8873` in the
 repository's certificates to it (`:remap`, see `Lumina.Walk`).
 
 - *syncing:* a full sync exits 0 and prints the TA URI, publication points and fetches (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+- *syncing:* an invalid CA is listed with its reasons, and isn't walked (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
+  D-014: an invalid CA isn't a fetch failure; the sync exits 0.
+- *syncing:* a TA that doesn't validate is rejected with its reasons, exit 1 (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
 - *syncing:* --tal syncs only the TAL it names
   Requested by the maintainer: --tal syncs that TAL only. The tals
   folder also holds a TAL that can't be reached; it must not be tried.
@@ -1895,8 +1901,11 @@ TAL at its own servers by replacing its URIs; the key stays the
 fixture's.
 
 - *retrieval:* every Barry fixture's TA is retrieved over rsync and stored byte-identical (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)))
-  The fixtures built to fail the TA check (m2-ta-*) are covered by the next test.
+  Fixtures whose TA is expected invalid (m2-ta-*, m4-chain-ta-*) are
+  covered by the next tests.
 - *retrieval:* a fixture TA that fails the TAL check is fetched but not accepted (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)))
+- *retrieval:* a TA whose self-signature fails, or that has expired, is fetched but not accepted (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
+  D-014: TAL checks alone (M2) would accept both; validation rejects them.
 - *retrieval:* when the first URI is unreachable, the next one is used (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)))
 - *retrieval:* a certificate whose key doesn't match is reported, and the next URI is used (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [8630 §2.3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.3)))
 - *retrieval:* content that isn't a certificate is reported, and the next URI is used
@@ -1904,6 +1913,7 @@ fixture's.
   D-003: HTTPS first, whatever the TAL order. The rsync URI is never tried.
 - *the cache:* when every URI fails, the error lists each attempt and the previous TA is kept (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [8897 §7](../rfc/rfc8897.txt) ([html](https://www.rfc-editor.org/rfc/rfc8897.html#section-7)))
   The last accepted TA is kept, byte for byte, and offered as stale with its source.
+- *the cache:* a previously accepted TA that has since expired is not offered as stale (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
 - *the cache:* when every URI fails and nothing was cached, there is no stale TA
 - *the cache:* a rejected certificate never replaces the accepted one
   A TA rejected later must not replace the one accepted before.
@@ -2066,7 +2076,8 @@ are read from that copy (D-012).
 The `m3-walk-*` fixtures each exercise one part of the walk: a
 delegation to a second rsync host, a nested publication point, an SIA
 loop, a deep chain, an unreachable host and CAs in separate modules of
-one host. The fixtures name `localhost:8873` (and `other.example:8873`),
+one host. The walk follows only CAs that validate (D-014, #113): the
+`m4-chain-*` fixtures show what isn't followed. The fixtures name `localhost:8873` (and `other.example:8873`),
 so each test remaps those to its own daemons with `:remap`; cache paths
 and reports keep the names from the certificates.
 
@@ -2105,6 +2116,23 @@ and reports keep the names from the certificates.
   they really run at the same time.
 - *concurrent fetches (D-011):* points and fetches are reported in walk order, whatever order the fetches finish in (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
   The order a sequential walk gives: the TA's module first, then s1 to s8 as listed.
+- *validation (D-014):* every positive Barry fixture walks without an invalid CA (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
+  Same points as M3 gave: no CA of a positive fixture is reported
+  invalid. Warnings are allowed (m4-cert-unknown-extension, D-013).
+- *validation (D-014):* a CA that doesn't validate is reported with its reasons, and nothing below it is walked (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
+  ca1's directory arrives with the module (D-012), but it isn't walked.
+- *validation (D-014):* a revoked CA isn't walked, and its sibling is (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)))
+- *validation (D-014):* a CA whose CRL is missing isn't walked (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)))
+- *validation (D-014):* a TA certificate published in its own publication point is skipped silently (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  #103: LACNIC publishes its TA certificate in the TA's own
+  publication point. A certificate with the CA's own key is the CA
+  itself, not a child: no loop, no invalid CA.
+- *validation (D-014):* a certificate issued by another CA is skipped, not reported invalid (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [6487 §4.8.3](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.3)))
+  Until manifests say what a CA published (M5), a certificate whose
+  issuer name and AKI both name another CA belongs to a CA sharing
+  the directory: here a CA certificate from another fixture.
+- *validation (D-014):* a certificate naming the CA as issuer but with another AKI is reported invalid (RFC [6487 §4.8.3](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.3)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
+  Only one of the two names another CA: a fault, reported.
 - *selecting CAs (D-005):* a certificate that isn't a CA isn't followed (RFC [6487 §4.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.1)))
 - *selecting CAs (D-005):* a CA is followed to its rsync caRepository (RFC [6487 §4.8.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.1)))
 

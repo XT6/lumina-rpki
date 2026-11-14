@@ -6,9 +6,13 @@ defmodule Lumina.TA do
   The TAL's URIs are tried in `Lumina.TAL.uris_by_preference/1` order
   (D-003): HTTPS through `Lumina.HTTPS`, rsync by fetching the single file
   through `Lumina.Rsync`. Each certificate fetched is decoded (DER checked,
-  `Lumina.Object`) and checked against the TAL with `Lumina.TAL.check_ta/2`.
-  The first one that passes is accepted. A fetch failure, a decode failure
+  `Lumina.Object`) and validated at `:now` with `Lumina.Chain.ta/3`: the
+  TAL checks (`Lumina.TAL.check_ta/2`), its self-signature and the
+  resource certificate profile, validity dates included (D-014). The
+  first one that validates is accepted. A fetch failure, a decode failure
   or a failed check, key mismatch included, moves on to the next URI.
+  The warnings of an accepted certificate are listed with its attempt's
+  warnings, as `{:profile, problem}`.
 
   The accepted certificate is stored in the cache, keyed by the TAL's key
   (its expected Subject Key Identifier), not by URI, so the copy survives
@@ -19,15 +23,13 @@ defmodule Lumina.TA do
       <root>/.ta/<ski hex>.json    the URI it came from, and when
 
   If every URI fails, the result is an error, and the previously accepted
-  certificate, if one is cached and still passes `check_ta/2` against
-  this TAL, is returned in it as `:stale` for the caller to fall back on.
+  certificate, if one is cached and still validates against this TAL, is
+  returned in it as `:stale` for the caller to fall back on.
   Every attempt is listed, for the log and the CLI, and each URI's
   outcome is recorded with `Lumina.Cache.record/4`.
-
-  Signature and validity dates are checked in M4.
   """
 
-  alias Lumina.{Cache, Certificate, HTTPS, Object, Progress, Rsync, TAL, URI}
+  alias Lumina.{Cache, Certificate, Chain, HTTPS, Object, Progress, Rsync, TAL, URI}
 
   @type attempt :: %{
           uri: String.t(),
@@ -51,7 +53,7 @@ defmodule Lumina.TA do
   stale: accepted | nil}}`. If the accepted certificate can't be
   written to the cache, the error also has `:store_error`.
 
-  Options: `:now` (the time to record; default now), `:https` and
+  Options: `:now` (the validation time, also recorded; default now), `:https` and
   `:rsync` (keyword options for `Lumina.HTTPS.fetch/2` and
   `Lumina.Rsync.fetch_file/3`).
   """
@@ -85,25 +87,26 @@ defmodule Lumina.TA do
             {:ok, Map.put(accepted, :attempts, attempts)}
 
           {:error, reason} ->
-            {:error, %{attempts: attempts, stale: cached(root, tal), store_error: reason}}
+            {:error, %{attempts: attempts, stale: cached(root, tal, now), store_error: reason}}
         end
 
       attempts ->
-        {:error, %{attempts: Enum.reverse(attempts), stale: cached(root, tal)}}
+        {:error, %{attempts: Enum.reverse(attempts), stale: cached(root, tal, now)}}
     end
   end
 
   @doc """
   The previously accepted TA certificate for `tal` in the cache at `root`,
-  if there is one and it still passes `Lumina.TAL.check_ta/2`; else `nil`.
+  if there is one and it still validates at `now` (`Lumina.Chain.ta/3`);
+  else `nil`.
   """
-  @spec cached(Path.t(), TAL.t()) :: accepted() | nil
-  def cached(root, %TAL{} = tal) do
+  @spec cached(Path.t(), TAL.t(), DateTime.t()) :: accepted() | nil
+  def cached(root, %TAL{} = tal, %DateTime{} = now) do
     {cer, json} = paths(root, tal)
 
     with {:ok, bytes} <- File.read(cer),
          {:ok, %Object{value: %Certificate{} = cert}} <- Object.decode("ta.cer", bytes),
-         :ok <- TAL.check_ta(tal, cert),
+         %{valid: true} <- Chain.ta(cert, tal, now),
          {:ok, text} <- File.read(json),
          %{"uri" => uri, "fetched_at" => at} <- JSON.decode!(text),
          {:ok, fetched_at, 0} <- DateTime.from_iso8601(at) do
@@ -118,8 +121,8 @@ defmodule Lumina.TA do
     {outcome, detail, warnings, cert} =
       with {:ok, uri} <- parse(string),
            {:ok, bytes, warnings} <- fetch(uri, root, opts) do
-        case decode_and_check(tal, uri, bytes) do
-          {:ok, cert} -> {:accepted, nil, warnings, cert}
+        case decode_and_check(tal, uri, bytes, now) do
+          {:ok, cert, problems} -> {:accepted, nil, warnings ++ problems, cert}
           {:error, outcome, detail} -> {outcome, detail, warnings, nil}
         end
       else
@@ -185,12 +188,15 @@ defmodule Lumina.TA do
     end
   end
 
-  defp decode_and_check(tal, uri, bytes) do
+  defp decode_and_check(tal, uri, bytes, now) do
     case Object.decode(List.last(uri.path) || "", bytes) do
       {:ok, %Object{value: %Certificate{} = cert}} ->
-        case TAL.check_ta(tal, cert) do
-          :ok -> {:ok, cert}
-          {:error, problems} -> {:error, :check_failed, problems}
+        case Chain.ta(cert, tal, now) do
+          %{valid: true, problems: warnings} ->
+            {:ok, cert, for(p <- warnings, do: {:profile, p})}
+
+          %{problems: problems} ->
+            {:error, :check_failed, Enum.filter(problems, &(&1.severity == :error))}
         end
 
       {:ok, %Object{type: type}} ->
