@@ -181,6 +181,10 @@ defmodule Lumina.Sync do
   end
 
   defp reason(%{reason: reason}), do: to_string(reason)
+
+  defp reason(%{manifest: manifest, reasons: reasons}),
+    do: "#{manifest}: #{Enum.map_join(reasons, ", ", &to_string(&1.rule))}; fetched again"
+
   defp reason(%{certificate: name}), do: "from #{name}"
   defp reason(%{covered_by: uri}), do: "no copy; fetched with #{uri}"
 

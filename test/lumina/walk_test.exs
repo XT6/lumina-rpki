@@ -423,7 +423,13 @@ defmodule Lumina.WalkTest do
     } do
       result = walk!(tmp, "m5-pp-hash-mismatch")
 
-      assert [%{kind: :point_failed, uri: uri, detail: [%{rule: :hash_mismatch}]}] = result.issues
+      # The hash mismatch might be a repository caught mid-update, so the
+      # module is fetched once more (#137) before the point fails.
+      assert [
+               %{kind: :refetched, uri: @module},
+               %{kind: :point_failed, uri: uri, detail: [%{rule: :hash_mismatch}]}
+             ] = result.issues
+
       assert uri == @module <> "/ca1/ca1.mft"
 
       assert Enum.map(result.points, &{&1.uri, &1.status}) == [
@@ -455,8 +461,10 @@ defmodule Lumina.WalkTest do
 
       second = Walk.run(ta!("m3-walk-deep"), cache(tmp), opts)
 
-      assert [%{kind: :point_fallback, uri: uri, detail: [%{rule: :hash_mismatch}]}] =
-               second.issues
+      assert [
+               %{kind: :refetched},
+               %{kind: :point_fallback, uri: uri, detail: [%{rule: :hash_mismatch}]}
+             ] = second.issues
 
       assert uri == @module <> "/ca1/ca1.mft"
       assert Enum.map(second.points, & &1.uri) == Enum.map(first.points, & &1.uri)
@@ -468,6 +476,64 @@ defmodule Lumina.WalkTest do
                :accepted,
                :accepted
              ]
+    end
+  end
+
+  describe "caught mid-update (RFC 6481 §5, #137)" do
+    # Serves a copy of m0-minimal-valid whose roa1.roa no longer matches its
+    # manifest hash, as if the manifest had been updated but not yet the
+    # file; `fix` runs just before the retry.
+    defp mid_update!(tmp, fix) do
+      copy = Path.join(tmp, "copy")
+      File.cp_r!(rsync_root("m0-minimal-valid"), copy)
+      roa = Path.join(copy, "ca1/roa1.roa")
+      original = File.read!(roa)
+      File.write!(roa, "being written", [:append])
+      daemon = RsyncDaemon.start!(Path.join(tmp, "localhost"), %{"rpki" => copy})
+
+      Walk.run(ta!("m0-minimal-valid"), cache(tmp),
+        now: @now,
+        remap: %{"localhost:8873" => "127.0.0.1:#{daemon.port}"},
+        before_refetch: fn module ->
+          send(self(), {:refetch, module})
+          if fix, do: File.write!(roa, original)
+        end
+      )
+    end
+
+    @tag rfc: ["6481#5", "9286#6.5"],
+         doc:
+           "The update finishes between the two fetches: the point is accepted after the retry."
+    test "a point whose files don't match its manifest is fetched once more, and accepted", %{
+      tmp_dir: tmp
+    } do
+      result = mid_update!(tmp, true)
+
+      assert_received {:refetch, @module}
+
+      assert [%{kind: :refetched, uri: @module, detail: %{reasons: [%{rule: :hash_mismatch}]}}] =
+               result.issues
+
+      assert Enum.map(result.points, & &1.status) == [:accepted, :accepted]
+      assert length(result.fetches) == 2
+    end
+
+    @tag rfc: ["6481#5", "9286#6.5", "9286#6.6"]
+    test "a point that stays inconsistent fails after exactly one retry", %{tmp_dir: tmp} do
+      result = mid_update!(tmp, false)
+
+      assert [%{kind: :refetched}, %{kind: :point_failed, detail: [%{rule: :hash_mismatch}]}] =
+               result.issues
+
+      assert length(result.fetches) == 2
+    end
+
+    @tag rfc: "6481#5", doc: "A revoked manifest isn't an update in progress: no retry."
+    test "a point that fails for another reason isn't fetched again", %{tmp_dir: tmp} do
+      result = walk!(tmp, "m5-pp-manifest-revoked")
+
+      assert [%{kind: :point_failed, detail: [%{rule: :revoked}]}] = result.issues
+      assert length(result.fetches) == 1
     end
   end
 
