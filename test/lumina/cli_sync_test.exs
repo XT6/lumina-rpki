@@ -113,6 +113,10 @@ defmodule Lumina.CLISyncTest do
 
       assert out =~ "  publication points: 2 (1 failed)\n"
       assert out =~ "    point_failed: rsync://localhost:8873/rpki/ca1/ca1.mft (hash_mismatch)\n"
+
+      assert out =~
+               "    refetched: rsync://localhost:8873/rpki " <>
+                 "(rsync://localhost:8873/rpki/ca1/ca1.mft: hash_mismatch; fetched again)\n"
     end
 
     @tag :rsync

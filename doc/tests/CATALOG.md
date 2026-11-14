@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 68 Barry fixtures: 11 valid, 57 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 684 unit tests in 58 modules.
+- 687 unit tests in 58 modules.
 
 ## Barry fixtures
 
@@ -2740,6 +2740,11 @@ and reports keep the names from the certificates.
   ca2.cer changes (its hash no longer matches): ca1's point falls
   back to the copy the first walk kept, and ca2, ca3 and ca4 are
   still walked from it.
+- *caught mid-update (RFC 6481 §5, #137):* a point whose files don't match its manifest is fetched once more, and accepted (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [9286 §6.5](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.5)))
+  The update finishes between the two fetches: the point is accepted after the retry.
+- *caught mid-update (RFC 6481 §5, #137):* a point that stays inconsistent fails after exactly one retry (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [9286 §6.5](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.5)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)))
+- *caught mid-update (RFC 6481 §5, #137):* a point that fails for another reason isn't fetched again (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  A revoked manifest isn't an update in progress: no retry.
 - *selecting CAs (D-005):* a certificate that isn't a CA isn't followed (RFC [6487 §4.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.1)))
 - *selecting CAs (D-005):* a CA is followed to its rsync caRepository (RFC [6487 §4.8.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.1)))
 

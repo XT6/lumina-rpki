@@ -35,16 +35,17 @@ defmodule Lumina.PublicationPoint do
   alias Lumina.{Certificate, Chain, CMS, CRL, Manifest, Object, Profile, SignedObject, URI}
 
   @type problem :: Lumina.Profile.problem()
-  # `:failed` (a fallback point's live problems) is added by
-  # `Lumina.Validate.point/5`.
+  # `:failed` (why the live copy failed, when its last valid copy stands
+  # in) is added by `Lumina.Validate.point/5`.
   @type t :: %{
-          status: :accepted | :failed | :fallback,
-          manifest: String.t() | nil,
-          problems: [problem()],
-          files: %{String.t() => Path.t()},
-          unlisted: [String.t()],
-          number: non_neg_integer() | nil,
-          this_update: DateTime.t() | nil
+          required(:status) => :accepted | :failed | :fallback,
+          required(:manifest) => String.t() | nil,
+          required(:problems) => [problem()],
+          required(:files) => %{String.t() => Path.t()},
+          required(:unlisted) => [String.t()],
+          required(:number) => non_neg_integer() | nil,
+          required(:this_update) => DateTime.t() | nil,
+          optional(:failed) => [problem()]
         }
 
   @rules [

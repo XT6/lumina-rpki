@@ -35,6 +35,13 @@ defmodule Lumina.Walk do
   (default 8) rsync runs at once on each host, and the results are
   reported in walk order, as a sequential walk would give them.
 
+  **Caught mid-update (RFC 6481 §5, D-007):** a publication point
+  fetched this run that fails only because files its manifest lists are
+  missing or don't match their hashes (RFC 9286 §6.4, §6.5) may have been
+  read while its repository was being updated. Its module is fetched once
+  more and the point validated again; a module is fetched again at most
+  once per run, and the retry is reported (`:refetched`).
+
   **Limits (D-008):** a certificate deeper than `:max_depth` (the TA is
   depth 0) isn't followed, and a publication point already visited isn't
   walked again: a loop if it is the publication point of an ancestor,
@@ -53,6 +60,8 @@ defmodule Lumina.Walk do
       of `:fetch_failed`, `:loop`, `:duplicate`, `:depth_exceeded`,
       `:decode_failed`, `:point_failed` (a publication point RFC 9286 §6
       rejects, by its manifest URI; the detail lists the reasons),
+      `:refetched` (a module fetched again because a point in it was caught
+      mid-update; the detail names the manifest and the reasons),
       `:point_fallback` (one that failed but whose last valid copy, D-023,
       is used instead; the detail lists why the live copy failed),
       `:invalid` (a CA that doesn't validate; the detail lists its errors), `:warning` (a valid CA's warnings), `:no_repository`,
@@ -86,6 +95,8 @@ defmodule Lumina.Walk do
   host, default 8), `:now` (the validation time, also recorded for each
   fetch; default now),
   `:progress` (a `Lumina.Progress` listener, sent level and fetch events),
+  `:before_refetch` (tests only: called with the module URI just before a
+  mid-update retry, so a test can finish the "update"),
   `:rsync` (options for `Lumina.Rsync.fetch_dir/3`), and `:remap`,
   for tests: a map from `"host:port"` in repository URIs to the
   `"host:port"` actually connected to. Remapping changes only where rsync
@@ -103,6 +114,9 @@ defmodule Lumina.Walk do
       # (:planned while a level is being planned).
       fetched: %{},
       visited: MapSet.new(),
+      # Modules fetched again this run because a point in them was caught
+      # mid-update (RFC 6481 §5): at most once each.
+      refetched: MapSet.new(),
       points: [],
       fetches: [],
       issues: []
@@ -230,7 +244,7 @@ defmodule Lumina.Walk do
   defp report({:point, {cert, _name, depth, ancestors}, pp, covered}, state, results) do
     key = to_string(pp)
 
-    {covered_by, outcome, state} =
+    {covered_by, module, outcome, state} =
       case covered do
         {:fetch, module} ->
           result = Map.fetch!(results, module)
@@ -245,10 +259,10 @@ defmodule Lumina.Walk do
               else: state
 
           fetch = %{uri: fetched, outcome: result.outcome, detail: result.detail}
-          {fetched, result.outcome, %{state | fetches: [fetch | state.fetches]}}
+          {fetched, module, result.outcome, %{state | fetches: [fetch | state.fetches]}}
 
         %URI{} = dir ->
-          {to_string(dir), Map.fetch!(state.fetched, dir), state}
+          {to_string(dir), dir, Map.fetch!(state.fetched, dir), state}
       end
 
     path = Cache.path(state.root, pp)
@@ -264,7 +278,7 @@ defmodule Lumina.Walk do
       }
 
       state = %{state | points: [point | state.points]}
-      children(cert, path, key, depth, [key | ancestors], state)
+      children(cert, path, key, depth, [key | ancestors], {module, outcome}, state)
     else
       {[], issue(state, :missing, key, %{covered_by: covered_by})}
     end
@@ -274,8 +288,10 @@ defmodule Lumina.Walk do
   # `path`, that validate against it (`Lumina.Validate.point/5`), as
   # entries of the next level. A point that fails (RFC 9286 §6) is an
   # issue, and nothing below it is walked (§6.6).
-  defp children(ca, path, key, depth, ancestors, state) do
-    case Validate.point(ca, path, key, state.now, last_valid: state.root, save: true) do
+  defp children(ca, path, key, depth, ancestors, source, state) do
+    {result, state} = validated(ca, path, key, source, state)
+
+    case result do
       %{point: %{status: :failed} = point} ->
         errors = Enum.filter(point.problems, &(&1.severity == :error))
         {[], point_status(issue(state, :point_failed, point.manifest || key, errors), :failed)}
@@ -304,6 +320,64 @@ defmodule Lumina.Walk do
         |> then(fn {children, state} -> {Enum.reverse(children), state} end)
     end
   end
+
+  # The point validated (`Validate.point/5`). If a copy fetched this run
+  # fails only because listed files are missing or don't match their
+  # hashes, the repository may have been caught mid-update (RFC 6481 §5,
+  # D-007): its module is fetched once more and the point validated again.
+  defp validated(ca, path, key, {module, outcome}, state) do
+    validate = fn ->
+      Validate.point(ca, path, key, state.now, last_valid: state.root, save: true)
+    end
+
+    result = validate.()
+    module_key = to_string(module)
+
+    if outcome == :ok and mid_update?(result.point) and
+         not MapSet.member?(state.refetched, module_key) do
+      if hook = state.opts[:before_refetch], do: hook.(module_key)
+      fetched = fetch(module, state)
+
+      fetch = %{uri: module_key, outcome: fetched.outcome, detail: fetched.detail}
+
+      state =
+        Enum.reduce(fetched.issues, state, fn {kind, uri}, st -> issue(st, kind, uri, nil) end)
+
+      state = %{
+        state
+        | refetched: MapSet.put(state.refetched, module_key),
+          fetches: [fetch | state.fetches]
+      }
+
+      state =
+        issue(state, :refetched, module_key, %{
+          manifest: result.point.manifest,
+          reasons: live_errors(result.point)
+        })
+
+      {validate.(), state}
+    else
+      {result, state}
+    end
+  end
+
+  @mid_update [:file_missing, :hash_mismatch]
+
+  defp mid_update?(point) do
+    case live_errors(point) do
+      [] -> false
+      errors -> Enum.all?(errors, &(&1.rule in @mid_update))
+    end
+  end
+
+  # Why the copy fetched this run failed, even when its last valid copy
+  # stands in.
+  defp live_errors(%{status: :fallback, failed: failed}), do: failed
+
+  defp live_errors(%{status: :failed, problems: problems}),
+    do: Enum.filter(problems, &(&1.severity == :error))
+
+  defp live_errors(_point), do: []
 
   # Marks the point just recorded (the head of `points`) failed.
   defp point_status(%{points: [point | rest]} = state, status),

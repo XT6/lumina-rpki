@@ -131,6 +131,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Decision:** RFC 6481 §5 asks RPs to allow for a manifest and its directory being out of step during a fetch, for example by fetching the manifest again and retrying when it changed. That is handled in **M5**, where manifests are validated. M3 records what was fetched and when.
 - **Why:** detecting the inconsistency needs manifest processing, which M3 doesn't have.
 - **Consequences:** the cache store (#71) records each module's fetch time and outcome for M5 to use.
+- **Done (#137):** a publication point fetched in the current run that fails only because listed files are missing or don't match their hashes (RFC 9286 §6.4, §6.5) gets its module fetched once more and is validated again; a module is fetched again at most once per run (`refetched` in the walk's issues). A point that still fails is handled by D-023.
 
 ## D-008: Default fetch limits
 
