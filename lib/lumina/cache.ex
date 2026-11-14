@@ -31,7 +31,8 @@ defmodule Lumina.Cache do
   scheme directory does, so they can't collide with repository content:
   `.staging/`, `.aside/` and `.status/`, `.ta/`, where `Lumina.TA`
   keeps accepted TA certificates, and `.valid/`, where `Lumina.LastValid`
-  keeps the last valid copy of each publication point (D-023).
+  keeps the last valid copy of each publication point (D-023). `.state/`
+  also holds `Lumina.ManifestState`'s per-CA manifest records (D-024).
   """
 
   alias Lumina.URI

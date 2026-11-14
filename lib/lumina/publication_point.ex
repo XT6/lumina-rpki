@@ -42,7 +42,9 @@ defmodule Lumina.PublicationPoint do
           manifest: String.t() | nil,
           problems: [problem()],
           files: %{String.t() => Path.t()},
-          unlisted: [String.t()]
+          unlisted: [String.t()],
+          number: non_neg_integer() | nil,
+          this_update: DateTime.t() | nil
         }
 
   @rules [
@@ -70,7 +72,8 @@ defmodule Lumina.PublicationPoint do
   time `now`. `files` maps each listed name to its path when the point is
   accepted, and is empty when it fails; `unlisted` names the other files
   in an accepted point's directory (the manifest itself aside), which
-  aren't used.
+  aren't used. `number` and `this_update` are the accepted manifest's, for
+  replay protection (#136).
   """
   @spec process(Certificate.t(), Path.t(), String.t(), DateTime.t()) :: t()
   def process(%Certificate{} = ca, path, key, %DateTime{} = now) do
@@ -87,7 +90,9 @@ defmodule Lumina.PublicationPoint do
               manifest: uri,
               problems: problems,
               files: Map.new(Manifest.names(manifest), &{&1, Path.join(path, &1)}),
-              unlisted: unlisted(path, [file | Manifest.names(manifest)])
+              unlisted: unlisted(path, [file | Manifest.names(manifest)]),
+              number: manifest.number,
+              this_update: manifest.this_update.at
             },
             else: failed(uri, problems)
         else
@@ -156,7 +161,15 @@ defmodule Lumina.PublicationPoint do
   end
 
   defp failed(uri, problems),
-    do: %{status: :failed, manifest: uri, problems: problems, files: %{}, unlisted: []}
+    do: %{
+      status: :failed,
+      manifest: uri,
+      problems: problems,
+      files: %{},
+      unlisted: [],
+      number: nil,
+      this_update: nil
+    }
 
   # §6: files present but not on the manifest "MUST NOT be used"; they're
   # only counted.
