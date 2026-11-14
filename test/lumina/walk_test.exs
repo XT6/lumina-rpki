@@ -433,6 +433,44 @@ defmodule Lumina.WalkTest do
     end
   end
 
+  describe "last valid copy (D-023, #135)" do
+    @tag rfc: ["9286#6.6", "6481#5"],
+         doc: """
+         m3-walk-deep served from a copy. After a first walk, ca1's listed
+         ca2.cer changes (its hash no longer matches): ca1's point falls
+         back to the copy the first walk kept, and ca2, ca3 and ca4 are
+         still walked from it.
+         """
+    test "a point that fails is walked from its last valid copy, and nothing below disappears", %{
+      tmp_dir: tmp
+    } do
+      copy = Path.join(tmp, "copy")
+      File.cp_r!(rsync_root("m3-walk-deep"), copy)
+      daemon = RsyncDaemon.start!(Path.join(tmp, "localhost"), %{"rpki" => copy})
+      opts = [now: @now, remap: %{"localhost:8873" => "127.0.0.1:#{daemon.port}"}]
+
+      first = Walk.run(ta!("m3-walk-deep"), cache(tmp), opts)
+      assert first.issues == []
+      File.write!(Path.join(copy, "ca1/ca2.cer"), "changed", [:append])
+
+      second = Walk.run(ta!("m3-walk-deep"), cache(tmp), opts)
+
+      assert [%{kind: :point_fallback, uri: uri, detail: [%{rule: :hash_mismatch}]}] =
+               second.issues
+
+      assert uri == @module <> "/ca1/ca1.mft"
+      assert Enum.map(second.points, & &1.uri) == Enum.map(first.points, & &1.uri)
+
+      assert Enum.map(second.points, & &1.status) == [
+               :accepted,
+               :fallback,
+               :accepted,
+               :accepted,
+               :accepted
+             ]
+    end
+  end
+
   describe "selecting CAs (D-005)" do
     @tag rfc: "6487#4.8.1"
     test "a certificate that isn't a CA isn't followed" do

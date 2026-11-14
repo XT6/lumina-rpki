@@ -34,6 +34,7 @@ defmodule Lumina.Validate do
     Chain,
     CMS,
     Object,
+    LastValid,
     Profile,
     PublicationPoint,
     SignedObject,
@@ -66,6 +67,7 @@ defmodule Lumina.Validate do
           ta: %{uri: String.t(), path: Path.t(), valid: boolean(), problems: [map()]} | nil,
           objects: [entry()],
           unlisted: non_neg_integer(),
+          fallback: non_neg_integer(),
           issues: [Walk.issue()]
         }
 
@@ -108,7 +110,7 @@ defmodule Lumina.Validate do
         }
   def point(%Certificate{} = ca, path, key, %DateTime{} = now, opts \\ []) do
     objects? = Keyword.get(opts, :objects, false)
-    point = PublicationPoint.process(ca, path, key, now)
+    {point, dir} = processed(ca, path, key, now, opts)
 
     {entries, _crls} =
       point.files
@@ -124,7 +126,7 @@ defmodule Lumina.Validate do
             {[%{uri: name, kind: :decode_failed, reason: reason}], crls}
 
           {kind, cert, object} ->
-            {crl, crls} = crl(cert, ca, point, path, key, crls, now)
+            {crl, crls} = crl(cert, ca, point, dir, key, crls, now)
             result = Chain.child(cert, chain_kind(kind), ca, crl, now)
             {[entry(name, kind, cert, object, result)], crls}
         end
@@ -135,13 +137,68 @@ defmodule Lumina.Validate do
       else: %{point: point, entries: entries}
   end
 
+  # The point and the directory its files are read from: the live copy, or
+  # when that fails, the last valid copy if it is still usable (D-023).
+  # `:save` keeps an accepted live copy as the last valid one.
+  defp processed(ca, path, key, now, opts) do
+    root = Keyword.get(opts, :last_valid)
+    point = PublicationPoint.process(ca, path, key, now)
+
+    cond do
+      root == nil ->
+        {point, path}
+
+      point.status == :accepted ->
+        # A copy that can't be saved only means no fallback later.
+        _ = if Keyword.get(opts, :save, false), do: LastValid.save(root, point, path)
+        {point, path}
+
+      stored = point.manifest && LastValid.load(root, point.manifest) ->
+        fallback(point, PublicationPoint.process(ca, stored, key, now), stored, path)
+
+      true ->
+        {point, path}
+    end
+  end
+
+  defp fallback(live, stored, dir, path) do
+    if stored.status == :accepted do
+      note =
+        warning(
+          :last_valid_copy,
+          "the publication point failed (#{rules(live.problems)}); its last valid copy is used"
+        )
+
+      {Map.merge(stored, %{
+         status: :fallback,
+         problems: [note | stored.problems],
+         failed: errors(live.problems)
+       }), dir}
+    else
+      note =
+        warning(
+          :last_valid_copy_unusable,
+          "the last valid copy can't be used either (#{rules(stored.problems)})"
+        )
+
+      {%{live | problems: live.problems ++ [note]}, path}
+    end
+  end
+
+  defp warning(rule, message),
+    do: %{rule: rule, rfc: "9286#6.6", field: :manifest, message: message, severity: :warning}
+
+  defp rules(problems), do: problems |> errors() |> Enum.map_join(", ", & &1.rule)
+
+  defp errors(problems), do: Enum.filter(problems, &(&1.severity == :error))
+
   defp manifest_entry(point, key) do
     %{
       uri: point.manifest || key,
       kind: :object,
       type: :manifest,
       certificate: nil,
-      valid: point.status == :accepted,
+      valid: point.status in [:accepted, :fallback],
       problems: point.problems
     }
   end
@@ -263,6 +320,7 @@ defmodule Lumina.Validate do
           visited: MapSet.new(),
           objects: [],
           unlisted: 0,
+          fallback: 0,
           issues: []
         }
 
@@ -276,6 +334,7 @@ defmodule Lumina.Validate do
            ta: ta,
            objects: Enum.reverse(state.objects),
            unlisted: state.unlisted,
+           fallback: state.fallback,
            issues: Enum.reverse(state.issues)
          }}
     end
@@ -317,12 +376,15 @@ defmodule Lumina.Validate do
 
           true ->
             state = %{state | visited: MapSet.put(state.visited, key)}
-            %{point: point, entries: entries} = point(cert, path, key, state.now, objects: true)
+
+            %{point: point, entries: entries} =
+              point(cert, path, key, state.now, objects: true, last_valid: state.root)
 
             state = %{
               state
               | objects: Enum.reverse(entries, state.objects),
-                unlisted: state.unlisted + length(point.unlisted)
+                unlisted: state.unlisted + length(point.unlisted),
+                fallback: state.fallback + if(point.status == :fallback, do: 1, else: 0)
             }
 
             next =
@@ -380,6 +442,12 @@ defmodule Lumina.Validate do
         warning_line(ta.uri, ta.problems),
         counts("CA certificates", Enum.filter(result.objects, &(&1.kind == :ca))),
         type_counts(result.objects),
+        if(result.fallback > 0,
+          do:
+            "  publication points from the last valid copy: #{result.fallback} " <>
+              "(the current copy failed, RFC 9286 section 6.6)\n",
+          else: []
+        ),
         if(result.unlisted > 0,
           do: "  files not on a manifest: #{result.unlisted} (not used, RFC 9286 section 6)\n",
           else: []

@@ -251,6 +251,26 @@ defmodule Lumina.CLIValidateTest do
     end
   end
 
+  describe "last valid copy (D-023, #135)" do
+    @tag :rsync
+    @tag rfc: "9286#6.6",
+         doc: """
+         The sync kept each accepted point. A listed file then changes in
+         the mirror: validate falls back to the kept copy, says so, and the
+         ROA is still validated.
+         """
+    test "a point that fails offline is validated from its last valid copy", %{tmp_dir: tmp} do
+      {tal, cache, _report} = synced!(tmp, "m0-minimal-valid")
+      roa = Path.join(cache, "rsync/localhost:8873/rpki/ca1/roa1.roa")
+      File.write!(roa, "changed", [:append])
+
+      assert {0, out, ""} = run(["validate", "--cache", cache, "--tal", tal])
+      assert out =~ "  manifests: 2 valid, 0 invalid\n  ROAs: 1 valid, 0 invalid\n"
+      assert out =~ "  publication points from the last valid copy: 1 "
+      assert out =~ ~r"    warning: rsync://localhost:8873/rpki/ca1/ca1.mft \(last_valid_copy"
+    end
+  end
+
   describe "failures and usage" do
     test "a cache without the TAL's TA exits 1 and says to sync first", %{tmp_dir: tmp} do
       tal = Fixture.load!("m0-minimal-valid").tal_path

@@ -148,9 +148,16 @@ defmodule Lumina.Sync do
     failed = Enum.count(walk.fetches, &(&1.outcome == :error))
     stale = Enum.count(walk.points, & &1.stale)
     failed_points = Enum.count(walk.points, &(&1.status == :failed))
+    fallback = Enum.count(walk.points, &(&1.status == :fallback))
 
     notes =
-      for {n, label} <- [{stale, "stale"}, {failed_points, "failed"}], n > 0, do: "#{n} #{label}"
+      for {n, label} <- [
+            {stale, "stale"},
+            {failed_points, "failed"},
+            {fallback, "from the last valid copy"}
+          ],
+          n > 0,
+          do: "#{n} #{label}"
 
     [
       "  publication points: #{length(walk.points)}" <>

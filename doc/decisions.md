@@ -340,6 +340,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Why:** RFC 9286 §6.6 says the RP "SHOULD continue to use cached versions of the objects associated with this CA instance, until such time as they become stale". The rsync cache keeps the last *fetched* copy of a module (D-012), which may be the broken one.
 - **Where:** M5 plan, #135 (maintainer accepted the recommendation).
 - **Consequences:** a second store in the cache, written when a point is accepted; summaries say which points were served from it.
+- **As implemented (#135):** `Lumina.LastValid` keeps one copy per manifest URI (so CA instances sharing a directory keep separate copies) under `<cache>/.valid/<cache path of the manifest URI>/`, copied, not linked, and replaced only when the manifest bytes change. `Lumina.Validate.point/5` processes the live copy first; if it fails, it processes the saved copy the same way at the same time, and uses it if it is accepted (point status `:fallback`, warning `last_valid_copy` naming the live failure), otherwise reports the live failure plus `last_valid_copy_unusable`. `lumina sync` saves (`save: true`); `lumina validate` only reads. The walk reports `point_fallback` and walks on from the copy; summaries count the points served from it.
 
 ## D-024: Manifest replay state is kept in the cache and written only by sync
 

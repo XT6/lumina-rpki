@@ -57,7 +57,9 @@ defmodule Lumina.CLI do
   every publication point into the cache with rsync, following only CA
   certificates that are on their issuer's current manifest and validate.
   A publication point whose manifest check fails (RFC 9286 section 6) is
-  listed with its reasons and nothing below it is walked. A failed fetch
+  listed with its reasons; its last valid copy, kept from an earlier
+  sync, is used while its manifest is current, and otherwise nothing
+  below it is walked. A failed fetch
   keeps the last good copy.
   Needs rsync 3.1.0 or later, on PATH or given with --rsync.
 
@@ -99,9 +101,10 @@ defmodule Lumina.CLI do
   anything: for each TAL, its stored trust anchor certificate, then every
   CA certificate and signed object below it, top down through the CA
   certificates that validate. Only files on each CA's current manifest
-  are used, and a publication point the manifest checks reject (RFC 9286
-  section 6) counts as one invalid manifest, with nothing in it
-  validated. A signed object is checked for its CMS envelope, signature
+  are used. A publication point the manifest checks reject (RFC 9286
+  section 6) is validated from its last valid copy, kept by lumina sync,
+  while that copy's manifest is current; otherwise it counts as one
+  invalid manifest, with nothing in it validated. A signed object is checked for its CMS envelope, signature
   and EE certificate; ROA contents are not checked yet.
 
   Flags:
