@@ -16,7 +16,8 @@
      [
        %{
          object: "ta.cer",
-         reason: "Basic Constraints cA is false; RFC 8630 section 2.3 requires a CA certificate"
+         reason: "Basic Constraints cA is false; RFC 8630 section 2.3 requires a CA certificate",
+         rule: :not_ca
        }
      ]}
 }

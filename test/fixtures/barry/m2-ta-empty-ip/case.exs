@@ -16,5 +16,11 @@
   rfc: ["8630#2.3", "6487#4.8.10"],
   expected:
     {:invalid,
-     [%{object: "ta.cer", reason: "the IP resource extension is empty; RFC 8630 section 2.3"}]}
+     [
+       %{
+         object: "ta.cer",
+         reason: "the IP resource extension is empty; RFC 8630 section 2.3",
+         rule: :empty_resources
+       }
+     ]}
 }

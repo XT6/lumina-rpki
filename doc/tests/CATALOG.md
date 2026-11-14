@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 45 Barry fixtures: 11 valid, 34 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 591 unit tests in 52 modules.
+- 596 unit tests in 53 modules.
 
 ## Barry fixtures
 
@@ -468,15 +468,17 @@ this one reason.
 
 #### `m4-chain-crl-missing`: CA certificate whose CRLDP names a CRL that isn't published
 
-The baseline tree with one change: ca1's CRL Distribution Point names ta/missing.crl, which isn't
-published. RFC 6487 section 7.2 point 5 (as updated by RFC 9829 section
-3.2) needs that CRL to decide revocation, so ca1 is invalid (D-015).
+The baseline tree with one change: the CRL Distribution Point of the
+TA's children, ca1 and the EE certificate of ta.mft, names
+ta/missing.crl, which isn't published. RFC 6487 section 7.2 point 5 (as updated by RFC 9829 section
+3.2) needs that CRL to decide revocation, so both are invalid (D-015).
 
-Chain validation (#112): validation must reject this certificate with
+Chain validation (#112): validation must reject both certificates with
 this one reason.
 
 - **Expected:** invalid. A validator must reject:
   - `ta/ca1.cer`: the CRL named by the CRLDP is missing
+  - `ta/ta.mft`: the CRL named by the CRLDP is missing
 - **RFC:** [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)), [6487 §4.8.6](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.6))
 - **Files:** [descriptor](../../test/fixtures/barry/m4-chain-crl-missing/case.repo) · [metadata](../../test/fixtures/barry/m4-chain-crl-missing/case.exs) · [rsync tree](../../test/fixtures/barry/m4-chain-crl-missing/rsync)
 
@@ -1486,6 +1488,52 @@ and `:remap` for the repository URIs inside its certificates.
   2026-11 the repository held about 28,000 files.
   ASPA objects (.asa) aren't decoded: ASPA isn't an RFC yet.
 
+### `Lumina.M4DoneTest`
+
+[test/lumina/m4_done_test.exs](../../test/lumina/m4_done_test.exs)
+
+The end-to-end check that closes M4, certificates and CRLs (#115). It
+runs `lumina sync` and then `lumina validate` (`Lumina.CLI.run/4`) the
+way a user would, over the whole M4 pipeline: TA validation, the walk
+through valid CAs, and offline validation of every CA and EE
+certificate in the cache.
+
+  * Every Barry fixture is synced from a local rsync daemon and
+    validated at 2030-01-01, the time the chain and profile tests use.
+    The certificates found invalid must be exactly those the fixture's
+    `expected` metadata names with a `rule`, each rejected for that
+    rule; a fixture with nothing invalid must validate completely.
+  * RFC 6487 §4, §5 and §7.2, RFC 7935 §2 and §3, and RFC 9829 §3 are
+    covered by tests other than this one.
+  * Tagged `:network`, run by hand only (`mix test --only network`):
+    the live LACNIC repository is synced from `tals/lacnic.tal` and
+    validated; the counts and every invalid certificate are printed.
+
+The individual behaviours are tested in detail elsewhere (`ChainTest`,
+`ProfileTest`, `WalkTest`, `CLIValidateTest`, ...). This module checks
+that they hold together, over all the data at once.
+
+- every Barry fixture syncs and validates to the verdicts its metadata states (RFC [6487 §4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4)), [6487 §5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-5)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2)), [7935 §3](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-3)), [9829 §3.1](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.1)), [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)))
+  Driven by the fixture metadata. A fixture whose rejected TA has a
+  rule: sync exits 1 naming the rule, and validate finds no TA. Every
+  other fixture: sync and validate agree, the certificates validate
+  finds invalid are exactly those the ruled rejects name (rejects
+  without a rule are later milestones' checks or lie below an invalid
+  CA), each for its rule, nothing fails to decode, and validate
+  exits 1 exactly when something is invalid (each fixture's invalid
+  share is above D-022's 10%).
+- RFC 6487 §4, §5 and §7.2, RFC 7935 §2 and §3, and RFC 9829 §3 are covered by other tests
+  The coverage `mix lumina.rfc_coverage` reports, computed the same way,
+  ignoring this module's own tags. A section counts as covered by a
+  test of it or of one of its subsections.
+- *the live LACNIC repository:* the live LACNIC repository syncs and validates from tals/lacnic.tal (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  Run by hand: mix test --only network. Needs the Internet; takes
+  minutes. Syncs LACNIC and validates the cache, printing the
+  summary. Every CA certificate under LACNIC's own repository must
+  validate; delegated repositories may hold faults (in 2026-11, 21
+  expired manifests at one of them), printed but not failing the
+  test as long as the share stays within D-022's 10%.
+
 ### `Lumina.ManifestTest`
 
 [test/lumina/manifest_test.exs](../../test/lumina/manifest_test.exs)
@@ -2170,6 +2218,9 @@ and reports keep the names from the certificates.
   the directory: here a CA certificate from another fixture.
 - *validation (D-014):* a certificate naming the CA as issuer but with another AKI is reported invalid (RFC [6487 §4.8.3](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.3)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
   Only one of the two names another CA: a fault, reported.
+- *validation (D-014):* a CA certificate without Basic Constraints is reported invalid, not skipped (RFC [6487 §4.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.1)), [6487 §4.8.4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.4)))
+  Its Key Usage has keyCertSign, so it is checked as a CA and the
+  missing Basic Constraints reported (#115); it isn't walked.
 - *selecting CAs (D-005):* a certificate that isn't a CA isn't followed (RFC [6487 §4.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.1)))
 - *selecting CAs (D-005):* a CA is followed to its rsync caRepository (RFC [6487 §4.8.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.1)))
 
@@ -2284,6 +2335,8 @@ running any code in it. Fixtures are built in temporary directories.
 - *required metadata:* an invalid RFC reference fails
 - *required metadata:* a missing expected outcome fails
 - *required metadata:* a malformed expected outcome fails
+- *required metadata:* a reject may name the rule that rejects it
+  The rule names the verdict the M4 done test checks (#115).
 - *required metadata:* a rejected object that isn't in the rsync tree fails
 - *required metadata:* an id that doesn't match the folder fails
 - *required metadata:* an id that doesn't start with the milestone fails

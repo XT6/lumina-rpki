@@ -11,5 +11,7 @@
   certificate with this one reason, and accept everything else.
   """,
   rfc: ["6487#4.8.8.1"],
-  expected: {:invalid, [%{object: "ta/ca1.cer", reason: "no rpki_manifest rsync URI"}]}
+  expected:
+    {:invalid,
+     [%{object: "ta/ca1.cer", reason: "no rpki_manifest rsync URI", rule: :access_method}]}
 }

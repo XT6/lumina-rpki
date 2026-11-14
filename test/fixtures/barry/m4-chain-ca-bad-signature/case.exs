@@ -12,5 +12,11 @@
   rfc: ["6487#7.2", "8017#8.2.2"],
   expected:
     {:invalid,
-     [%{object: "ta/ca1.cer", reason: "the signature doesn't verify with the issuer's key"}]}
+     [
+       %{
+         object: "ta/ca1.cer",
+         reason: "the signature doesn't verify with the issuer's key",
+         rule: :bad_signature
+       }
+     ]}
 }

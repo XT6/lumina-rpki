@@ -14,5 +14,12 @@
   """,
   rfc: ["6487#7.2", "8630#3"],
   expected:
-    {:invalid, [%{object: "ta.cer", reason: "expired: notAfter is before the validation time"}]}
+    {:invalid,
+     [
+       %{
+         object: "ta.cer",
+         reason: "expired: notAfter is before the validation time",
+         rule: :expired
+       }
+     ]}
 }

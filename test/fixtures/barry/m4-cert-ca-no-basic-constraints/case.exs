@@ -10,5 +10,7 @@
   certificate with this one reason, and accept everything else.
   """,
   rfc: ["6487#4.8.1"],
-  expected: {:invalid, [%{object: "ta/ca1.cer", reason: "basic_constraints is missing"}]}
+  expected:
+    {:invalid,
+     [%{object: "ta/ca1.cer", reason: "basic_constraints is missing", rule: :missing_extension}]}
 }

@@ -18,7 +18,8 @@
      [
        %{
          object: "ta/ca1.cer",
-         reason: "the tbsCertificate signature algorithm is not the outer one"
+         reason: "the tbsCertificate signature algorithm is not the outer one",
+         rule: :signature_algorithm_mismatch
        }
      ]}
 }

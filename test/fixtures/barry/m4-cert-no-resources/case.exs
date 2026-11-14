@@ -11,5 +11,12 @@
   """,
   rfc: ["6487#4.8.10", "6487#4.8.11"],
   expected:
-    {:invalid, [%{object: "ta/ca1.cer", reason: "neither IP nor AS resources are present"}]}
+    {:invalid,
+     [
+       %{
+         object: "ta/ca1.cer",
+         reason: "neither IP nor AS resources are present",
+         rule: :no_resources
+       }
+     ]}
 }

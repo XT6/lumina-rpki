@@ -11,5 +11,12 @@
   """,
   rfc: ["6487#4.8.3", "6487#7.2"],
   expected:
-    {:invalid, [%{object: "ta/ca1.cer", reason: "the AKI is not the parent's key identifier"}]}
+    {:invalid,
+     [
+       %{
+         object: "ta/ca1.cer",
+         reason: "the AKI is not the parent's key identifier",
+         rule: :aki_mismatch
+       }
+     ]}
 }

@@ -12,5 +12,11 @@
   rfc: ["5280#4.1.2.2", "6487#4.2"],
   expected:
     {:invalid,
-     [%{object: "ta/ca1.cer", reason: "serial number is 21 octets; at most 20 are allowed"}]}
+     [
+       %{
+         object: "ta/ca1.cer",
+         reason: "serial number is 21 octets; at most 20 are allowed",
+         rule: :serial_too_long
+       }
+     ]}
 }

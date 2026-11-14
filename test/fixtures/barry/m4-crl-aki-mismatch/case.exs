@@ -11,5 +11,7 @@
   one reason, and accept everything else.
   """,
   rfc: ["9829#3.1", "5280#5.2.1", "6487#4.8.3"],
-  expected: {:invalid, [%{object: "ca1/ca1.crl", reason: "the AKI is not the issuer's SKI"}]}
+  expected:
+    {:invalid,
+     [%{object: "ca1/ca1.crl", reason: "the AKI is not the issuer's SKI", rule: :aki_mismatch}]}
 }

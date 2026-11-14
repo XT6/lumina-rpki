@@ -11,5 +11,12 @@
   """,
   rfc: ["6487#4.2", "5280#4.1.2.2"],
   expected:
-    {:invalid, [%{object: "ta/ca1.cer", reason: "serial number is 0; it must be positive"}]}
+    {:invalid,
+     [
+       %{
+         object: "ta/ca1.cer",
+         reason: "serial number is 0; it must be positive",
+         rule: :serial_not_positive
+       }
+     ]}
 }

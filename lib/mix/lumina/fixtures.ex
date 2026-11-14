@@ -25,7 +25,10 @@ defmodule Mix.Lumina.Fixtures do
       }
 
   `expected` is `:valid`, or `{:invalid, rejects}` where each reject names an
-  object (a path under `rsync/`) and the reason it must be rejected. `barry`
+  object (a path under `rsync/`) and the reason it must be rejected, and
+  optionally the `rule` of the certificate verdict that rejects it (the M4
+  done test checks those; a reject without one is decided by a later
+  milestone or lies below an invalid CA). `barry`
   is optional and overrides the default validity period. `rsync_modules` is
   optional: rsync modules on `localhost:8873` besides `rpki` (which serves
   all of `rsync/`), each mapped to the directory under `rsync/` it serves,
@@ -55,7 +58,16 @@ defmodule Mix.Lumina.Fixtures do
           required(:milestone) => String.t(),
           required(:rationale) => String.t(),
           required(:rfc) => [String.t()],
-          required(:expected) => :valid | {:invalid, [%{object: String.t(), reason: String.t()}]},
+          required(:expected) =>
+            :valid
+            | {:invalid,
+               [
+                 %{
+                   required(:object) => String.t(),
+                   required(:reason) => String.t(),
+                   optional(:rule) => atom()
+                 }
+               ]},
           required(:dir) => Path.t(),
           optional(:barry) => keyword(String.t()),
           optional(:rsync_modules) => %{String.t() => String.t()}
@@ -250,7 +262,8 @@ defmodule Mix.Lumina.Fixtures do
     rejects
     |> Enum.with_index(1)
     |> Enum.flat_map(fn
-      {%{object: object, reason: reason} = reject, n} when map_size(reject) == 2 ->
+      {%{object: object, reason: reason} = reject, n}
+      when map_size(reject) == 2 or (map_size(reject) == 3 and is_map_key(reject, :rule)) ->
         cond do
           not is_binary(object) or String.trim(object) == "" ->
             ["expected reject #{n}: object must be a path under rsync/"]
@@ -258,12 +271,18 @@ defmodule Mix.Lumina.Fixtures do
           not is_binary(reason) or String.trim(reason) == "" ->
             ["expected reject #{n}: reason must be a non-blank string"]
 
+          not is_atom(Map.get(reject, :rule, :none)) ->
+            ["expected reject #{n}: rule must be an atom"]
+
           true ->
             []
         end
 
       {other, n} ->
-        ["expected reject #{n} must be %{object: ..., reason: ...}, got: #{inspect(other)}"]
+        [
+          "expected reject #{n} must be %{object: ..., reason: ...} or " <>
+            "%{object: ..., reason: ..., rule: ...}, got: #{inspect(other)}"
+        ]
     end)
   end
 

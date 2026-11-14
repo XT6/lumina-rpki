@@ -12,5 +12,11 @@
   rfc: ["6487#4.6", "6487#7.2", "5280#4.1.2.5"],
   expected:
     {:invalid,
-     [%{object: "ta/ca1.cer", reason: "not yet valid: notBefore is after the validation time"}]}
+     [
+       %{
+         object: "ta/ca1.cer",
+         reason: "not yet valid: notBefore is after the validation time",
+         rule: :not_yet_valid
+       }
+     ]}
 }
