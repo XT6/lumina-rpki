@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 38 Barry fixtures: 11 valid, 27 invalid.
+- 45 Barry fixtures: 11 valid, 34 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 559 unit tests in 50 modules.
+- 570 unit tests in 51 modules.
 
 ## Barry fixtures
 
@@ -439,6 +439,102 @@ CA certificate gets one warning.
 - **Expected:** valid
 - **RFC:** [6487 §4.8](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8)), [5280 §4.2](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.2))
 - **Files:** [descriptor](../../test/fixtures/barry/m4-cert-unknown-extension/case.repo) · [metadata](../../test/fixtures/barry/m4-cert-unknown-extension/case.exs) · [rsync tree](../../test/fixtures/barry/m4-cert-unknown-extension/rsync)
+
+#### `m4-chain-aki-mismatch`: CA certificate whose AKI isn't the TA's key identifier
+
+The baseline tree with one change: ca1's Authority Key Identifier isn't the TA's key identifier. RFC 6487
+section 4.8.3 defines it as the SHA-1 of the issuer's public key.
+
+Chain validation (#112): validation must reject this certificate with
+this one reason.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta/ca1.cer`: the AKI is not the parent's key identifier
+- **RFC:** [6487 §4.8.3](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.3)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-chain-aki-mismatch/case.repo) · [metadata](../../test/fixtures/barry/m4-chain-aki-mismatch/case.exs) · [rsync tree](../../test/fixtures/barry/m4-chain-aki-mismatch/rsync)
+
+#### `m4-chain-ca-bad-signature`: CA certificate whose signature doesn't verify with the TA's key
+
+The baseline tree with one change: ca1's signature doesn't verify with the TA's key, as if another key had
+signed it. RFC 6487 section 7.2 points 1 and 7 make it invalid.
+
+Chain validation (#112): validation must reject this certificate with
+this one reason.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta/ca1.cer`: the signature doesn't verify with the issuer's key
+- **RFC:** [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [8017 §8.2.2](../rfc/rfc8017.txt) ([html](https://www.rfc-editor.org/rfc/rfc8017.html#section-8.2.2))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-chain-ca-bad-signature/case.repo) · [metadata](../../test/fixtures/barry/m4-chain-ca-bad-signature/case.exs) · [rsync tree](../../test/fixtures/barry/m4-chain-ca-bad-signature/rsync)
+
+#### `m4-chain-crl-missing`: CA certificate whose CRLDP names a CRL that isn't published
+
+The baseline tree with one change: ca1's CRL Distribution Point names ta/missing.crl, which isn't
+published. RFC 6487 section 7.2 point 5 (as updated by RFC 9829 section
+3.2) needs that CRL to decide revocation, so ca1 is invalid (D-015).
+
+Chain validation (#112): validation must reject this certificate with
+this one reason.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta/ca1.cer`: the CRL named by the CRLDP is missing
+- **RFC:** [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)), [6487 §4.8.6](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.6))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-chain-crl-missing/case.repo) · [metadata](../../test/fixtures/barry/m4-chain-crl-missing/case.exs) · [rsync tree](../../test/fixtures/barry/m4-chain-crl-missing/rsync)
+
+#### `m4-chain-issuer-mismatch`: CA certificate whose issuer isn't the TA's subject
+
+The baseline tree with one change: ca1 names an issuer other than the TA's subject, though the TA signs it.
+RFC 6487 section 7.2 point 1 requires the subject of each certificate to
+be the issuer of the next.
+
+Chain validation (#112): validation must reject this certificate with
+this one reason.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta/ca1.cer`: the issuer is not the parent's subject
+- **RFC:** [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [5280 §6.1.3](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-6.1.3))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-chain-issuer-mismatch/case.repo) · [metadata](../../test/fixtures/barry/m4-chain-issuer-mismatch/case.exs) · [rsync tree](../../test/fixtures/barry/m4-chain-issuer-mismatch/rsync)
+
+#### `m4-chain-revoked-ca`: One of two CA certificates revoked by the TA's CRL
+
+The baseline tree with one change: the TA's CRL lists ca1's serial (10). RFC 6487 section 7.2 point 5
+makes ca1 invalid; its sibling ca2 (serial 20) stays valid. Serials are
+set explicitly so the CRL entry doesn't depend on Barry's numbering.
+
+Chain validation (#112): validation must reject this certificate with
+this one reason.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta/ca1.cer`: revoked by the issuer's CRL
+- **RFC:** [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)), [6487 §5](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-5))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-chain-revoked-ca/case.repo) · [metadata](../../test/fixtures/barry/m4-chain-revoked-ca/case.exs) · [rsync tree](../../test/fixtures/barry/m4-chain-revoked-ca/rsync)
+
+#### `m4-chain-ta-bad-signature`: TA certificate whose self-signature doesn't verify
+
+The baseline tree with one change: the TA certificate's signature doesn't verify with its own key, which the
+TAL names. RFC 6487 section 7.2 point 1 and RFC 8630 section 3 make it
+invalid, and nothing below it is validated.
+
+Chain validation (#112): validation must reject this certificate with
+this one reason.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta.cer`: the self-signature doesn't verify
+- **RFC:** [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [7935 §2](../rfc/rfc7935.txt) ([html](https://www.rfc-editor.org/rfc/rfc7935.html#section-2))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-chain-ta-bad-signature/case.repo) · [metadata](../../test/fixtures/barry/m4-chain-ta-bad-signature/case.exs) · [rsync tree](../../test/fixtures/barry/m4-chain-ta-bad-signature/rsync)
+
+#### `m4-chain-ta-expired`: TA certificate already expired at validation time
+
+The baseline tree with one change: the TA certificate's notAfter is 2029-01-01, before the validation time
+the tests use (2030-01-01). TAL checks (M2) leave dates to validation;
+RFC 6487 section 7.2 point 2 makes the TA invalid.
+
+Chain validation (#112): validation must reject this certificate with
+this one reason.
+
+- **Expected:** invalid. A validator must reject:
+  - `ta.cer`: expired: notAfter is before the validation time
+- **RFC:** [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3))
+- **Files:** [descriptor](../../test/fixtures/barry/m4-chain-ta-expired/case.repo) · [metadata](../../test/fixtures/barry/m4-chain-ta-expired/case.exs) · [rsync tree](../../test/fixtures/barry/m4-chain-ta-expired/rsync)
 
 #### `m4-crl-aki-mismatch`: CRL whose AKI doesn't match the issuer's SKI
 
@@ -944,6 +1040,41 @@ and only non-DER or unparseable input fails.
 - *malformed content:* a validity time that isn't a real date is an error (RFC [5280 §4.1.2.5.1](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.5.1)))
 - *malformed content:* non-DER, truncated and non-certificate input are errors naming the layer (RFC [6487 §4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4)), [6481 §2.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2.2)))
 
+### `Lumina.ChainTest`
+
+[test/lumina/chain_test.exs](../../test/lumina/chain_test.exs)
+
+Tests chain validation (`Lumina.Chain`, #112): RFC 6487 §7.2 points 1
+to 5 and 7 (point 5 as RFC 9829 §3.2 updates it), for a TA against its
+TAL and for each certificate against its issuer and the issuer's CRL.
+
+A small top-down walk over a fixture's files (`validate/1`) stands in
+for the repository walk (#113): it validates the TA, then each
+certificate in the publication point of each valid CA, with the CRL its
+CRLDP names. Every positive Barry fixture must validate to its leaves,
+and each `m4-chain-*` fixture fails at one certificate with its rule;
+certificates under an invalid CA are not validated at all.
+
+Fixtures validate at 2030-01-01.
+
+- *fixtures:* every positive Barry fixture validates down to its leaves (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)), [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)))
+  Every certificate reached (TA, CAs, EE certificates of manifests
+  and ROAs) is valid. Warnings are allowed: m4-cert-unknown-extension
+  (D-013) and m4-crl-stale (D-016).
+- *fixtures:* m4-chain-ta-bad-signature: a TA whose self-signature fails is invalid, and nothing below is validated (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)))
+- *fixtures:* m4-chain-ta-expired: an expired TA is invalid (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
+- *fixtures:* m4-chain-ca-bad-signature: a CA whose signature fails with the TA's key is invalid (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
+  Its own publication point (ca1/) is not validated.
+- *fixtures:* m4-chain-issuer-mismatch: a CA whose issuer isn't the TA's subject is invalid (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [5280 §6.1.3](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-6.1.3)))
+- *fixtures:* m4-chain-aki-mismatch: a CA whose AKI isn't the TA's key identifier is invalid (RFC [6487 §4.8.3](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.3)))
+- *fixtures:* m4-chain-crl-missing: a CA whose CRLDP names a missing CRL is invalid (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)))
+- *fixtures:* m4-chain-revoked-ca: a revoked CA is invalid and its sibling stays valid (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)))
+  D-021: Barry writes and signs the revoked entry; nothing is re-signed.
+- *CRL results:* an invalid CRL makes its children invalid, naming the CRL's rules (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
+- *CRL results:* a stale CRL's warning is passed on to its children (RFC [5280 §5.1.2.5](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.2.5)))
+  D-016: the child is valid and keeps the stale_crl warning.
+- *CRL results:* crl_uri/1 gives the rsync URI of the CRLDP, and nil for a TA (RFC [6487 §4.8.6](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.6)))
+
 ### `Lumina.CLISyncTest`
 
 [test/lumina/cli_sync_test.exs](../../test/lumina/cli_sync_test.exs)
@@ -1061,9 +1192,9 @@ a wrong `:ok` here would let forged objects through.
   Certificates (TA, CA, and the EE certificates in manifests and
   ROAs) and CRLs, each checked with the key of the certificate whose
   subject and key identifier its issuer and AKI name; a TA with its
-  own key. Three CRL fixtures break exactly that link or the
-  signature, and are left out (their own tests are in
-  Lumina.ProfileCRLTest).
+  own key. Fixtures that break exactly that link or the signature
+  are left out; their own tests are in Lumina.ProfileCRLTest and
+  Lumina.ChainTest.
 - *valid signatures:* a signature made by OTP's public_key verifies (RFC [8017 §8.2](../rfc/rfc8017.txt) ([html](https://www.rfc-editor.org/rfc/rfc8017.html#section-8.2)))
   An independent check of the implementation: OTP's `:public_key`
   signs with a fresh key, and Lumina verifies.

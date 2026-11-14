@@ -85,7 +85,11 @@ defmodule Lumina.CryptoTest do
   @broken_on_purpose [
     {"m4-crl-aki-mismatch", "ca1/ca1.crl"},
     {"m4-crl-issuer-mismatch", "ca1/ca1.crl"},
-    {"m4-crl-bad-signature", "ca1/ca1.crl"}
+    {"m4-crl-bad-signature", "ca1/ca1.crl"},
+    {"m4-chain-ta-bad-signature", "ta.cer"},
+    {"m4-chain-ca-bad-signature", "ta/ca1.cer"},
+    {"m4-chain-issuer-mismatch", "ta/ca1.cer"},
+    {"m4-chain-aki-mismatch", "ta/ca1.cer"}
   ]
 
   describe "valid signatures" do
@@ -94,9 +98,9 @@ defmodule Lumina.CryptoTest do
          Certificates (TA, CA, and the EE certificates in manifests and
          ROAs) and CRLs, each checked with the key of the certificate whose
          subject and key identifier its issuer and AKI name; a TA with its
-         own key. Three CRL fixtures break exactly that link or the
-         signature, and are left out (their own tests are in
-         Lumina.ProfileCRLTest).
+         own key. Fixtures that break exactly that link or the signature
+         are left out; their own tests are in Lumina.ProfileCRLTest and
+         Lumina.ChainTest.
          """
     test "every certificate and CRL signature in every Barry fixture verifies with its issuer's key" do
       for dir <- Fixtures.case_dirs(), id = Path.basename(dir) do
