@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 45 Barry fixtures: 11 valid, 34 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 590 unit tests in 52 modules.
+- 591 unit tests in 52 modules.
 
 ## Barry fixtures
 
@@ -1178,6 +1178,10 @@ Syncs run at 2026-11-13, inside the fixtures' default validity.
   positive fixture has no invalid certificate at all, EE certificates
   included.
 - *verdicts:* an invalid CA is listed with its reasons, nothing below it is validated, exit 1 (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [9829 §3.2](../rfc/rfc9829.txt) ([html](https://www.rfc-editor.org/rfc/rfc9829.html#section-3.2)))
+  One of four certificates invalid is more than the default 10% (D-022).
+- *verdicts:* --max-invalid sets the share of invalid certificates a run may have and still exit 0
+  m4-chain-revoked-ca has one invalid certificate of four (25%):
+  --max-invalid 0 and 24 fail, 25 and 100 pass (D-022).
 - *verdicts:* a valid tree exits 0 and counts CA and EE certificates (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [6487 §4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4)))
   m0-minimal-valid: ca1, and the EE certificates of two manifests and a ROA.
 - *--now:* --now after the fixture's expiry finds the TA expired, and nothing below valid (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
@@ -1185,8 +1189,9 @@ Syncs run at 2026-11-13, inside the fixtures' default validity.
 - *--now:* --now sets the validation time for every certificate (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
   m4-cert-expired's ca1 expires before 2030; the sync, in 2026, followed it.
 - *failures and usage:* a cache without the TAL's TA exits 1 and says to sync first
-- *failures and usage:* a valid CA whose publication point isn't in the cache is reported missing, exit 1 (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
-- *failures and usage:* a bad --now, an unknown flag or a stray argument is a usage error
+- *failures and usage:* a valid CA whose publication point isn't in the cache is reported missing, exit 0 (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  Missing publication points are a fetch problem, reported by sync (D-022).
+- *failures and usage:* a bad --now or --max-invalid, an unknown flag or a stray argument is a usage error
 - *failures and usage:* lumina help validate describes the flags and exit codes
 
 ### `Lumina.CRLTest`

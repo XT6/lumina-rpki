@@ -7,11 +7,11 @@ defmodule Lumina.CLI do
       lumina <command> [flags] [arguments]
       lumina print [--brief] FILE...
       lumina sync [--cache DIR] [--tal FILE]... [--timeout SECONDS] [--max-depth N]
-      lumina validate [--cache DIR] [--tal FILE]... [--now TIME]
+      lumina validate [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT]
       lumina help [command]
 
   Exit codes, shared by all commands: 0 success, 1 a file failed to
-  decode, a fetch failed or something is invalid, 2 a usage error
+  decode, a fetch failed or too much is invalid, 2 a usage error
   (including an unknown command or flag).
   """
 
@@ -29,7 +29,7 @@ defmodule Lumina.CLI do
   Run "lumina help <command>" for a command's flags.
 
   Exit codes: 0 success, 1 a file failed to decode, a fetch failed or
-  something is invalid, 2 usage error.
+  too much is invalid, 2 usage error.
   """
 
   @print_usage """
@@ -90,6 +90,7 @@ defmodule Lumina.CLI do
 
   @validate_usage """
   Usage: lumina validate [--cache DIR] [--tal FILE]... [--now TIME]
+                         [--max-invalid PERCENT]
 
   Validate what the last sync put in the cache, without fetching
   anything: for each TAL, its stored trust anchor certificate, then every
@@ -104,13 +105,19 @@ defmodule Lumina.CLI do
     --now TIME    validate as of this time, ISO 8601: 2030-01-01T00:00:00Z,
                   or a date, 2030-01-01, for its midnight UTC (default:
                   the current time)
+    --max-invalid PERCENT
+                  the share of a TAL's certificates that may be invalid
+                  before the run fails, 0 to 100 (default: 10); 0 fails
+                  on any invalid certificate
 
   Prints one summary per TAL: the trust anchor, the number of valid and
   invalid CA and EE certificates, every invalid certificate with its
   reasons, warnings, and publication points missing from the cache.
 
-  Exit codes: 0 everything valid, 1 something invalid or missing (no
-  trust anchor in the cache included), 2 usage error.
+  Exit codes: 0 valid (at most PERCENT invalid certificates per TAL;
+  missing publication points are listed but don't count), 1 a TAL with
+  no trust anchor in the cache, an invalid one, or more than PERCENT
+  invalid certificates, 2 usage error.
   """
 
   @rsync_hint " (on macOS, /usr/bin/rsync is openrsync: install rsync with Homebrew and put it first in PATH, or give it with --rsync PATH)"
@@ -233,7 +240,13 @@ defmodule Lumina.CLI do
     end
   end
 
-  @validate_flags [cache: :string, tal: :keep, now: :string, help: :boolean]
+  @validate_flags [
+    cache: :string,
+    tal: :keep,
+    now: :string,
+    max_invalid: :integer,
+    help: :boolean
+  ]
 
   defp validate_command(args, out, err, internal) do
     case OptionParser.parse(args, strict: @validate_flags, aliases: [h: :help]) do
@@ -243,7 +256,8 @@ defmodule Lumina.CLI do
       {opts, [], []} ->
         with {:ok, paths} <- tal_paths(opts, internal),
              {:ok, tals} <- read_tals(paths),
-             {:ok, now} <- now_flag(opts[:now], internal) do
+             {:ok, now} <- now_flag(opts[:now], internal),
+             {:ok, max_invalid} <- max_invalid_flag(Keyword.get(opts, :max_invalid, 10)) do
           cache = opts[:cache] || default_cache()
 
           reports =
@@ -251,7 +265,7 @@ defmodule Lumina.CLI do
 
           IO.write(out, Validate.summary(reports, now))
 
-          if Enum.any?(reports, fn {_path, report} -> Validate.failed?(report) end),
+          if Enum.any?(reports, fn {_path, report} -> Validate.failed?(report, max_invalid) end),
             do: 1,
             else: 0
         else
@@ -265,6 +279,9 @@ defmodule Lumina.CLI do
         written(err, "lumina validate: unexpected argument #{arg}\n\n" <> @validate_usage, 2)
     end
   end
+
+  defp max_invalid_flag(percent) when percent in 0..100, do: {:ok, percent}
+  defp max_invalid_flag(_percent), do: {:error, "--max-invalid must be a percentage, 0 to 100"}
 
   defp now_flag(nil, internal), do: {:ok, Keyword.get_lazy(internal, :now, &DateTime.utc_now/0)}
 

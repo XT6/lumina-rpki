@@ -28,7 +28,7 @@ mix test --only realrepo           # tests against the local, git-ignored LACNIC
 mix lumina.test_catalog            # regenerate doc/tests/CATALOG.md after adding or changing a test or fixture
 mix escript.build && ./lumina print [--brief] FILE...   # print RPKI objects and .tal files (Lumina.CLI, Lumina.Print)
 ./lumina sync [--cache DIR] [--tal FILE]... [--timeout S] [--max-depth N] [--per-host N] [--rsync PATH] [--progress | --quiet]   # fetch TAs and repositories (Lumina.Sync); without --tal it uses every TAL in ./tals/ and fetches the live RIR repositories
-./lumina validate [--cache DIR] [--tal FILE]... [--now TIME]   # validate the cache offline from each TAL's stored TA (Lumina.Validate); exit 1 if anything is invalid or missing
+./lumina validate [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT]   # validate the cache offline from each TAL's stored TA (Lumina.Validate); exit 1 if a TA is missing or invalid, or more than PERCENT (10) of a TAL's certificates are invalid (D-022)
 mix lumina.asn1.extract            # regenerate asn1/rfc/ (verbatim from doc/rfc) and asn1/build/ (with asn1/patches/ applied)
 ```
 

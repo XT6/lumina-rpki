@@ -96,7 +96,8 @@ defmodule Lumina.CLIValidateTest do
     end
 
     @tag :rsync
-    @tag rfc: ["6487#7.2", "9829#3.2"]
+    @tag rfc: ["6487#7.2", "9829#3.2"],
+         doc: "One of four certificates invalid is more than the default 10% (D-022)."
     test "an invalid CA is listed with its reasons, nothing below it is validated, exit 1", %{
       tmp_dir: tmp
     } do
@@ -109,6 +110,23 @@ defmodule Lumina.CLIValidateTest do
       assert out =~ "    invalid: rsync://localhost:8873/rpki/ta/ca1.cer (revoked)\n"
       # ta.mft and ca2.mft; ca1.mft is below the revoked CA.
       assert out =~ "  EE certificates: 2 valid, 0 invalid\n"
+    end
+
+    @tag :rsync
+    @tag doc: """
+         m4-chain-revoked-ca has one invalid certificate of four (25%):
+         --max-invalid 0 and 24 fail, 25 and 100 pass (D-022).
+         """
+    test "--max-invalid sets the share of invalid certificates a run may have and still exit 0",
+         %{tmp_dir: tmp} do
+      {tal, cache, _report} = synced!(tmp, "m4-chain-revoked-ca")
+      args = ["validate", "--cache", cache, "--tal", tal, "--max-invalid"]
+
+      assert {1, _out, ""} = run(args ++ ["0"])
+      assert {1, _out, ""} = run(args ++ ["24"])
+      assert {0, out, ""} = run(args ++ ["25"])
+      assert out =~ "    invalid: rsync://localhost:8873/rpki/ta/ca1.cer (revoked)\n"
+      assert {0, _out, ""} = run(args ++ ["100"])
     end
 
     @tag :rsync
@@ -166,22 +184,31 @@ defmodule Lumina.CLIValidateTest do
     end
 
     @tag :rsync
-    @tag rfc: "6481#5"
-    test "a valid CA whose publication point isn't in the cache is reported missing, exit 1", %{
+    @tag rfc: "6481#5",
+         doc: "Missing publication points are a fetch problem, reported by sync (D-022)."
+    test "a valid CA whose publication point isn't in the cache is reported missing, exit 0", %{
       tmp_dir: tmp
     } do
       {tal, cache, _report} = synced!(tmp, "m0-minimal-valid")
       File.rm_rf!(Path.join(cache, "rsync/localhost:8873/rpki/ca1"))
 
-      assert {1, out, ""} = run(["validate", "--cache", cache, "--tal", tal])
+      assert {0, out, ""} = run(["validate", "--cache", cache, "--tal", tal])
       assert out =~ "    missing: rsync://localhost:8873/rpki/ca1\n"
     end
 
-    test "a bad --now, an unknown flag or a stray argument is a usage error", %{tmp_dir: tmp} do
+    test "a bad --now or --max-invalid, an unknown flag or a stray argument is a usage error", %{
+      tmp_dir: tmp
+    } do
       tal = Fixture.load!("m0-minimal-valid").tal_path
 
       assert {2, "", err} = run(["validate", "--tal", tal, "--now", "tomorrow"])
       assert err =~ "--now must be an ISO 8601 time"
+
+      assert {2, "", err} = run(["validate", "--tal", tal, "--max-invalid", "101"])
+      assert err =~ "--max-invalid must be a percentage, 0 to 100"
+
+      assert {2, "", err} = run(["validate", "--tal", tal, "--max-invalid", "ten"])
+      assert err =~ "unknown or invalid flag --max-invalid"
 
       assert {2, "", err} = run(["validate", "--fetch"])
       assert err =~ "unknown or invalid flag --fetch"
@@ -193,7 +220,8 @@ defmodule Lumina.CLIValidateTest do
     test "lumina help validate describes the flags and exit codes" do
       assert {0, out, ""} = run(["help", "validate"])
       assert out =~ "Usage: lumina validate [--cache DIR] [--tal FILE]... [--now TIME]"
-      assert out =~ "Exit codes: 0 everything valid, 1 something invalid or missing"
+      assert out =~ "--max-invalid PERCENT"
+      assert out =~ "Exit codes: 0 valid (at most PERCENT invalid certificates per TAL;"
 
       assert {0, out, ""} = run(["help"])
       assert out =~ "validate  validate the certificates in the local cache, offline"

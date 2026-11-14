@@ -274,15 +274,17 @@ defmodule Lumina.Validate do
 
   @doc """
   Whether a report of `run/3` (or `{:error, :no_ta}`) should fail
-  `lumina validate`: no TA, an invalid TA or certificate, a file that
-  doesn't decode, or a missing publication point. Warnings don't.
+  `lumina validate` (D-022): no TA, an invalid TA, or more than
+  `max_invalid` percent of the certificates below it invalid or not
+  decoding. Warnings and missing publication points don't count.
   """
-  @spec failed?({:ok, result()} | {:error, :no_ta}) :: boolean()
-  def failed?({:error, :no_ta}), do: true
+  @spec failed?({:ok, result()} | {:error, :no_ta}, number()) :: boolean()
+  def failed?(report, max_invalid \\ 10)
+  def failed?({:error, :no_ta}, _max_invalid), do: true
 
-  def failed?({:ok, result}) do
-    not result.ta.valid or Enum.any?(result.certificates, &(&1[:valid] != true)) or
-      Enum.any?(result.issues, &(&1.kind == :missing))
+  def failed?({:ok, result}, max_invalid) do
+    invalid = Enum.count(result.certificates, &(&1[:valid] != true))
+    not result.ta.valid or invalid * 100 > max_invalid * length(result.certificates)
   end
 
   @doc """
