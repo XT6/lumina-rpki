@@ -7,11 +7,15 @@ defmodule Lumina.ProgressTest do
   `lumina vrps` with `--progress` / `--quiet`. Every long-running
   operation reports progress (D-036).
 
-  Progress goes to stderr and never changes stdout. Tests run with
-  StringIO devices, which aren't terminals, so `lumina sync` shows
-  progress only with `--progress`, as timestamped lines.
+  Progress goes to stderr and never changes stdout. It is on by default
+  (D-036): tests run with StringIO devices, which aren't terminals, so
+  the commands report timestamped lines unless given `--quiet`. Other
+  test modules add `--quiet` (`Lumina.Test.Quiet`); these run the
+  commands as given.
   """
   use ExUnit.Case, async: true
+
+  doctest Lumina.Test.Quiet
 
   alias Lumina.{CLI, Object, Progress, TAL, Validate, Walk}
   alias Lumina.Test.{Fixture, RsyncDaemon}
@@ -156,7 +160,7 @@ defmodule Lumina.ProgressTest do
          %{tmp_dir: tmp} do
       {tal_path, remap} = served_tal(tmp)
       cache = Path.join(tmp, "cache")
-      {0, _, ""} = run(["sync", "--cache", cache, "--tal", tal_path], remap: remap)
+      {0, _, ""} = run(["sync", "--cache", cache, "--tal", tal_path, "--quiet"], remap: remap)
       {:ok, tal} = TAL.decode_file(tal_path)
 
       {:ok, result} =
@@ -197,20 +201,24 @@ defmodule Lumina.ProgressTest do
     end
 
     @tag :rsync
-    test "lumina validate and lumina vrps with --progress report on stderr, and stdout is unchanged",
+    @tag doc: """
+         Without any flag, and with --progress, the same timestamped lines
+         (StringIO isn't a terminal); stdout is what --quiet gives.
+         """
+    test "lumina validate and lumina vrps report progress on stderr by default, and stdout is unchanged",
          %{tmp_dir: tmp} do
       {tal, remap} = served_tal(tmp)
       cache = Path.join(tmp, "cache")
-      {0, _, ""} = run(["sync", "--cache", cache, "--tal", tal], remap: remap)
+      {0, _, ""} = run(["sync", "--cache", cache, "--tal", tal, "--quiet"], remap: remap)
       base = ["--cache", cache, "--tal", tal, "--now", "2030-01-01"]
 
-      for command <- ["validate", "vrps"] do
-        {0, plain_out, plain_err} = run([command | base], [])
-        assert {0, out, err} = run([command | base] ++ ["--progress"], [])
+      for command <- ["validate", "vrps"], flags <- [[], ["--progress"]] do
+        {0, quiet_out, quiet_err} = run([command | base] ++ ["--quiet"], [])
+        assert {0, out, err} = run([command | base] ++ flags, [])
 
-        assert out == plain_out, command
+        assert out == quiet_out, command
         refute err =~ "\e"
-        progress = String.replace(err, plain_err, "")
+        progress = String.replace(err, quiet_err, "")
         lines = String.split(progress, "\n", trim: true)
         assert length(lines) >= 2, command
 
@@ -227,7 +235,7 @@ defmodule Lumina.ProgressTest do
     test "--quiet reports no progress for lumina validate and lumina vrps", %{tmp_dir: tmp} do
       {tal, remap} = served_tal(tmp)
       cache = Path.join(tmp, "cache")
-      {0, _, ""} = run(["sync", "--cache", cache, "--tal", tal], remap: remap)
+      {0, _, ""} = run(["sync", "--cache", cache, "--tal", tal, "--quiet"], remap: remap)
       base = ["--cache", cache, "--tal", tal, "--now", "2030-01-01", "--quiet"]
 
       assert {0, _out, ""} = run(["validate" | base], [])
@@ -250,16 +258,15 @@ defmodule Lumina.ProgressTest do
          pipe gets: a timestamp, no control characters, one line per TAL
          and per finished level.
          """
-    test "--progress reports on stderr as plain timestamped lines, and stdout is unchanged", %{
-      tmp_dir: tmp
-    } do
+    test "progress is reported by default, as plain timestamped lines, and stdout is unchanged",
+         %{tmp_dir: tmp} do
       {tal, remap} = served_tal(tmp)
       cache = Path.join(tmp, "cache")
 
-      assert {0, quiet_out, ""} = run(["sync", "--cache", cache, "--tal", tal], remap: remap)
+      assert {0, quiet_out, ""} =
+               run(["sync", "--cache", cache, "--tal", tal, "--quiet"], remap: remap)
 
-      assert {0, out, err} =
-               run(["sync", "--cache", cache, "--tal", tal, "--progress"], remap: remap)
+      assert {0, out, err} = run(["sync", "--cache", cache, "--tal", tal], remap: remap)
 
       assert out == quiet_out
       refute err =~ "\e"

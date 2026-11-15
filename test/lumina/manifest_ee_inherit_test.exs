@@ -134,7 +134,7 @@ defmodule Lumina.ManifestEEInheritTest do
   defp run(args, internal) do
     {:ok, out} = StringIO.open("")
     {:ok, err} = StringIO.open("")
-    code = CLI.run(args, out, err, internal)
+    code = CLI.run(Lumina.Test.Quiet.args(args), out, err, internal)
     {code, elem(StringIO.contents(out), 1)}
   end
 end

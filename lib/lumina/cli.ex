@@ -82,9 +82,8 @@ defmodule Lumina.CLI do
                        the repository server
     --rsync PATH       the rsync binary to use, 3.1.0 or later (default: the
                        first rsync on PATH)
-    --progress         report progress on stderr even when it isn't a
-                       terminal, as timestamped lines (on a terminal, a
-                       status line is shown anyway)
+    --progress         report progress on stderr (the default): a status
+                       line on a terminal, timestamped lines otherwise
     --quiet            no progress report
 
   Prints one summary per TAL: the TA URI used, the publication points
@@ -123,9 +122,8 @@ defmodule Lumina.CLI do
                   the share of a TAL's CA certificates and signed objects
                   that may be invalid before the run fails, 0 to 100
                   (default: 10); 0 fails on any invalid one
-    --progress    report progress on stderr even when it isn't a
-                  terminal, as timestamped lines (on a terminal it is
-                  always shown, as one status line)
+    --progress    report progress on stderr (the default): a status
+                  line on a terminal, timestamped lines otherwise
     --quiet       no progress report
 
   Prints one summary per TAL: the trust anchor, the number of valid and
@@ -167,9 +165,8 @@ defmodule Lumina.CLI do
     --wide        for debugging: add a URI column with the rsync URI of
                   the ROA, and write one row per VRP and ROA, so a VRP
                   that several ROAs state appears once for each
-    --progress    report progress on stderr even when it isn't a
-                  terminal, as timestamped lines (on a terminal it is
-                  always shown, as one status line)
+    --progress    report progress on stderr (the default): a status
+                  line on a terminal, timestamped lines otherwise
     --quiet       no progress report
 
   A short summary goes to standard error: the VRPs of each TAL, and
@@ -529,8 +526,8 @@ defmodule Lumina.CLI do
 
   # Repositories need rsync 3.1.0 or later. Checked before anything is
   # fetched, so an old rsync fails clearly instead of every fetch failing.
-  # Progress on stderr (#96): a status line when stderr is a terminal,
-  # timestamped lines with --progress otherwise, nothing with --quiet.
+  # Progress on stderr (#96, D-036): a status line when stderr is a
+  # terminal, timestamped lines otherwise, nothing with --quiet.
   defp with_progress(opts, err, fun) do
     {progress, stop} = progress_listener(opts, err)
 
@@ -542,12 +539,12 @@ defmodule Lumina.CLI do
   end
 
   # The :progress option for the work, and a function that stops the
-  # report: none with --quiet, or when stderr isn't a terminal and
-  # --progress wasn't given.
+  # report. Progress is on by default (D-036): a status line on a
+  # terminal, timestamped lines elsewhere; --quiet turns it off.
   defp progress_listener(opts, err) do
     tty? = err == :stderr and Progress.stderr_tty?()
 
-    if opts[:quiet] || !(tty? || opts[:progress]) do
+    if opts[:quiet] do
       {[], fn -> :ok end}
     else
       {listener, stop} = Progress.start(err, if(tty?, do: :tty, else: :plain))

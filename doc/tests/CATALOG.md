@@ -2811,9 +2811,11 @@ emits, the status text built from a scripted event sequence, and
 `lumina vrps` with `--progress` / `--quiet`. Every long-running
 operation reports progress (D-036).
 
-Progress goes to stderr and never changes stdout. Tests run with
-StringIO devices, which aren't terminals, so `lumina sync` shows
-progress only with `--progress`, as timestamped lines.
+Progress goes to stderr and never changes stdout. It is on by default
+(D-036): tests run with StringIO devices, which aren't terminals, so
+the commands report timestamped lines unless given `--quiet`. Other
+test modules add `--quiet` (`Lumina.Test.Quiet`); these run the
+commands as given.
 
 - *events:* a walk emits level and fetch events, in order, with outcomes and file counts
   m0-minimal-valid: the TA's level fetches the module rpki (all 7
@@ -2831,10 +2833,12 @@ progress only with `--progress`, as timestamped lines.
   level, and one point_validated per publication point whose
   objects and invalid counts add up to the result's.
 - *validation (#180):* a validation in progress shows its level, points, objects and invalid ones
-- *validation (#180):* lumina validate and lumina vrps with --progress report on stderr, and stdout is unchanged
+- *validation (#180):* lumina validate and lumina vrps report progress on stderr by default, and stdout is unchanged
+  Without any flag, and with --progress, the same timestamped lines
+  (StringIO isn't a terminal); stdout is what --quiet gives.
 - *validation (#180):* --quiet reports no progress for lumina validate and lumina vrps
 - *validation (#180):* lumina help validate and lumina help vrps list --progress and --quiet
-- *lumina sync:* --progress reports on stderr as plain timestamped lines, and stdout is unchanged
+- *lumina sync:* progress is reported by default, as plain timestamped lines, and stdout is unchanged
   StringIO isn't a terminal, so these are the plain lines a log or a
   pipe gets: a timestamp, no control characters, one line per TAL
   and per finished level.
