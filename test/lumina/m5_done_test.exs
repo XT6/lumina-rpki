@@ -101,6 +101,8 @@ defmodule Lumina.M5DoneTest do
        publishes, and those found invalid are exactly the ones a ruled
        reject names. The summary's manifest and ROA counts agree.
        """
+  # Syncs every fixture; the done tests run at the same time (async).
+  @tag timeout: :timer.minutes(5)
   test "every Barry fixture's publication points and signed objects get the verdicts its metadata states",
        %{tmp_dir: tmp} do
     {fixtures, []} = Fixtures.load_all()
