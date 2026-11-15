@@ -94,7 +94,9 @@ defmodule Lumina.Chain do
   Option
   `:resources` gives the issuer's effective resources, which the walk
   carries down from the TA; without it, the issuer's own are used, as if
-  it were at the top.
+  it were at the top. `:held` may give the same resources already merged
+  (`Lumina.Resources.held/1`), so a caller validating many children of
+  one issuer merges them once.
 
   The effective resources must be encompassed by the issuer's (RFC 6487
   §7.2 point 6; RFC 3779 §2.3, §3.3: "Validation MUST fail when this is
@@ -130,7 +132,7 @@ defmodule Lumina.Chain do
         signature(cert, issuer, "the signature doesn't verify with the issuer's key"),
         Profile.certificate(cert, kind, at),
         revocation(cert, crl_result),
-        encompassed(resources, held)
+        encompassed(resources, Keyword.get_lazy(opts, :held, fn -> Resources.held(held) end))
       ]),
       resources
     )

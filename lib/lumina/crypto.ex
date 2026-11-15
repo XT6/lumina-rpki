@@ -32,8 +32,6 @@ defmodule Lumina.Crypto do
   (`:crypto.hash/2`) come from OTP.
   """
 
-  import Bitwise
-
   alias Lumina.{Certificate, CRL, DER}
 
   @type problem :: %{rule: atom(), rfc: String.t(), message: String.t()}
@@ -269,7 +267,8 @@ defmodule Lumina.Crypto do
         "the signature representative is not below the modulus"
       )
     else
-      m = :crypto.mod_pow(s, e, n)
+      # Binaries: :crypto converts integer arguments on every call.
+      m = :crypto.mod_pow(signature, :binary.encode_unsigned(e), :binary.encode_unsigned(n))
 
       if i2osp(m, k) == emsa_pkcs1_v1_5_encode(message, k),
         do: :ok,
@@ -290,9 +289,14 @@ defmodule Lumina.Crypto do
     <<0x00, 0x01, ps::binary, 0x00, t::binary>>
   end
 
-  defp bit_length(n), do: bit_length(n, 0)
-  defp bit_length(0, count), do: count
-  defp bit_length(n, count), do: bit_length(n >>> 1, count + 1)
+  # From the big-endian bytes: shifting a 2048-bit integer one bit at a
+  # time costs a copy per bit.
+  defp bit_length(0), do: 0
+
+  defp bit_length(n) do
+    <<first, _::binary>> = bytes = :binary.encode_unsigned(n)
+    (byte_size(bytes) - 1) * 8 + length(Integer.digits(first, 2))
+  end
 
   defp problem(rule, rfc, message), do: {:error, %{rule: rule, rfc: rfc, message: message}}
 end
