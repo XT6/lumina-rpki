@@ -24,8 +24,8 @@ defmodule Lumina.Validate do
   are skipped.
 
   The manifest is checked as part of its point (CMS, EE certificate and
-  content); the other types' eContent isn't judged yet (ROAs in M7, the
-  rest in M9).
+  content), and a ROA's content with `Lumina.ROA.check/2` (RFC 9582 §4,
+  §5, #171); the other types' eContent isn't judged yet (M9).
   """
 
   alias Lumina.{
@@ -38,6 +38,7 @@ defmodule Lumina.Validate do
     ManifestState,
     Profile,
     PublicationPoint,
+    ROA,
     SignedObject,
     TA,
     TAL,
@@ -253,9 +254,10 @@ defmodule Lumina.Validate do
       resources: result.resources
     }
 
-  # RFC 6488 §3: the envelope (items 1, 2) and the EE certificate (item 3).
+  # RFC 6488 §3: the envelope (items 1, 2) and the EE certificate (item 3);
+  # for a ROA, its content too (RFC 9582 §4, §5, #171).
   defp entry(name, {:object, type}, ee, value, result) do
-    own = CMS.check(signed_object(value))
+    own = CMS.check(signed_object(value)) ++ content(value, ee)
 
     %{
       uri: name,
@@ -266,6 +268,9 @@ defmodule Lumina.Validate do
       problems: result.problems ++ own
     }
   end
+
+  defp content(%ROA{} = roa, ee), do: ROA.check(roa, ee)
+  defp content(_value, _ee), do: []
 
   defp resources_opt(opts),
     do: if(held = opts[:resources], do: [resources: held], else: [])

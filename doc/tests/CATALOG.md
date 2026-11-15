@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 85 Barry fixtures: 19 valid, 66 invalid.
+- 89 Barry fixtures: 20 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 755 unit tests in 64 modules.
+- 772 unit tests in 65 modules.
 
 ## Barry fixtures
 
@@ -122,6 +122,8 @@ the incorrect repository from Barry's own tutorial.
 In M1 it checks that the decoder doesn't treat the wrong version as a
 decoding error: the ROA decodes with version 2 visible, and the version
 is explicitly encoded (it isn't the DEFAULT), so the object is still DER.
+
+ROA content validation (#171): the ROA is invalid, rule roa_version.
 
 - **Expected:** invalid. A validator must reject:
   - `ca1/roa1.roa`: version is 2; RFC 9582 section 4.1 requires 0
@@ -992,10 +994,13 @@ Resource inclusion (#154): everything validates.
 
 The baseline tree (m0-minimal-valid) with one change: the EE certificate of roa1.roa uses inherit for its IP addresses. RFC 6487 section 4.8.10 allows inherit in any resource certificate, EE certificates included; the EE certificate then holds ca1's addresses (RFC 3779 section 2.2.3.5).
 
-Effective resources (#153): everything validates.
+Effective resources (#153): the EE certificate validates, holding ca1's addresses.
 
-- **Expected:** valid
-- **RFC:** [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10))
+ROA content validation (#171): RFC 9582 section 5 narrows this for ROAs: "The EE certificate's IP address delegation extension MUST NOT contain 'inherit' elements". The ROA is invalid as a whole.
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/roa1.roa`: the EE certificate's IP address delegation extension uses inherit
+- **RFC:** [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10)), [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5))
 - **Files:** [descriptor](../../test/fixtures/barry/m6-inherit-ee/case.repo) · [metadata](../../test/fixtures/barry/m6-inherit-ee/case.exs) · [rsync tree](../../test/fixtures/barry/m6-inherit-ee/rsync)
 
 #### `m6-inherit-from-empty`: Inheriting an address family the issuer doesn't hold
@@ -1010,7 +1015,7 @@ Effective resources (#153): everything validates, and ca2 holds ca1's IPv4 addre
 
 #### `m6-inherit-two-levels`: Resources inherited through two levels
 
-ta, ca1 with Barry's default resources, then ca2 and ca3 that both inherit every address family and their AS numbers, and a ROA under ca3 whose EE certificate inherits too (Barry's default under an inheriting CA). RFC 3779 sections 2.2.3.5 and 3.2.3.3: inherited resources are taken "from the issuer's certificate, or from the issuer's issuer's certificate, recursively", so ca3 and the EE certificate hold ca1's resources.
+ta, ca1 with Barry's default resources, then ca2 and ca3 that both inherit every address family and their AS numbers, and a ROA under ca3 whose EE certificate lists ca1's addresses explicitly (Barry's default there would inherit, which RFC 9582 section 5 forbids in a ROA, #171). RFC 3779 sections 2.2.3.5 and 3.2.3.3: inherited resources are taken "from the issuer's certificate, or from the issuer's issuer's certificate, recursively", so ca3 and the EE certificate hold ca1's resources.
 
 Effective resources (#153): everything validates.
 
@@ -1125,6 +1130,50 @@ Resource inclusion (#154).
   - `ca1/roa1.roa`: 2.0.0.0/16 not held by the issuer
 - **RFC:** [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3))
 - **Files:** [descriptor](../../test/fixtures/barry/m6-overclaim-roa-ee/case.repo) · [metadata](../../test/fixtures/barry/m6-overclaim-roa-ee/case.exs) · [rsync tree](../../test/fixtures/barry/m6-overclaim-roa-ee/rsync)
+
+### M7
+
+#### `m7-roa-max-length-below-prefix`: ROA whose maxLength is below its prefix length
+
+The baseline tree (m0-minimal-valid) with one change: roa1.roa gives 1.1.0.0/16 a maxLength of 12. RFC 9582 section 4.3.2.2: maxLength MUST be "an integer greater than or equal to the length of the accompanying prefix". The ROA decodes (only a maxLength above the address width fails at decoding, F-012), and section 5 makes it invalid as a whole.
+
+ROA content validation (#171).
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/roa1.roa`: 1.1.0.0/16: maxLength 12 is outside 16..32
+- **RFC:** [9582 §4.3.2.2](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.2)), [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5))
+- **Files:** [descriptor](../../test/fixtures/barry/m7-roa-max-length-below-prefix/case.repo) · [metadata](../../test/fixtures/barry/m7-roa-max-length-below-prefix/case.exs) · [rsync tree](../../test/fixtures/barry/m7-roa-max-length-below-prefix/rsync)
+
+#### `m7-roa-max-length-superfluous`: ROA with a maxLength equal to its prefix length
+
+The baseline tree (m0-minimal-valid) with one change: roa1.roa encodes a maxLength of 16 for 1.1.0.0/16. RFC 9582 section 4.3.2.2: "The maxLength element SHOULD NOT be encoded if the maximum length is equal to the prefix length", and CAs "SHOULD anticipate that future Relying Parties will become increasingly stringent". A SHOULD only warns (D-030, F-018): the ROA is valid, with the warning superfluous_max_length.
+
+ROA content validation (#171).
+
+- **Expected:** valid
+- **RFC:** [9582 §4.3.2.2](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.2))
+- **Files:** [descriptor](../../test/fixtures/barry/m7-roa-max-length-superfluous/case.repo) · [metadata](../../test/fixtures/barry/m7-roa-max-length-superfluous/case.exs) · [rsync tree](../../test/fixtures/barry/m7-roa-max-length-superfluous/rsync)
+
+#### `m7-roa-not-canonical`: ROA whose prefixes are not in canonical order
+
+The baseline tree (m0-minimal-valid) with one change: roa1.roa lists 1.1.128.0/24 before 1.1.0.0/24. RFC 9582 section 4.3.3 says ipAddrBlocks SHOULD be in canonical form, sorted by the comparator of section 4.3.3.1. A SHOULD only warns (D-030, F-018): the ROA is valid, with the warning not_canonical_order.
+
+ROA content validation (#171).
+
+- **Expected:** valid
+- **RFC:** [9582 §4.3.3](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.3)), [9582 §4.3.3.1](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.3.1))
+- **Files:** [descriptor](../../test/fixtures/barry/m7-roa-not-canonical/case.repo) · [metadata](../../test/fixtures/barry/m7-roa-not-canonical/case.exs) · [rsync tree](../../test/fixtures/barry/m7-roa-not-canonical/rsync)
+
+#### `m7-roa-prefix-outside-ee`: ROA with a prefix outside its EE certificate's addresses
+
+The baseline tree (m0-minimal-valid) with a second ROA, roa2.roa, as Barry writes it by default, and one change: roa1.roa also lists 1.2.0.0/16, while its EE certificate holds 1.1.0.0/16 and 101::/16. RFC 9582 section 5 requires "every IP address prefix in the ROA payload is contained within the set of IP addresses specified by the EE certificate's IP address delegation extension"; if not, "the ROA in its entirety MUST be considered invalid", so the ROA's other prefixes give no VRPs either. roa2.roa, at the same publication point, stays valid. The EE certificate itself is within ca1's resources, so this is not an overclaim (RFC 6487 section 7.2).
+
+ROA content validation (#171).
+
+- **Expected:** invalid. A validator must reject:
+  - `ca1/roa1.roa`: 1.2.0.0/16 not in the EE certificate's addresses
+- **RFC:** [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5))
+- **Files:** [descriptor](../../test/fixtures/barry/m7-roa-prefix-outside-ee/case.repo) · [metadata](../../test/fixtures/barry/m7-roa-prefix-outside-ee/case.exs) · [rsync tree](../../test/fixtures/barry/m7-roa-prefix-outside-ee/rsync)
 
 ## Test TALs
 
@@ -2310,7 +2359,7 @@ module checks that they hold together, over all the data at once.
 - the overclaim and inheritance fixtures get their verdicts, and resource checks reject nothing else (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)), [3779 §3.2.3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.3)), [3779 §3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.3)))
   Driven by the fixture metadata; fixtures whose TA is rejected are
   M4DoneTest's. For an M6 fixture: validate exits 1 exactly when it
-  states an overclaim; each overclaiming certificate is listed by
+  states a reject; each overclaiming certificate is listed by
   validate, and by sync when it is a CA certificate, as
   `resources_not_encompassed: <the reason without " not held by the
   issuer">`; both print `overclaims: N` with N the overclaims stated
@@ -2906,6 +2955,54 @@ issues/1, not enforced.
 - *errors:* non-DER and unparseable eContent
 - *errors:* an address family other than IPv4 or IPv6 is a decode error (RFC [9582 §4.3.1](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.1)))
   The module's information object set rejects other AFIs at decode time (F-012).
+
+### `Lumina.ROAValidationTest`
+
+[test/lumina/roa_validation_test.exs](../../test/lumina/roa_validation_test.exs)
+
+Tests ROA content validation (#171): `Lumina.ROA.check/2` against the
+ROA's EE certificate, RFC 9582 §4 and §5, and its use by `lumina
+validate`.
+
+§5 lists what a relying party checks beyond RFC 6488: the EE
+certificate has the IP address delegation extension, without
+`inherit`, and no AS identifier extension; every ROA prefix is within
+the EE certificate's addresses; and the content conforms to §3 and §4.
+"If any of the above checks fail, the ROA in its entirety MUST be
+considered invalid." The §4.3 SHOULDs (a superfluous maxLength, order
+and duplicates) only warn (D-030, F-018).
+
+Most cases are in memory: the ROA and the EE certificate of
+m0-minimal-valid's roa1.roa (EE 1.1.0.0/16 and 101::/16), changed one
+field at a time, since Barry can't write some of them (an AS extension
+on a ROA's EE certificate, two families with the same AFI, an
+IPv4-mapped prefix). The `m7-roa-*` fixtures cover the rest end to end.
+
+- *ROA.check/2:* a ROA whose prefixes are exactly its EE certificate's addresses has no problems (RFC [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)), [9582 §4.3.2.2](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.2)))
+- *ROA.check/2:* prefixes strictly inside the EE certificate's addresses, with maxLength, are valid (RFC [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)))
+- *ROA.check/2:* a version other than 0 is an error (RFC [9582 §4.1](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.1)))
+- *ROA.check/2:* an EE certificate without the IP address delegation extension is an error (RFC [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)))
+- *ROA.check/2:* an EE certificate that uses inherit for an address family is an error (RFC [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)))
+- *ROA.check/2:* an EE certificate with the AS identifier delegation extension is an error (RFC [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)))
+  Barry can't add the AS extension to a ROA's EE certificate, so this is in memory.
+- *ROA.check/2:* a prefix outside the EE certificate's addresses is an error naming it (RFC [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)))
+- *ROA.check/2:* a prefix that only partly overlaps the EE certificate's addresses is outside (RFC [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)))
+  One address past the end: 1.1.0.0/15 covers 1.0.0.0/16 too.
+- *ROA.check/2:* a prefix in a family the EE certificate doesn't list is outside (RFC [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)))
+- *ROA.check/2:* a maxLength below the prefix length is an error (RFC [9582 §4.3.2.2](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.2)))
+- *ROA.check/2:* two ROAIPAddressFamily elements with the same AFI are an error (RFC [9582 §4.3.1](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.1)))
+- *ROA.check/2:* an IPv4-mapped IPv6 prefix is an error (RFC [9582 §4.3.1](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.1)))
+- *ROA.check/2:* a maxLength equal to the prefix length only warns (RFC [9582 §4.3.2.2](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.2)))
+- *ROA.check/2:* prefixes out of canonical order, or repeated, only warn (RFC [9582 §4.3.3](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.3)), [9582 §4.3.3.1](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.3.1)))
+- *decoding:* an address family other than IPv4 or IPv6 is reported with the rule it breaks (RFC [9582 §4.3.1](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.1)))
+  The ASN.1 module's information object set makes the decoder reject
+  AFI 0003 (F-012); the error names the rule instead of a generic
+  ASN.1 failure.
+- *lumina validate:* an invalid ROA is listed with its rule, and the other ROAs at the point stay valid (RFC [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)))
+  m7-roa-prefix-outside-ee: roa1.roa lists 1.2.0.0/16 outside its EE
+  certificate; roa2.roa, in the same publication point, is fine.
+- *lumina validate:* a ROA breaking only a SHOULD is valid, with a warning (RFC [9582 §4.3.2.2](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.2)))
+  m7-roa-max-length-superfluous: a SHOULD, so a warning on a valid ROA (D-030).
 
 ### `Lumina.RsyncTest`
 

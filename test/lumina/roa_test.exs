@@ -216,7 +216,7 @@ defmodule Lumina.ROATest do
          doc: "The module's information object set rejects other AFIs at decode time (F-012)."
     test "an address family other than IPv4 or IPv6 is a decode error" do
       der = Base.decode16!("301802030100003011300F040200033009300703050020010DB8")
-      assert {:error, {:asn1, _}} = ROA.decode_econtent(der)
+      assert {:error, {:econtent, %{rule: :invalid_address_family}}} = ROA.decode_econtent(der)
     end
   end
 end

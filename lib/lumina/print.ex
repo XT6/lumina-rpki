@@ -66,6 +66,10 @@ defmodule Lumina.Print do
 
   def error({:invalid_time, raw}, _name), do: "ASN.1 layer: #{inspect(raw)} is not a valid time"
   def error({:envelope, reason}, _name), do: "envelope layer: #{inspect(reason)}"
+
+  def error({:econtent, %{rule: rule, rfc: rfc, message: message}}, _name),
+    do: "eContent layer: #{message} (#{rule}, #{rfc_label(rfc)})"
+
   def error({:econtent, reason}, _name), do: "eContent layer: #{inspect(reason)}"
 
   def error({:content_type_mismatch, %{extension: ext, content_type: type}}, _name),

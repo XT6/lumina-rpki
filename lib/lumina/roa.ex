@@ -8,17 +8,18 @@ defmodule Lumina.ROA do
   max_length: integer | nil}]}`. `object` holds the decoded envelope
   (`Lumina.SignedObject`) when the ROA came from a full signed object.
 
-  Decoding is structural. The version, maxLength bounds, containment in the
-  EE certificate's resources and the other RFC 9582 §4 and §5 rules are
-  checked in M7. The canonical-form recommendations of RFC 9582 §4.3.3, and
-  the other encoding rules of §4.3, are reported by `issues/1`, not
-  enforced: the RFC makes them SHOULDs and expects RPs to grow stricter
-  over time (F-018 in doc/rfc-findings.md).
+  Decoding is structural. `check/2` validates the content (RFC 9582 §4,
+  §5, #171): the version, the EE certificate's resource extensions, the
+  prefixes within its addresses, and the encoding rules of §4.3 that
+  `issues/1` finds. Its MUSTs are errors, which make the whole ROA
+  invalid; its SHOULDs (a superfluous maxLength, order and duplicates,
+  §4.3.2.2 and §4.3.3) only warn (D-030, F-018).
 
   Some rules fail at decoding, because RFC 9582's ASN.1 module expresses
-  them as constraints (F-012): address families other than IPv4 and IPv6,
-  and a prefix or maxLength longer than the family's address width (32 or
-  128). A maxLength below the prefix length decodes and is reported by
+  them as constraints (F-012): address families other than IPv4 and IPv6
+  (reported as `invalid_address_family`, citing §4.3.1), and a prefix or
+  maxLength longer than the family's address width (32 or 128). A
+  maxLength below the prefix length decodes and is reported by
   `issues/1`.
   """
 
@@ -73,9 +74,44 @@ defmodule Lumina.ROA do
   @spec decode_econtent(binary()) :: {:ok, t()} | {:error, term()}
   def decode_econtent(der) do
     with :ok <- der_check(DER.check(der)),
-         {:ok, value} <- Lumina.ASN1.decode(:roa, :RouteOriginAttestation, der),
+         {:ok, value} <- decode_asn1(der),
          :ok <- der_check(DER.check_canonical(:roa, :RouteOriginAttestation, der)),
          do: from_asn1(value)
+  end
+
+  # The module's information object set makes the decoder reject an AFI
+  # other than 0001 and 0002 (F-012); name that rule instead of a generic
+  # ASN.1 error.
+  defp decode_asn1(der) do
+    case Lumina.ASN1.decode(:roa, :RouteOriginAttestation, der) do
+      {:error, {:asn1, _}} = error -> unknown_afi(der) || error
+      result -> result
+    end
+  end
+
+  # Walks RouteOriginAttestation without a schema: the last element is
+  # ipAddrBlocks, each family's first element its addressFamily.
+  defp unknown_afi(der) do
+    with {:ok, [_ | _] = elements} <- DER.children(der),
+         {:ok, families} <- DER.children(List.last(elements)) do
+      Enum.find_value(families, fn family ->
+        with {:ok, [<<0x04, 2, afi::binary-size(2)>> | _]} <- DER.children(family),
+             true <- afi not in [<<0, 1>>, <<0, 2>>] do
+          {:error,
+           {:econtent,
+            %{
+              rule: :invalid_address_family,
+              rfc: "9582#4.3.1",
+              message:
+                "address family #{Base.encode16(afi)} is neither IPv4 (0001) nor IPv6 (0002)"
+            }}}
+        else
+          _ -> nil
+        end
+      end)
+    else
+      _ -> nil
+    end
   end
 
   defp from_asn1(value) do
@@ -130,6 +166,122 @@ defmodule Lumina.ROA do
     prefix = Resources.format_ip({:prefix, address, length}, afi)
     "#{prefix}#{if max != length, do: "-#{max}"} => AS#{asn}"
   end
+
+  @doc """
+  Validates the ROA's content against its EE certificate `ee` (RFC 9582
+  §4 and §5, #171), returning problems in the `Lumina.Profile` shape
+  (field `:roa`). Errors make the whole ROA invalid (§5: "the ROA in its
+  entirety MUST be considered invalid"):
+
+    * `roa_version`: the version isn't 0 (§4.1);
+    * `roa_ee_no_ip_resources`, `roa_ee_ip_inherit`,
+      `roa_ee_as_resources`: the EE certificate lacks the IP address
+      delegation extension, uses `inherit` in it, or has the AS
+      identifier extension (§5);
+    * `roa_prefix_outside_ee`: prefixes not contained in the EE
+      certificate's addresses, compared as sets (§5, D-027), named in the
+      message;
+    * the MUSTs of `issues/1` (§4.3.1, §4.3.2.2).
+
+  The SHOULDs of `issues/1` are warnings (D-030).
+  """
+  @spec check(t(), Lumina.Certificate.t()) :: [Lumina.Profile.problem()]
+  def check(%__MODULE__{} = roa, %Lumina.Certificate{} = ee) do
+    ip = Lumina.Certificate.extension_value(ee, :ip_resources)
+
+    Enum.concat([
+      if(roa.version != 0,
+        do: [error(:roa_version, "9582#4.1", "version is #{roa.version}; it must be 0")],
+        else: []
+      ),
+      ee_resources(ip, Lumina.Certificate.extension_value(ee, :as_resources)),
+      contained(roa, ip),
+      for(
+        %{rule: rule} = issue <- issues(roa),
+        do: Map.merge(issue, %{field: :roa, severity: severity(rule)})
+      )
+    ])
+  end
+
+  @warnings [:superfluous_max_length, :not_canonical_order, :duplicate_address]
+
+  defp severity(rule) when rule in @warnings, do: :warning
+  defp severity(_rule), do: :error
+
+  defp ee_resources(ip, as) do
+    Enum.concat([
+      if(not is_list(ip),
+        do: [
+          error(
+            :roa_ee_no_ip_resources,
+            "9582#5",
+            "the EE certificate has no IP address delegation extension"
+          )
+        ],
+        else: []
+      ),
+      if(is_list(ip) and Enum.any?(ip, &(&1.resources == :inherit)),
+        do: [
+          error(
+            :roa_ee_ip_inherit,
+            "9582#5",
+            "the EE certificate's IP address delegation extension uses inherit"
+          )
+        ],
+        else: []
+      ),
+      if(as != nil,
+        do: [
+          error(
+            :roa_ee_as_resources,
+            "9582#5",
+            "the EE certificate has the AS identifier delegation extension"
+          )
+        ],
+        else: []
+      )
+    ])
+  end
+
+  # §5: every prefix within the EE certificate's addresses. A family the
+  # EE certificate inherits is already an error and isn't compared.
+  defp contained(%__MODULE__{families: families}, ip) do
+    families_ee = if is_list(ip), do: ip, else: []
+
+    explicit =
+      for %{afi: afi, resources: resources} when is_list(resources) <- families_ee,
+          into: %{},
+          do: {afi, resources}
+
+    inherited = for %{afi: afi, resources: :inherit} <- families_ee, do: afi
+
+    prefixes =
+      for %{afi: afi, addresses: addresses} <- families,
+          afi not in inherited,
+          %{prefix: prefix} <- addresses,
+          reduce: %{ipv4: [], ipv6: [], as: []},
+          do: (acc -> Map.update!(acc, afi, &[prefix | &1]))
+
+    held = %{ipv4: explicit[:ipv4] || [], ipv6: explicit[:ipv6] || [], as: []}
+    outside = Resources.outside(prefixes, held)
+
+    case for afi <- [:ipv4, :ipv6], r <- outside[afi], do: Resources.format(r, afi) do
+      [] ->
+        []
+
+      shown ->
+        [
+          error(
+            :roa_prefix_outside_ee,
+            "9582#5",
+            Enum.join(shown, ", ") <> " not in the EE certificate's addresses"
+          )
+        ]
+    end
+  end
+
+  defp error(rule, rfc, message),
+    do: %{rule: rule, rfc: rfc, field: :roa, message: message, severity: :error}
 
   @doc """
   Reports encodings that RFC 9582 §4.3 forbids or discourages, without
