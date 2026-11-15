@@ -1,0 +1,15 @@
+ta.cer
+	ca1.cer
+		ca1.mft
+		ca1.crl
+		roa1.roa
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: ca1.mft]
+# IPv4 listed explicitly (within ca1's 1.0.0.0/8), IPv6 left out, AS numbers inherited.
+# Barry can't mix a prefix list for one family with inherit for the other.
+obj.content.certificates.0.tbsCertificate.extensions.ip.extnValue = [ 1.2.0.0/16 ]
+obj.content.certificates.0.tbsCertificate.extensions.as.extnValue.asnum = inherit

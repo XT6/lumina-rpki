@@ -1,0 +1,15 @@
+ta.cer
+	ca1.cer
+		ca1.mft
+		ca1.crl
+		roa1.roa
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: ca1.mft]
+# RFC 9286 section 5.1: the manifest's EE certificate inherits every kind.
+# Barry can override a manifest only when the tree declares it.
+obj.content.certificates.0.tbsCertificate.extensions.ip.extnValue = inherit
+obj.content.certificates.0.tbsCertificate.extensions.as.extnValue.asnum = inherit

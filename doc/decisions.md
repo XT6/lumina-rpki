@@ -36,6 +36,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-026](#d-026-inheriting-resources-the-issuer-doesnt-hold-is-holding-none) | Inheriting resources the issuer doesn't hold is holding none (revised the same day) | 2026-11-14 | #153, F-033 |
 | [D-027](#d-027-resources-are-compared-as-sets) | Resources are compared as sets | 2026-11-14 | #152, F-034 |
 | [D-028](#d-028-an-overclaiming-certificate-is-invalid-as-a-whole) | An overclaiming certificate is invalid as a whole (RFC 6487 §7.2, not RFC 8360) | 2026-11-14 | M6 plan, #154 |
+| [D-029](#d-029-a-manifest-ee-certificate-listing-resources-explicitly-only-warns) | A manifest EE certificate listing resources explicitly only warns; an absent kind is fine | 2026-11-15 | #157, F-035 |
 
 ## D-001: CLI model
 
@@ -393,3 +394,12 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Where:** M6 plan, #154 ("the standard RFC 6487 algorithm only"). RFC 8360 is backlog issue #121.
 - **Consequences:** one overclaimed prefix invalidates a CA and its whole subtree; #155 makes overclaims visible to operators.
 - **As implemented (#154):** `Lumina.Chain.child/6` compares the child's effective resources with the issuer's (`Lumina.Resources.outside/2`, D-027) and adds the error `resources_not_encompassed` (`6487#7.2`, field `:resources`) naming the resources outside, IPv4 then IPv6 then AS numbers. It applies to CA certificates, the EE certificates of signed objects and the manifest's EE certificate (which fails its publication point).
+
+## D-029: A manifest EE certificate listing resources explicitly only warns
+
+- **Date:** 2026-11-15 (the warning: maintainer, 2026-11-14, on #157; the absent-kind reading: proposed in PR, for the maintainer to confirm).
+- **Decision:** when a manifest's EE certificate lists IPv4, IPv6 or AS numbers explicitly instead of using inherit, the publication point gets the warning `manifest_ee_resources_not_inherit` (`9286#5.1`), naming those kinds, and is still accepted. A kind the EE certificate leaves out doesn't warn.
+- **Why:** RFC 9286 §5.1 requires inherit and asks RPs to verify it, without saying what failing means (F-035). Real data follows the rule: all 148 manifests sampled from the LACNIC repository inherit every kind. Barry doesn't: it writes explicit resources on every manifest a fixture doesn't declare in its tree, so as an error the check would fail every fixture (the same situation as D-025). On absent kinds, §5.1 asks for inherit "rather than an explicit description of a resource set", and an absent kind describes nothing; RFC 6487 §4.8.10 and §4.8.11 allow leaving a kind out.
+- **Where:** #157.
+- **Consequences:** every Barry manifest not declared in its fixture's tree carries the warning; tests check errors and this warning separately. Make it an error once Barry writes inherit on manifests by default (`doc/barry.md`).
+- **As implemented (#157):** `Lumina.PublicationPoint.process/5` adds one warning per manifest (field `:resources`), its message listing the explicit kinds: `the manifest's EE certificate lists IPv4, IPv6, AS numbers explicitly instead of using inherit`. `lumina validate` shows it on the manifest's warning line.
