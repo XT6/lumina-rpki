@@ -1,0 +1,18 @@
+ta.cer
+	ca1.cer
+		roa1.roa
+		roa2.roa
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: roa1.roa]
+obj.content.encapContentInfo.eContent.asId = 64496
+obj.content.encapContentInfo.eContent.ipAddrBlocks = [ 1.1.0.0/16 ]
+
+[node: roa2.roa]
+# The same VRP as roa1.roa; the EE certificate holds 1.1.0.0/16 too.
+obj.content.certificates.0.tbsCertificate.extensions.ip.extnValue = [ 1.1.0.0/16 ]
+obj.content.encapContentInfo.eContent.asId = 64496
+obj.content.encapContentInfo.eContent.ipAddrBlocks = [ 1.1.0.0/16 ]

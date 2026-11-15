@@ -274,7 +274,8 @@ defmodule Lumina.CLI do
           cache = opts[:cache] || default_cache()
 
           reports =
-            for {path, tal} <- tals, do: {path, Validate.run(tal, cache, now: now)}
+            for {path, tal} <- tals,
+                do: {path, Validate.run(tal, cache, now: now, name: Validate.ta_name(path))}
 
           IO.write(out, Validate.summary(reports, now))
 
