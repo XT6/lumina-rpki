@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 90 Barry fixtures: 21 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 778 unit tests in 66 modules.
+- 787 unit tests in 67 modules.
 
 ## Barry fixtures
 
@@ -1758,6 +1758,38 @@ Syncs run at 2026-11-13, inside the fixtures' default validity.
   Missing publication points are a fetch problem, reported by sync (D-022).
 - *failures and usage:* a bad --now or --max-invalid, an unknown flag or a stray argument is a usage error
 - *failures and usage:* lumina help validate describes the flags and exit codes
+
+### `Lumina.CLIVRPsTest`
+
+[test/lumina/cli_vrps_test.exs](../../test/lumina/cli_vrps_test.exs)
+
+Tests `lumina vrps` (#165, D-031): it validates the cache offline, as
+`lumina validate` does, and writes the VRPs of the valid ROAs as CSV in
+Routinator's columns (D-032), one row per distinct AS, prefix,
+maxLength and trust anchor (D-033), to stdout or atomically to
+`--output FILE`. Above `--max-invalid` the VRPs are still written, with
+a warning, and the exit code is 1 (D-034).
+
+Each test syncs Barry fixtures from a local rsync daemon with `lumina
+sync`, then runs `lumina vrps` at 2030-01-01 (`--now`), through
+`Lumina.CLI.run/4`.
+
+- *CSV output:* a fixture's VRPs are written as CSV, header first, in order (RFC [9582 §4.3.2.2](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.2)), [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)))
+  m1-roa-prefixes: AS64496 with 1.1.0.0/17-24, 1.1.128.0/24 and 0101::/16-48.
+- *CSV output:* with two TALs, each VRP carries its own trust anchor's name
+  m0-minimal-valid's TAL under two names: each VRP once per trust
+  anchor, named after its TAL file (D-032), in the VRP order.
+- *CSV output:* a VRP stated by two ROAs is written once
+  m7-vrp-duplicate: roa1.roa and roa2.roa both state AS64496, 1.1.0.0/16 (D-033).
+- *--output:* writes the same bytes as standard output, and nothing to standard output
+- *--output:* a file that can't be written fails with exit 1 and leaves nothing behind
+- *failures:* above --max-invalid the VRPs are still written, with a warning, and exit 1 (RFC [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)))
+  m7-roa-prefix-outside-ee: one invalid ROA of five objects, 20%,
+  above the default 10% (D-022). roa2.roa's VRPs are written anyway
+  (D-034).
+- *failures:* a TAL with no trust anchor in the cache gives no rows, and exit 1
+- *usage:* an unknown format is a usage error
+- *usage:* lumina help vrps describes the command and its flags
 
 ### `Lumina.CMSTest`
 

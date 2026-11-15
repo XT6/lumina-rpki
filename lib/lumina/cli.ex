@@ -8,6 +8,8 @@ defmodule Lumina.CLI do
       lumina print [--brief] FILE...
       lumina sync [--cache DIR] [--tal FILE]... [--timeout SECONDS] [--max-depth N]
       lumina validate [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT]
+      lumina vrps [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT]
+                  [--format csv] [--output FILE]
       lumina help [command]
 
   Exit codes, shared by all commands: 0 success, 1 a file failed to
@@ -15,7 +17,7 @@ defmodule Lumina.CLI do
   (including an unknown command or flag).
   """
 
-  alias Lumina.{Object, Print, Progress, Rsync, Sync, TAL, Validate}
+  alias Lumina.{Object, Print, Progress, Rsync, Sync, TAL, Validate, VRP}
 
   @usage """
   Usage: lumina <command> [flags] [arguments]
@@ -24,6 +26,7 @@ defmodule Lumina.CLI do
     print     print RPKI objects and TALs in human-readable form
     sync      fetch the trust anchors and repositories into the local cache
     validate  validate the certificates and signed objects in the local cache, offline
+    vrps      validate the local cache, offline, and write the VRPs
     help      show help for lumina or a command
 
   Run "lumina help <command>" for a command's flags.
@@ -133,9 +136,46 @@ defmodule Lumina.CLI do
   objects, 2 usage error.
   """
 
+  @vrps_usage """
+  Usage: lumina vrps [--cache DIR] [--tal FILE]... [--now TIME]
+                     [--max-invalid PERCENT] [--format csv] [--output FILE]
+
+  Validate the cache as lumina validate does, offline, and write the
+  Validated ROA Payloads (VRPs) of the valid ROAs: one per distinct AS,
+  prefix, maxLength and trust anchor, however many ROAs state it. The
+  trust anchor is named after its TAL file, without .tal.
+
+  Flags:
+    --cache DIR   the cache directory (default: as for lumina sync)
+    --tal FILE    use only this TAL's tree; repeat to pick several
+                  (default: every .tal file in ./tals/)
+    --now TIME    validate as of this time, as for lumina validate
+    --max-invalid PERCENT
+                  as for lumina validate (default: 10); above it the VRPs
+                  are still written, with a warning
+    --format csv  the output format (default: csv): a header line, then
+                  ASN,IP Prefix,Max Length,Trust Anchor rows, such as
+                  AS13335,1.0.0.0/24,24,apnic
+    --output FILE write the VRPs to FILE, replacing it in one step,
+                  instead of to standard output
+
+  A short summary goes to standard error: the VRPs of each TAL, and
+  warnings.
+
+  Exit codes: 0 written, 1 a TAL with no trust anchor in the cache, an
+  invalid one, or more than PERCENT invalid objects (the VRPs of the
+  others, and of a TAL over PERCENT, are still written), or FILE can't be
+  written, 2 usage error.
+  """
+
   @rsync_hint " (on macOS, /usr/bin/rsync is openrsync: install rsync with Homebrew and put it first in PATH, or give it with --rsync PATH)"
 
-  @help %{"print" => @print_usage, "sync" => @sync_usage, "validate" => @validate_usage}
+  @help %{
+    "print" => @print_usage,
+    "sync" => @sync_usage,
+    "validate" => @validate_usage,
+    "vrps" => @vrps_usage
+  }
 
   @doc "Escript entry point."
   @spec main([String.t()]) :: no_return()
@@ -170,6 +210,7 @@ defmodule Lumina.CLI do
       ["print" | rest] -> print_command(rest, out, err)
       ["sync" | rest] -> sync_command(rest, out, err, internal)
       ["validate" | rest] -> validate_command(rest, out, err, internal)
+      ["vrps" | rest] -> vrps_command(rest, out, err, internal)
       _ -> written(err, @usage, 2)
     end
   end
@@ -291,6 +332,116 @@ defmodule Lumina.CLI do
 
       {_opts, [arg | _], []} ->
         written(err, "lumina validate: unexpected argument #{arg}\n\n" <> @validate_usage, 2)
+    end
+  end
+
+  @vrps_flags [
+    cache: :string,
+    tal: :keep,
+    now: :string,
+    max_invalid: :integer,
+    format: :string,
+    output: :string,
+    help: :boolean
+  ]
+
+  defp vrps_command(args, out, err, internal) do
+    case OptionParser.parse(args, strict: @vrps_flags, aliases: [h: :help]) do
+      {[help: true], [], []} ->
+        written(out, @vrps_usage, 0)
+
+      {opts, [], []} ->
+        with {:ok, paths} <- tal_paths(opts, internal),
+             {:ok, tals} <- read_tals(paths),
+             {:ok, now} <- now_flag(opts[:now], internal),
+             {:ok, max_invalid} <- max_invalid_flag(Keyword.get(opts, :max_invalid, 10)),
+             :ok <- format_flag(Keyword.get(opts, :format, "csv")) do
+          cache = opts[:cache] || default_cache()
+
+          reports =
+            for {path, tal} <- tals,
+                do: {path, Validate.run(tal, cache, now: now, name: Validate.ta_name(path))}
+
+          vrps = VRP.sort(for {_path, {:ok, r}} <- reports, v <- r.vrps, do: v)
+
+          failed =
+            Enum.filter(reports, fn {_path, report} -> Validate.failed?(report, max_invalid) end)
+
+          IO.write(err, vrps_summary(reports, failed, max_invalid))
+
+          case write_vrps(opts[:output], VRP.csv(vrps), out) do
+            :ok ->
+              if failed == [], do: 0, else: 1
+
+            {:error, reason} ->
+              written(
+                err,
+                "lumina vrps: can't write #{opts[:output]}: #{:file.format_error(reason)}\n",
+                1
+              )
+          end
+        else
+          {:error, message} -> written(err, "lumina vrps: #{message}\n", 2)
+        end
+
+      {_opts, _args, [{flag, _} | _]} ->
+        written(err, "lumina vrps: unknown or invalid flag #{flag}\n\n" <> @vrps_usage, 2)
+
+      {_opts, [arg | _], []} ->
+        written(err, "lumina vrps: unexpected argument #{arg}\n\n" <> @vrps_usage, 2)
+    end
+  end
+
+  defp format_flag("csv"), do: :ok
+  defp format_flag(other), do: {:error, "--format must be csv, not #{inspect(other)}"}
+
+  # One line per TAL on stderr, and why a TAL fails (D-034: its VRPs are
+  # still written when only the share of invalid objects is too high).
+  defp vrps_summary(reports, failed, max_invalid) do
+    for {path, report} <- reports do
+      line =
+        case report do
+          {:ok, r} -> "#{Validate.ta_name(path)}: #{length(VRP.distinct(r.vrps))} VRPs\n"
+          {:error, :no_ta} -> "#{Validate.ta_name(path)}: no VRPs\n"
+        end
+
+      warning =
+        case {List.keymember?(failed, path, 0), report} do
+          {false, _} ->
+            ""
+
+          {true, {:error, :no_ta}} ->
+            "lumina vrps: #{path}: no trust anchor in the cache; run lumina sync first\n"
+
+          {true, {:ok, %{ta: %{valid: false}}}} ->
+            "lumina vrps: #{path}: the trust anchor in the cache is invalid; run lumina validate for the reasons\n"
+
+          {true, {:ok, _}} ->
+            "lumina vrps: warning: #{path}: more than #{max_invalid}% of the CA certificates and signed objects are invalid; its VRPs are written anyway (run lumina validate for the details)\n"
+        end
+
+      [line, warning]
+    end
+  end
+
+  # To a file, atomically: a temporary file next to it, renamed over it,
+  # so a reader sees the old file or the new one, never half of one.
+  defp write_vrps(nil, data, out), do: IO.binwrite(out, data)
+
+  defp write_vrps(path, data, _out) do
+    temp =
+      Path.join(
+        Path.dirname(path),
+        ".#{Path.basename(path)}.#{System.unique_integer([:positive])}.tmp"
+      )
+
+    with :ok <- File.write(temp, data),
+         :ok <- File.rename(temp, path) do
+      :ok
+    else
+      error ->
+        _ = File.rm(temp)
+        error
     end
   end
 

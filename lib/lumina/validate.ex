@@ -442,20 +442,12 @@ defmodule Lumina.Validate do
   def ta_name(path), do: Path.basename(path, ".tal")
 
   defp vrps(objects, name) do
-    vrps =
+    Lumina.VRP.sort(
       for %{type: :roa, valid: true, vrps: vrps, uri: uri} <- objects,
           vrp <- vrps,
           do: Map.merge(vrp, %{ta: name, uri: uri})
-
-    Enum.sort_by(vrps, &vrp_order/1)
+    )
   end
-
-  # IPv4 first, then address, prefix length, maxLength, AS, trust anchor
-  # and URI.
-  defp vrp_order(vrp),
-    do:
-      {if(vrp.afi == :ipv4, do: 0, else: 1), vrp.address, vrp.length, vrp.max_length, vrp.asn,
-       vrp.ta, vrp.uri}
 
   # One breadth-first level at a time, as the walk goes. Each entry is
   # {valid CA certificate, its name, depth, ancestor publication points,

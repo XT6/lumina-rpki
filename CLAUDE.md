@@ -30,6 +30,7 @@ mix escript.build && ./lumina print [--brief] FILE...   # print RPKI objects and
 ./lumina sync [--cache DIR] [--tal FILE]... [--timeout S] [--max-depth N] [--per-host N] [--rsync PATH] [--progress | --quiet]   # fetch TAs and repositories (Lumina.Sync); without --tal it uses every TAL in ./tals/ and fetches the live RIR repositories
 ./lumina validate [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT]   # validate the cache offline from each TAL's stored TA (Lumina.Validate); exit 1 if a TA is missing or invalid, or more than PERCENT (10) of a TAL's certificates are invalid (D-022)
 elixir scripts/token_usage.exs     # regenerate doc/token-usage.md (Claude Code token usage per milestone, at API prices) from the session transcript and GitHub; commit it with every PR
+./lumina vrps [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT] [--format csv] [--output FILE]   # validate offline and write the VRPs as CSV in Routinator's columns (Lumina.VRP, D-031 to D-034); summary on stderr; --output replaces the file atomically; exit 1 as validate, but the VRPs are still written
 mix lumina.asn1.extract            # regenerate asn1/rfc/ (verbatim from doc/rfc) and asn1/build/ (with asn1/patches/ applied)
 ```
 
