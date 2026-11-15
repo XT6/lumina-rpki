@@ -54,7 +54,7 @@ defmodule Lumina.Rsync do
   @minimum_version {3, 1, 0}
   @max_output 65_536
 
-  @defaults [contimeout: 30, timeout: 300, max_size: 20 * 1024 * 1024]
+  @defaults [contimeout: 10, timeout: 300, max_size: 20 * 1024 * 1024]
 
   @type error :: %{reason: atom(), exit_status: non_neg_integer() | nil, output: String.t()}
   @type result :: %{oversize: [String.t()], output: String.t()}
@@ -63,7 +63,7 @@ defmodule Lumina.Rsync do
   Fetches the directory `uri` names, recursively, into `dest`.
 
   Options: `:rsync` (path to the binary; default: found on `PATH`),
-  `:contimeout` and `:timeout` (seconds; defaults 30 and 300),
+  `:contimeout` and `:timeout` (seconds; defaults 10 and 300),
   `:max_size` (bytes; default 20 MiB), and `:link_dest`, a previous copy
   whose unchanged files are hard-linked instead of downloaded again.
   """

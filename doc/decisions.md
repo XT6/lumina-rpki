@@ -150,7 +150,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 
   | Limit | Default |
   | --- | --- |
-  | rsync connect timeout | 30 s |
+  | rsync connect timeout | ~~30 s~~ 10 s (2026-11-15, #88) |
   | rsync I/O timeout | 300 s |
   | Maximum object size (rsync and HTTPS) | 20 MB |
   | Maximum walk depth (RFC 6481 §5) | 32 |
@@ -160,6 +160,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
   - RFC 6481 §5 says the walk SHOULD support a locally configured maximum chain length.
   - The other limits keep a slow or hostile repository from stalling or filling the relying party.
 - **Consequences:** #72 (rsync), #73 (HTTPS) and #75 (walk) implement them.
+- **Changed (2026-11-15, maintainer, #88):** the rsync connect timeout drops from 30 s to 10 s. In a live LACNIC sync (2026-11-15) the dead delegated hosts hit it, never completing the TCP connection; a working daemon connects well within a second. It bounds only the TCP connection: a server that accepts the connection and then stays silent is stopped by the I/O timeout (300 s), checked on 2026-11-15 with rsync 3.4.1. With #88 a silent host no longer holds up the rest of the walk, so the timeout only bounds how long its own branch waits.
 
 ## D-009: One rsync run per publication point not already covered
 

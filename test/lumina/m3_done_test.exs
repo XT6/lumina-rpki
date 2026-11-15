@@ -36,7 +36,9 @@ defmodule Lumina.M3DoneTest do
   # the second host's authority and module, and whether it is reachable.
   @elsewhere %{
     "m3-walk-delegation" => {"other", "other.example:8873", "repo", :served},
-    "m3-walk-unreachable" => {"unreachable", "unreachable.invalid", "repo", :unreachable}
+    "m3-walk-unreachable" => {"unreachable", "unreachable.invalid", "repo", :unreachable},
+    # silent.example doesn't resolve here; WalkTest points it at a silent server.
+    "m3-walk-silent-branch" => {"silent", "silent.example:8873", "repo", :unreachable}
   }
 
   defp run(args, internal) do
