@@ -105,6 +105,44 @@ defmodule Lumina.CLIVRPsTest do
     end
   end
 
+  describe "--wide (#166)" do
+    @describetag :rsync
+    @describetag :tmp_dir
+
+    @tag doc: """
+         m7-vrp-duplicate: roa1.roa and roa2.roa both state AS64496,
+         1.1.0.0/16. --wide lists it once for each, with its ROA's URI
+         (D-033); without it, once.
+         """
+    test "adds the ROA's URI and lists a VRP once per ROA that states it", %{tmp_dir: tmp} do
+      {tals, cache, internal} = synced!(tmp, "m7-vrp-duplicate")
+
+      assert {0, out, _err} = run(vrps_args(tals, cache, ["--wide"]), internal)
+
+      assert out ==
+               "ASN,IP Prefix,Max Length,Trust Anchor,URI\n" <>
+                 "AS64496,1.1.0.0/16,16,case,rsync://localhost:8873/rpki/ca1/roa1.roa\n" <>
+                 "AS64496,1.1.0.0/16,16,case,rsync://localhost:8873/rpki/ca1/roa2.roa\n"
+
+      assert {0, @header <> "AS64496,1.1.0.0/16,16,case\n", _} =
+               run(vrps_args(tals, cache), internal)
+    end
+
+    @tag doc: "m1-roa-prefixes: one ROA, so each row's URI is roa1.roa."
+    test "every row's URI is the ROA the VRP comes from, in the default order", %{tmp_dir: tmp} do
+      {tals, cache, internal} = synced!(tmp, "m1-roa-prefixes")
+      uri = "rsync://localhost:8873/rpki/ca1/roa1.roa"
+
+      assert {0, out, _err} = run(vrps_args(tals, cache, ["--wide"]), internal)
+
+      assert out ==
+               "ASN,IP Prefix,Max Length,Trust Anchor,URI\n" <>
+                 "AS64496,1.1.0.0/17,24,case,#{uri}\n" <>
+                 "AS64496,1.1.128.0/24,24,case,#{uri}\n" <>
+                 "AS64496,101::/16,48,case,#{uri}\n"
+    end
+  end
+
   describe "--output" do
     @describetag :rsync
     @describetag :tmp_dir
@@ -169,6 +207,25 @@ defmodule Lumina.CLIVRPsTest do
     end
   end
 
+  describe "Lumina.VRP.csv/2" do
+    @tag doc: "Lumina.URI accepts a comma in a path; the field is quoted so the columns hold."
+    test "a field holding a comma or a quote is quoted, its quotes doubled" do
+      vrp = %{
+        asn: 1,
+        afi: :ipv4,
+        address: 0x0A000000,
+        length: 8,
+        max_length: 8,
+        ta: ~s(my "ta"),
+        uri: "rsync://h/m/a,b.roa"
+      }
+
+      assert IO.iodata_to_binary(Lumina.VRP.csv([vrp], wide: true)) ==
+               "ASN,IP Prefix,Max Length,Trust Anchor,URI\n" <>
+                 ~s(AS1,10.0.0.0/8,8,"my ""ta""","rsync://h/m/a,b.roa"\n)
+    end
+  end
+
   describe "usage" do
     test "an unknown format is a usage error" do
       assert {2, "", err} = run(["vrps", "--format", "xml", "--tal", "tals/lacnic.tal"])
@@ -180,6 +237,7 @@ defmodule Lumina.CLIVRPsTest do
       assert out =~ "Usage: lumina vrps"
       assert out =~ "--output FILE"
       assert out =~ "ASN,IP Prefix,Max Length,Trust Anchor"
+      assert out =~ "--wide"
     end
   end
 end

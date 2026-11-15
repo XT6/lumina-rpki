@@ -12,13 +12,20 @@ defmodule Lumina.VRP do
       AS13335,1.0.0.0/24,24,apnic
 
   with one row per distinct (AS, prefix, maxLength, trust anchor), however
-  many ROAs state it (D-033). IPv6 prefixes are in RFC 5952 form, as
-  `Lumina.Resources.format_ip/2` writes them. Lines end in LF.
+  many ROAs state it (D-033). The wide form (`lumina vrps --wide`, #166),
+  for debugging, adds the rsync URI of the ROA and has one row per VRP
+  and ROA, so duplicates show:
+
+      ASN,IP Prefix,Max Length,Trust Anchor,URI
+      AS13335,1.0.0.0/24,24,apnic,rsync://example.net/repo/a.roa
+
+  IPv6 prefixes are in RFC 5952 form, as `Lumina.Resources.format_ip/2`
+  writes them. Lines end in LF.
   """
 
   alias Lumina.Resources
 
-  @header "ASN,IP Prefix,Max Length,Trust Anchor\n"
+  @header "ASN,IP Prefix,Max Length,Trust Anchor"
 
   @doc """
   Sorts VRPs: IPv4 first, then by address, prefix length, maxLength, AS,
@@ -43,7 +50,8 @@ defmodule Lumina.VRP do
 
   @doc """
   The CSV of `vrps`, header first, one row per distinct VRP (`distinct/1`)
-  in the order given.
+  in the order given. With `wide: true`, a URI column too, and one row
+  per VRP and ROA: every entry of `vrps`, duplicates included (D-033).
 
   ## Examples
 
@@ -54,26 +62,35 @@ defmodule Lumina.VRP do
       ...> ]))
       "ASN,IP Prefix,Max Length,Trust Anchor\\nAS13335,1.0.0.0/24,24,apnic\\nAS64496,2001:db8::/32,48,lacnic\\n"
 
+      iex> IO.iodata_to_binary(Lumina.VRP.csv([
+      ...>   %{asn: 13335, afi: :ipv4, address: 0x01000000, length: 24, max_length: 24, ta: "apnic", uri: "rsync://a/1.roa"},
+      ...>   %{asn: 13335, afi: :ipv4, address: 0x01000000, length: 24, max_length: 24, ta: "apnic", uri: "rsync://a/2.roa"}
+      ...> ], wide: true))
+      "ASN,IP Prefix,Max Length,Trust Anchor,URI\\nAS13335,1.0.0.0/24,24,apnic,rsync://a/1.roa\\nAS13335,1.0.0.0/24,24,apnic,rsync://a/2.roa\\n"
+
   """
-  @spec csv([Lumina.Validate.vrp()]) :: iolist()
-  def csv(vrps) do
+  @spec csv([Lumina.Validate.vrp()], keyword()) :: iolist()
+  def csv(vrps, opts \\ []) do
+    wide? = Keyword.get(opts, :wide, false)
+
     rows =
-      for v <- distinct(vrps) do
+      for v <- if(wide?, do: vrps, else: distinct(vrps)) do
         [
           "AS#{v.asn},",
           Resources.format_ip({:prefix, v.address, v.length}, v.afi),
           ",#{v.max_length},",
           field(v.ta || ""),
+          if(wide?, do: [",", field(v.uri)], else: []),
           "\n"
         ]
       end
 
-    [@header | rows]
+    [@header, if(wide?, do: ",URI\n", else: "\n") | rows]
   end
 
   # A field holding a comma, a double quote or a line break is quoted, its
-  # quotes doubled, as CSV readers expect. Only a trust anchor name, taken
-  # from a TAL file name, can hold one.
+  # quotes doubled, as CSV readers expect: a trust anchor name, taken from
+  # a TAL file name, or a URI (Lumina.URI allows a comma in a path).
   defp field(text) do
     if String.contains?(text, [",", "\"", "\n", "\r"]),
       do: ["\"", String.replace(text, "\"", "\"\""), "\""],
