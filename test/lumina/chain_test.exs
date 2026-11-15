@@ -14,6 +14,7 @@ defmodule Lumina.ChainTest do
   Fixtures validate at 2030-01-01.
   """
   use ExUnit.Case, async: true
+  doctest Lumina.Chain
 
   alias Lumina.{Certificate, Chain, CRL, Object, SignedObject, TAL}
   alias Lumina.Test.Fixture

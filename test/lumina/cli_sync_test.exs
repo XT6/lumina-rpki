@@ -230,6 +230,58 @@ defmodule Lumina.CLISyncTest do
     end
   end
 
+  describe "overclaims (#155)" do
+    @tag :rsync
+    @tag rfc: ["6487#7.2", "3779#2.3"],
+         doc: """
+         m6-overclaim-ipv4: ca2 claims 2.0.0.0/16, outside ca1's. Like any
+         invalid CA it isn't a fetch failure (exit 0), and it isn't
+         walked.
+         """
+    test "an overclaiming CA certificate is listed with the resources outside its issuer's, and counted",
+         %{tmp_dir: tmp} do
+      {tal, remap} = served_tal(tmp, "m6-overclaim-ipv4", Path.join(tmp, "tals"))
+
+      assert {0, out, ""} =
+               run(["sync", "--cache", Path.join(tmp, "cache"), "--tal", tal], remap: remap)
+
+      assert out =~
+               "    invalid: rsync://localhost:8873/rpki/ca1/ca2.cer " <>
+                 "(resources_not_encompassed: 2.0.0.0/16)\n"
+
+      assert out =~ "  overclaims: 1 (resources outside the issuer's, RFC 6487 section 7.2)\n"
+      # ta and ca1; ca2's point isn't walked.
+      assert out =~ "  publication points: 2\n"
+    end
+
+    @tag :rsync
+    @tag rfc: "6488#3",
+         doc: """
+         The walk validates CA certificates only, so a ROA whose EE
+         certificate overclaims (m6-overclaim-roa-ee) is lumina
+         validate's to report.
+         """
+    test "a signed object's overclaim is not reported by sync", %{tmp_dir: tmp} do
+      {tal, remap} = served_tal(tmp, "m6-overclaim-roa-ee", Path.join(tmp, "tals"))
+
+      assert {0, out, ""} =
+               run(["sync", "--cache", Path.join(tmp, "cache"), "--tal", tal], remap: remap)
+
+      refute out =~ "  overclaims:"
+      refute out =~ "resources_not_encompassed"
+    end
+
+    @tag :rsync
+    test "a sync without overclaims prints no overclaims line", %{tmp_dir: tmp} do
+      {tal, remap} = served_tal(tmp, "m0-minimal-valid", Path.join(tmp, "tals"))
+
+      assert {0, out, ""} =
+               run(["sync", "--cache", Path.join(tmp, "cache"), "--tal", tal], remap: remap)
+
+      refute out =~ "  overclaims:"
+    end
+  end
+
   describe "--per-host (#98)" do
     @tag :rsync
     @tag doc: """

@@ -85,7 +85,8 @@ defmodule Lumina.CLI do
 
   Prints one summary per TAL: the TA URI used, the publication points
   and rsync fetches, every failure with its reason, and the CA
-  certificates that don't validate.
+  certificates that don't validate. A CA certificate holding resources
+  outside its issuer's is listed with them, and counted as an overclaim.
 
   Exit codes: 0 everything fetched (an invalid CA certificate doesn't
   change that), 1 some fetch failed (the cache is still usable), no TA
@@ -122,7 +123,9 @@ defmodule Lumina.CLI do
   Prints one summary per TAL: the trust anchor, the number of valid and
   invalid CA certificates and signed objects of each type, every invalid
   one with its reasons, warnings, and publication points missing from
-  the cache.
+  the cache. A certificate holding resources outside its issuer's (a CA
+  certificate, or a signed object's EE certificate) is listed with them,
+  and counted as an overclaim; it counts as invalid toward PERCENT.
 
   Exit codes: 0 valid (at most PERCENT invalid objects per TAL; missing
   publication points are listed but don't count), 1 a TAL with no trust
