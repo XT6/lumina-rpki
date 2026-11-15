@@ -1,7 +1,8 @@
 defmodule Lumina.Progress do
   @moduledoc """
-  Progress reports for long-running work (#96): `lumina sync` now, later
-  stages (validation, RRDP) as they arrive.
+  Progress reports for long-running work (#96): `lumina sync`, and
+  validation in `lumina validate` and `lumina vrps` (#180). Every
+  long-running operation reports progress (D-036).
 
   The work emits **events** through a `:progress` option, a one-argument
   function (`emit/2`). Library calls without it pay nothing. Fetches run
@@ -18,6 +19,16 @@ defmodule Lumina.Progress do
       in the publication point after the fetch)
     * `{:level_finished, level, %{points: n, issues: n}}`: running totals
       for the walk
+
+  Events of a validation (`Lumina.Validate.run/3`):
+
+    * `{:tal_started, path, index, total}`, sent by the CLI
+    * `{:validation_level_started, level, %{points: n}}` and
+      `{:validation_level_finished, level, %{points: n}}`: a level of the
+      offline walk, with its publication points
+    * `{:point_validated, %{objects: n, invalid: n}}`: a publication point
+      validated, with its CA certificates and signed objects (its
+      manifest included) and how many are invalid
 
   `update/3` folds events into a state and `render/3` turns a state into
   status text; both are pure. `start/2` runs them in a process that draws
@@ -61,7 +72,12 @@ defmodule Lumina.Progress do
       fetches_failed: 0,
       level_fetches: 0,
       running: %{},
-      files: 0
+      files: 0,
+      # Validation (#180): set by its events.
+      validating: false,
+      validated: 0,
+      objects: 0,
+      invalid: 0
     }
   end
 
@@ -100,6 +116,19 @@ defmodule Lumina.Progress do
   def update(state, {:level_finished, _level, %{points: points, issues: issues}}, _now),
     do: %{state | points: points, issues: issues}
 
+  def update(state, {:validation_level_started, level, %{points: points}}, _now),
+    do: %{state | validating: true, level: level, level_points: points}
+
+  def update(state, {:point_validated, %{objects: objects, invalid: invalid}}, _now) do
+    %{
+      state
+      | validating: true,
+        validated: state.validated + 1,
+        objects: state.objects + objects,
+        invalid: state.invalid + invalid
+    }
+  end
+
   def update(state, _other, _now), do: state
 
   @doc """
@@ -112,11 +141,8 @@ defmodule Lumina.Progress do
       [
         "#{seconds(now - state.started)}s",
         state.tal && "#{state.tal} (#{state.tal_index}/#{state.tal_total})",
-        stage(state),
-        state.level != nil && "points #{state.points}",
-        state.level != nil && rsync(state),
-        state.level != nil && "files #{state.files}",
-        slowest(state, now)
+        stage(state)
+        | if(state.validating, do: validation(state), else: fetching(state, now))
       ]
       |> Enum.filter(& &1)
 
@@ -126,6 +152,23 @@ defmodule Lumina.Progress do
       nil -> text
       columns -> String.slice(text, 0, max(columns - 1, 10))
     end
+  end
+
+  defp fetching(state, now) do
+    [
+      state.level != nil && "points #{state.points}",
+      state.level != nil && rsync(state),
+      state.level != nil && "files #{state.files}",
+      slowest(state, now)
+    ]
+  end
+
+  defp validation(state) do
+    [
+      "points #{state.validated}",
+      "objects #{state.objects}",
+      state.invalid > 0 && "invalid #{state.invalid}"
+    ]
   end
 
   defp stage(%{level: nil, ta: nil}), do: nil
@@ -186,6 +229,7 @@ defmodule Lumina.Progress do
 
         cond do
           mode == :plain and match?({:level_finished, _, _}, event) -> loop(draw(r))
+          mode == :plain and match?({:validation_level_finished, _, _}, event) -> loop(draw(r))
           mode == :plain and match?({:tal_started, _, _, _}, event) -> loop(draw(r))
           now() - r.drawn >= interval -> loop(draw(r))
           true -> loop(r)

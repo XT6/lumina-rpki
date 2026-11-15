@@ -2,7 +2,10 @@ defmodule Lumina.ProgressTest do
   @moduledoc """
   Tests progress reporting (`Lumina.Progress`, #96): the events a walk
   emits, the status text built from a scripted event sequence, and
-  `lumina sync --progress` / `--quiet`.
+  `lumina sync --progress` / `--quiet`. Validation reports progress too
+  (#180): `Lumina.Validate.run/3`'s events and `lumina validate` /
+  `lumina vrps` with `--progress` / `--quiet`. Every long-running
+  operation reports progress (D-036).
 
   Progress goes to stderr and never changes stdout. Tests run with
   StringIO devices, which aren't terminals, so `lumina sync` shows
@@ -10,7 +13,7 @@ defmodule Lumina.ProgressTest do
   """
   use ExUnit.Case, async: true
 
-  alias Lumina.{CLI, Object, Progress, Walk}
+  alias Lumina.{CLI, Object, Progress, TAL, Validate, Walk}
   alias Lumina.Test.{Fixture, RsyncDaemon}
 
   @moduletag :tmp_dir
@@ -139,6 +142,104 @@ defmodule Lumina.ProgressTest do
 
     test "on a terminal, the status line is cut to the terminal width" do
       assert Progress.render(scripted(), 4_000, columns: 30) == "4s  lacnic.tal (1/2)  level 1"
+    end
+  end
+
+  describe "validation (#180)" do
+    @tag :rsync
+    @tag doc: """
+         m0-minimal-valid, synced then validated: a level event pair per
+         level, and one point_validated per publication point whose
+         objects and invalid counts add up to the result's.
+         """
+    test "Validate.run/3 reports each level and each point validated, with counts matching the result",
+         %{tmp_dir: tmp} do
+      {tal_path, remap} = served_tal(tmp)
+      cache = Path.join(tmp, "cache")
+      {0, _, ""} = run(["sync", "--cache", cache, "--tal", tal_path], remap: remap)
+      {:ok, tal} = TAL.decode_file(tal_path)
+
+      {:ok, result} =
+        Validate.run(tal, cache, now: ~U[2030-01-01 00:00:00Z], progress: listener())
+
+      events = received()
+
+      assert [
+               {:validation_level_started, 0, %{points: 1}},
+               {:point_validated, _},
+               {:validation_level_finished, 0, %{points: 1}},
+               {:validation_level_started, 1, %{points: 1}},
+               {:point_validated, _},
+               {:validation_level_finished, 1, %{points: 1}}
+             ] = events
+
+      counts = for {:point_validated, c} <- events, do: c
+      assert Enum.sum_by(counts, & &1.objects) == length(result.objects)
+
+      assert Enum.sum_by(counts, & &1.invalid) ==
+               Enum.count(result.objects, &(&1[:valid] != true))
+    end
+
+    test "a validation in progress shows its level, points, objects and invalid ones" do
+      state =
+        [
+          {0, {:tal_started, "tals/lacnic.tal", 1, 1}},
+          {100, {:validation_level_started, 3, %{points: 3516}}},
+          {200, {:point_validated, %{objects: 10, invalid: 0}}},
+          {300, {:point_validated, %{objects: 5, invalid: 2}}}
+        ]
+        |> Enum.reduce(Progress.new(0), fn {at, event}, st -> Progress.update(st, event, at) end)
+
+      assert Progress.render(state, 4_000) ==
+               "4s  lacnic.tal (1/1)  level 3 (3516 points)  points 2  objects 15  invalid 2"
+
+      refute Progress.render(%{state | invalid: 0}, 4_000) =~ "invalid"
+    end
+
+    @tag :rsync
+    test "lumina validate and lumina vrps with --progress report on stderr, and stdout is unchanged",
+         %{tmp_dir: tmp} do
+      {tal, remap} = served_tal(tmp)
+      cache = Path.join(tmp, "cache")
+      {0, _, ""} = run(["sync", "--cache", cache, "--tal", tal], remap: remap)
+      base = ["--cache", cache, "--tal", tal, "--now", "2030-01-01"]
+
+      for command <- ["validate", "vrps"] do
+        {0, plain_out, plain_err} = run([command | base], [])
+        assert {0, out, err} = run([command | base] ++ ["--progress"], [])
+
+        assert out == plain_out, command
+        refute err =~ "\e"
+        progress = String.replace(err, plain_err, "")
+        lines = String.split(progress, "\n", trim: true)
+        assert length(lines) >= 2, command
+
+        assert Enum.all?(
+                 lines,
+                 &(&1 =~ ~r/\A\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ \d+s  m0\.tal \(1\/1\)/)
+               )
+
+        assert List.last(lines) =~ "points 2  objects 4", command
+      end
+    end
+
+    @tag :rsync
+    test "--quiet reports no progress for lumina validate and lumina vrps", %{tmp_dir: tmp} do
+      {tal, remap} = served_tal(tmp)
+      cache = Path.join(tmp, "cache")
+      {0, _, ""} = run(["sync", "--cache", cache, "--tal", tal], remap: remap)
+      base = ["--cache", cache, "--tal", tal, "--now", "2030-01-01", "--quiet"]
+
+      assert {0, _out, ""} = run(["validate" | base], [])
+      assert {0, _out, "m0: 2 VRPs\n"} = run(["vrps" | base], [])
+    end
+
+    test "lumina help validate and lumina help vrps list --progress and --quiet" do
+      for command <- ["validate", "vrps"] do
+        assert {0, out, ""} = run(["help", command], [])
+        assert out =~ "--progress", command
+        assert out =~ "--quiet", command
+      end
     end
   end
 

@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 90 Barry fixtures: 21 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 790 unit tests in 67 modules.
+- 795 unit tests in 67 modules.
 
 ## Barry fixtures
 
@@ -2806,7 +2806,10 @@ validity.
 
 Tests progress reporting (`Lumina.Progress`, #96): the events a walk
 emits, the status text built from a scripted event sequence, and
-`lumina sync --progress` / `--quiet`.
+`lumina sync --progress` / `--quiet`. Validation reports progress too
+(#180): `Lumina.Validate.run/3`'s events and `lumina validate` /
+`lumina vrps` with `--progress` / `--quiet`. Every long-running
+operation reports progress (D-036).
 
 Progress goes to stderr and never changes stdout. Tests run with
 StringIO devices, which aren't terminals, so `lumina sync` shows
@@ -2823,6 +2826,14 @@ progress only with `--progress`, as timestamped lines.
 - *status text:* a fetch running for more than 5 s is shown as the slowest, with its host
   A stuck host (like krill.dacs.utwente.nl in the live LACNIC run) becomes visible.
 - *status text:* on a terminal, the status line is cut to the terminal width
+- *validation (#180):* Validate.run/3 reports each level and each point validated, with counts matching the result
+  m0-minimal-valid, synced then validated: a level event pair per
+  level, and one point_validated per publication point whose
+  objects and invalid counts add up to the result's.
+- *validation (#180):* a validation in progress shows its level, points, objects and invalid ones
+- *validation (#180):* lumina validate and lumina vrps with --progress report on stderr, and stdout is unchanged
+- *validation (#180):* --quiet reports no progress for lumina validate and lumina vrps
+- *validation (#180):* lumina help validate and lumina help vrps list --progress and --quiet
 - *lumina sync:* --progress reports on stderr as plain timestamped lines, and stdout is unchanged
   StringIO isn't a terminal, so these are the plain lines a log or a
   pipe gets: a timestamp, no control characters, one line per TAL

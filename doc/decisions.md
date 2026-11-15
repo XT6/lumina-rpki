@@ -43,6 +43,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-033](#d-033-one-row-per-distinct-vrp-unless---wide) | One row per distinct VRP; `--wide` adds the ROA's URI and keeps duplicates | 2026-11-15 | M7 plan, #164, #166 |
 | [D-034](#d-034-vrps-are-written-even-above---max-invalid) | Above `--max-invalid`, `lumina vrps` still writes the VRPs and warns | 2026-11-15 | M7 plan, #165 |
 | [D-035](#d-035-vrps-compared-with-routinators-live-csv) | VRPs are compared with Routinator's live CSV, downloaded when the comparison runs | 2026-11-15 | M7 plan, #168, #170 |
+| [D-036](#d-036-every-long-running-operation-reports-progress) | Every long-running operation reports progress | 2026-11-15 | #180 |
 
 ## D-001: CLI model
 
@@ -454,3 +455,11 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Decision:** as a sanity check, Lumina's VRPs are compared with the CSV Routinator publishes for all trust anchors at https://routinator.labs.lacnic.net/csv, downloaded when the comparison runs, never committed. The VRPs only one side has are reported per trust anchor. In the M7 done test they may differ by at most 1% of either side per trust anchor; when that bound is exceeded, the CSV is downloaded again once and compared again, to rule out drift. Only the published output is used, never another validator's code (M7 milestone).
 - **Why:** a file supplied in advance would have drifted from the live repositories by the time the tests run.
 - **Where:** M7 plan (maintainer; the 1% bound and the re-download, on the plan's follow-up), #168, #170.
+
+## D-036: Every long-running operation reports progress
+
+- **Date:** 2026-11-15
+- **Decision:** every operation that can run for more than a few seconds on real data reports progress: a status line on stderr when stderr is a terminal, timestamped lines with `--progress` otherwise, nothing with `--quiet`. Commands that run one get `--progress | --quiet`. The work emits `Lumina.Progress` events through a `:progress` option, free without a listener; stdout carries only the command's output.
+- **Why:** the maintainer: "ALL long running operations need progress reports / progress bars". A validation of LACNIC alone takes about 45 s, a sync about a minute, and all five RIRs longer; without a report the user can't tell work from a hang.
+- **Where:** maintainer, 2026-11-15, while `lumina vrps` was added (#165); #180 adds it to `lumina vrps` and `lumina validate`. `lumina sync` has had it since #96.
+- **Consequences:** a new long-running command or stage (RRDP in M8, for example) isn't done until it reports progress, with tests for its events and for `--progress` / `--quiet`.

@@ -37,6 +37,7 @@ defmodule Lumina.Validate do
     LastValid,
     ManifestState,
     Profile,
+    Progress,
     PublicationPoint,
     ROA,
     SignedObject,
@@ -381,9 +382,10 @@ defmodule Lumina.Validate do
   D-033, lists both); they are sorted IPv4 first, then by address,
   prefix length, maxLength, AS, trust anchor and URI.
 
-  Options: `:now` (default the current time), `:max_depth` (32) and
+  Options: `:now` (default the current time), `:max_depth` (32),
   `:name`, the trust anchor's name for VRPs (`ta_name/1` of the TAL's
-  path, D-032).
+  path, D-032), and `:progress`, a `Lumina.Progress` listener: levels
+  and each publication point validated are reported (#180, D-036).
   """
   @spec run(TAL.t(), Path.t(), keyword()) :: {:ok, result()} | {:error, :no_ta}
   def run(%TAL{} = tal, root, opts \\ []) do
@@ -403,6 +405,7 @@ defmodule Lumina.Validate do
           now: now,
           max_depth: max_depth,
           visited: MapSet.new(),
+          progress: Keyword.take(opts, [:progress]),
           objects: [],
           unlisted: 0,
           fallback: 0,
@@ -459,7 +462,10 @@ defmodule Lumina.Validate do
   defp walk(level, state) do
     {plans, state} = Enum.map_reduce(level, state, &plan/2)
     # Only these go to the tasks: `state` holds every entry so far.
-    %{now: now, root: root} = state
+    %{now: now, root: root, progress: progress} = state
+    depth = level |> hd() |> elem(2)
+    points = Enum.count(plans, &match?({:point, _, _, _, _, _, _}, &1))
+    Progress.emit(progress, {:validation_level_started, depth, %{points: points}})
 
     {next, state} =
       plans
@@ -468,6 +474,15 @@ defmodule Lumina.Validate do
           validated =
             point(cert, path, key, now, objects: true, last_valid: root, resources: resources)
 
+          Progress.emit(
+            progress,
+            {:point_validated,
+             %{
+               objects: length(validated.entries),
+               invalid: Enum.count(validated.entries, &(&1[:valid] != true))
+             }}
+          )
+
           {:point, validated, key, depth, ancestors}
 
         other ->
@@ -475,6 +490,7 @@ defmodule Lumina.Validate do
       end)
       |> Enum.flat_map_reduce(state, &visit/2)
 
+    Progress.emit(progress, {:validation_level_finished, depth, %{points: points}})
     walk(next, state)
   end
 
