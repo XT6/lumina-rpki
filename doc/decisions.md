@@ -34,6 +34,8 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-024](#d-024-manifest-replay-state-is-kept-in-the-cache-and-written-only-by-sync) | Manifest replay state is kept per CA in the cache, written only by `lumina sync` | 2026-11-14 | M5 plan, #136 |
 | [D-025](#d-025-absent-rsaencryption-parameters-in-cms-only-warn) | Absent rsaEncryption parameters in a SignerInfo only warn | 2026-11-14 | #130, PR #140, F-031 |
 | [D-026](#d-026-inheriting-resources-the-issuer-doesnt-hold-is-holding-none) | Inheriting resources the issuer doesn't hold is holding none (revised the same day) | 2026-11-14 | #153, F-033 |
+| [D-027](#d-027-resources-are-compared-as-sets) | Resources are compared as sets | 2026-11-14 | #152, F-034 |
+| [D-028](#d-028-an-overclaiming-certificate-is-invalid-as-a-whole) | An overclaiming certificate is invalid as a whole (RFC 6487 §7.2, not RFC 8360) | 2026-11-14 | M6 plan, #154 |
 
 ## D-001: CLI model
 
@@ -382,3 +384,12 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Where:** #152 (maintainer, comment on the issue: "compare as sets").
 - **Consequences:** in Lumina the profile already rejects a non-canonical resource extension, so a valid parent never has adjacent ranges and the two readings give the same verdict; the set reading keeps the inclusion check correct on its own, whatever the profile does.
 - **As implemented (#152):** `Lumina.Resources.intervals/2` turns one kind into sorted, merged integer intervals; `encompasses?/2` and `outside/2` (the part of Y outside X, for reporting) work on `effective/0` sets.
+
+## D-028: An overclaiming certificate is invalid as a whole
+
+- **Date:** 2026-11-14
+- **Decision:** a CA or EE certificate whose effective resources aren't encompassed by its issuer's is invalid, whatever share of them lies outside. Nothing below an invalid CA is validated. RFC 8360's reconsidered algorithm (keep the certificate, drop the resources outside) isn't applied.
+- **Why:** RFC 6487 §7.2 point 6 makes inclusion a condition of a valid certificate, and RFC 3779 §2.3 and §3.3 say "Validation MUST fail when this is not the case". RFC 8360 applies only to certificates under its own v2 policy, which Lumina rejects as unsupported (D-020).
+- **Where:** M6 plan, #154 ("the standard RFC 6487 algorithm only"). RFC 8360 is backlog issue #121.
+- **Consequences:** one overclaimed prefix invalidates a CA and its whole subtree; #155 makes overclaims visible to operators.
+- **As implemented (#154):** `Lumina.Chain.child/6` compares the child's effective resources with the issuer's (`Lumina.Resources.outside/2`, D-027) and adds the error `resources_not_encompassed` (`6487#7.2`, field `:resources`) naming the resources outside, IPv4 then IPv6 then AS numbers. It applies to CA certificates, the EE certificates of signed objects and the manifest's EE certificate (which fails its publication point).

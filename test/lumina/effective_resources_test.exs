@@ -5,7 +5,8 @@ defmodule Lumina.EffectiveResourcesTest do
   §2.2.3.5 for each address family, §3.2.3.3 for AS numbers), and
   `Lumina.Chain` carries them down a chain.
 
-  Resource inclusion itself (RFC 6487 §7.2 point 6) is #154; here only
+  Resource inclusion itself (RFC 6487 §7.2 point 6) is
+  `ResourceInclusionTest`'s (#154); here only
   what a certificate holds is decided. Resolving gives no errors:
   inheriting a kind the issuer doesn't hold is holding nothing of it
   (D-026), as every manifest's EE certificate does under a CA that lacks
