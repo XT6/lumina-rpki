@@ -429,7 +429,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Date:** 2026-11-15
 - **Decision:** the default output is CSV with the columns and value forms of Routinator's CSV output: header `ASN,IP Prefix,Max Length,Trust Anchor`, rows such as `AS13335,1.0.0.0/24,24,apnic`. The trust anchor column is the TAL file's name without `.tal` (`lacnic`, `ripe-ncc`, `apnic-rfc7730-https`); the comparison (D-035) maps names to Routinator's. JSON (`--format json`) is Lumina's own format, documented in `doc/output.md`, with room for ASPA.
 - **Why:** there's no RFC for VRP output (`doc/rfc/README.md`); a format operators already read, and that matches the reference used for comparison, makes the comparison a set difference. Only the published format is followed, not any code. Naming the trust anchor after its TAL file works for any TAL a user adds.
-- **Where:** M7 plan (maintainer: "Use the same format as routinator"), #165, #167.
+- **Where:** M7 plan (maintainer: "Use the same format as routinator"; names kept as the TAL files'), #165, #167.
 
 ## D-033: One row per distinct VRP, unless `--wide`
 
@@ -443,11 +443,11 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Date:** 2026-11-15
 - **Decision:** when more than `--max-invalid` percent of a TAL's certificates are invalid (D-022), `lumina vrps` still writes all the VRPs, warns on stderr, and exits 1 as `lumina validate` does. A missing or invalid TA gives no VRPs for that TAL.
 - **Why:** the VRPs from valid ROAs are still valid; withholding them would hurt more than the anomaly. The warning and exit code let an operator notice.
-- **Where:** M7 plan (maintainer: "Warn"), #165.
+- **Where:** M7 plan (maintainer: "Warn"; exit 1 confirmed), #165.
 
 ## D-035: VRPs compared with Routinator's live CSV
 
 - **Date:** 2026-11-15
-- **Decision:** as a sanity check, Lumina's VRPs are compared with the CSV Routinator publishes for all trust anchors at https://routinator.labs.lacnic.net/csv, downloaded when the comparison runs, never committed. The VRPs only one side has are reported per trust anchor. Only the published output is used, never another validator's code (M7 milestone).
+- **Decision:** as a sanity check, Lumina's VRPs are compared with the CSV Routinator publishes for all trust anchors at https://routinator.labs.lacnic.net/csv, downloaded when the comparison runs, never committed. The VRPs only one side has are reported per trust anchor. In the M7 done test they may differ by at most 1% of either side per trust anchor; when that bound is exceeded, the CSV is downloaded again once and compared again, to rule out drift. Only the published output is used, never another validator's code (M7 milestone).
 - **Why:** a file supplied in advance would have drifted from the live repositories by the time the tests run.
-- **Where:** M7 plan (maintainer), #168, #170.
+- **Where:** M7 plan (maintainer; the 1% bound and the re-download, on the plan's follow-up), #168, #170.
