@@ -115,6 +115,8 @@ defmodule Lumina.M4DoneTest do
        exits 1 exactly when something is invalid (each fixture's invalid
        share is above D-022's 10%).
        """
+  # Syncs every fixture; the done tests run at the same time (async).
+  @tag timeout: :timer.minutes(5)
   test "every Barry fixture syncs and validates to the verdicts its metadata states", %{
     tmp_dir: tmp
   } do

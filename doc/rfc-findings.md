@@ -53,7 +53,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-032](#f-032-manifest-file-name-extensions-depend-on-an-iana-registry-outside-the-library) | 9286 §4.2.2; 6481 §7.2 | reference | none found (not reported) | Extensions from the IANA registry as of 2026-11-14, temporary and deprecated entries included (#132) |
 | [F-033](#f-033-inheriting-resources-the-issuer-doesnt-hold) | 3779 §2.2.3.5, §3.2.3.3; 9286 §5.1 | ambiguity | none found (not reported) | Inheriting nothing is holding nothing (D-026, #153) |
 | [F-034](#f-034-encompass-is-worded-range-by-range) | 6487 §7.1; 3779 §2.3, §3.3 | ambiguity | [5188](https://www.rfc-editor.org/errata/eid5188), held (related); otherwise none found (not reported) | Compared as sets (D-027, #152) |
-| [F-035](#f-035-what-using-inherit-asks-of-a-manifest-ee-certificate) | 9286 §5.1 | ambiguity | none found (not reported) | Explicit kinds warn, absent ones don't (D-029, #157) |
+| [F-035](#f-035-what-using-inherit-asks-of-a-manifest-ee-certificate) | 9286 §5.1 | ambiguity | none found (not reported; to report) | Explicit kinds warn, absent ones don't (D-029, #157) |
 
 ## Entries
 
@@ -571,7 +571,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 
 - **Where:** RFC 9286 §5.1, on the manifest's EE certificate: "This EE certificate MUST describe its Internet Number Resources (INRs) using the 'inherit' attribute, rather than an explicit description of a resource set (see [RFC3779]). (RPs are required to verify this.)"
 - **Kind:** ambiguity.
-- **Official errata:** none found for §5.1. RFC 9286 has 7118 (Appendix A, F-001) and 7243 (rejected, §4.2.1) (checked 2026-11-15). **Not reported.**
+- **Official errata:** none found for §5.1. RFC 9286 has 7118 (Appendix A, F-001) and 7243 (rejected, §4.2.1) (checked 2026-11-15). **Not reported.** The maintainer marked it for a future report (2026-11-15); the suggested text below is the draft.
 - **The problem:** two things are left open.
   1. **Absent kinds:** RFC 3779 resources are per kind (each address family, AS numbers). An EE certificate that inherits IPv4 and leaves IPv6 out "describes its INRs using inherit" for the kinds it describes, and gives no explicit description of anything. It is unclear whether every kind must be present with inherit, or only no kind may be explicit. RFC 6487 §4.8.10 and §4.8.11 let a certificate leave a family, or AS numbers, out.
   2. **The consequence:** "RPs are required to verify this" names no outcome. Is the manifest invalid, and with it the publication point (§6.2 wants a valid manifest), or is it only a reportable deviation?

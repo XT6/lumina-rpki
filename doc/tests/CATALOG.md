@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 83 Barry fixtures: 17 valid, 66 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 749 unit tests in 63 modules.
+- 753 unit tests in 64 modules.
 
 ## Barry fixtures
 
@@ -2257,6 +2257,68 @@ together, over all the data at once.
   reasons, and served from the last valid copy. Failures are
   expected to be very few: at most 1% of the points, none in
   LACNIC's own repository.
+
+### `Lumina.M6DoneTest`
+
+[test/lumina/m6_done_test.exs](../../test/lumina/m6_done_test.exs)
+
+The end-to-end check that closes M6, resource inclusion (#156). It runs
+`lumina sync` and then `lumina validate` (`Lumina.CLI.run/4`) the way a
+user would, over the whole M6 pipeline: effective resources with
+`inherit` resolved (#153, D-026), resource inclusion (RFC 6487 §7.2
+point 6, #154, D-028), its reporting (#155) and the manifest EE
+`inherit` warning (#157, D-029).
+
+  * Every Barry fixture is synced from a local rsync daemon and
+    validated at 2030-01-01. The M6 fixtures (`m6-overclaim-*`,
+    `m6-inherit-*`, `m6-encompass-*`, `m6-mft-ee-*`) give the verdicts
+    their metadata states: each overclaim is listed by both commands
+    (sync for CA certificates only) with the resources outside its
+    issuer's, counted on the `overclaims:` line, and nothing below an
+    overclaiming CA is validated. No other fixture gets a
+    `resources_not_encompassed` problem, and every valid CA's
+    effective resources are within its issuer's.
+  * RFC 6487 §7.1 and §7.2, RFC 3779 §2.2.3.5, §2.3, §3.2.3.3 and §3.3
+    are covered by tests other than this one.
+  * Tagged `:network`, run by hand only (`mix test --only network`):
+    the live LACNIC repository is synced and validated, and every
+    overclaiming certificate is printed with the resources outside its
+    issuer's.
+
+The individual behaviours are tested in detail elsewhere
+(`EffectiveResourcesTest`, `ResourceSetTest`, `ResourceInclusionTest`,
+`ManifestEEInheritTest`, `CLIValidateTest`, `CLISyncTest`, ...). This
+module checks that they hold together, over all the data at once.
+(`M4DoneTest` and `M5DoneTest` check every fixture's other verdicts.)
+
+- the overclaim and inheritance fixtures get their verdicts, and resource checks reject nothing else (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [6487 §7.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.1)), [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)), [3779 §3.2.3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.3)), [3779 §3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.3)))
+  Driven by the fixture metadata; fixtures whose TA is rejected are
+  M4DoneTest's. For an M6 fixture: validate exits 1 exactly when it
+  states an overclaim; each overclaiming certificate is listed by
+  validate, and by sync when it is a CA certificate, as
+  `resources_not_encompassed: <the reason without " not held by the
+  issuer">`; both print `overclaims: N` with N the overclaims stated
+  (sync: the CA certificates among them), or no such line; nothing
+  under an overclaiming CA's directory is validated. For every
+  fixture: the certificates validate finds overclaiming are exactly
+  those an overclaim reject names, and every valid CA's effective
+  resources are encompassed by its issuer's (the TA's own for ca1).
+- inherited resources are resolved from the issuer, recursively, end to end (RFC [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [3779 §3.2.3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.3)), [9286 §5.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-5.1)))
+  The effective resources the inheritance fixtures state, as validate
+  carries them down: m6-inherit-from-empty's ca2 inherits both
+  address families and holds ca1's IPv4 and no IPv6 (D-026); m6-inherit-two-levels' ca3
+  holds ca1's resources through ca2.
+- RFC 6487 §7.1 and §7.2, RFC 3779 §2.2.3.5, §2.3, §3.2.3.3 and §3.3 are covered by other tests
+  The coverage `mix lumina.rfc_coverage` reports, computed the same way,
+  ignoring this module's own tags. A section counts as covered by a
+  test of it or of one of its subsections.
+- *the live LACNIC repository:* the live LACNIC repository's overclaiming certificates are reported (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)), [3779 §3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.3)))
+  Run by hand: mix test --only network. Needs the Internet; takes
+  minutes. Syncs LACNIC and validates it, printing every
+  overclaiming certificate with the resources outside its issuer's.
+  Overclaims are expected to be none or very few: at most 0.1% of
+  the certificates and signed objects, each one explained when the
+  test is run. The summary's overclaims line agrees.
 
 ### `Lumina.ManifestCheckTest`
 
