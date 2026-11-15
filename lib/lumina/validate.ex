@@ -487,6 +487,7 @@ defmodule Lumina.Validate do
         warning_line(ta.uri, ta.problems),
         counts("CA certificates", Enum.filter(result.objects, &(&1.kind == :ca))),
         type_counts(result.objects),
+        overclaims_line(Enum.count(result.objects, &Chain.overclaim?(&1[:problems] || []))),
         if(result.fallback > 0,
           do:
             "  publication points from the last valid copy: #{result.fallback} " <>
@@ -511,6 +512,13 @@ defmodule Lumina.Validate do
         of_type != [],
         do: counts(label, of_type)
   end
+
+  # Certificates (CA or EE) holding resources outside their issuer's
+  # (RFC 6487 §7.2 point 6, #155); only when there are any.
+  defp overclaims_line(0), do: []
+
+  defp overclaims_line(n),
+    do: "  overclaims: #{n} (resources outside the issuer's, RFC 6487 section 7.2)\n"
 
   defp counts(label, entries) do
     valid = Enum.count(entries, & &1.valid)
@@ -540,7 +548,10 @@ defmodule Lumina.Validate do
   end
 
   defp rules(problems, severity),
-    do: problems |> Enum.filter(&(&1.severity == severity)) |> Enum.map_join(", ", & &1.rule)
+    do:
+      problems
+      |> Enum.filter(&(&1.severity == severity))
+      |> Enum.map_join(", ", &Chain.rule_text/1)
 
   defp issue(state, kind, uri, detail),
     do: %{state | issues: [%{kind: kind, uri: uri, detail: detail} | state.issues]}

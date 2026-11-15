@@ -36,6 +36,8 @@ defmodule Lumina.Chain do
         }
   @type crl_result :: %{crl: CRL.t() | nil, valid: boolean(), problems: [Profile.problem()]}
 
+  @not_held " not held by the issuer"
+
   @doc """
   Validates a TA certificate at time `at`: the TAL checks (RFC 8630 §2.3,
   §3), its self-signature with its own key (RFC 6487 §7.2 point 1) and
@@ -152,6 +154,33 @@ defmodule Lumina.Chain do
     end
   end
 
+  @doc """
+  A problem's rule as text for a one-line report: the rule, and for
+  `resources_not_encompassed` the resources outside the issuer's too
+  (#155).
+
+  ## Examples
+
+      iex> Lumina.Chain.rule_text(%{rule: :revoked, message: "revoked by the issuer's CRL"})
+      "revoked"
+
+      iex> Lumina.Chain.rule_text(%{
+      ...>   rule: :resources_not_encompassed,
+      ...>   message: "10.0.0.0/8, AS64500 not held by the issuer"
+      ...> })
+      "resources_not_encompassed: 10.0.0.0/8, AS64500"
+
+  """
+  @spec rule_text(%{rule: atom(), message: String.t()}) :: String.t()
+  def rule_text(%{rule: :resources_not_encompassed, message: message}),
+    do: "resources_not_encompassed: " <> String.replace_suffix(message, @not_held, "")
+
+  def rule_text(%{rule: rule}), do: to_string(rule)
+
+  @doc "Whether `problems` include an overclaim (`resources_not_encompassed`)."
+  @spec overclaim?([%{rule: atom()}]) :: boolean()
+  def overclaim?(problems), do: Enum.any?(problems, &(&1.rule == :resources_not_encompassed))
+
   # Point 1 and 7: the subject of the issuer is the issuer of the child.
   defp issuer_name(%{issuer_der: der}, %{subject_der: der}), do: []
 
@@ -240,7 +269,7 @@ defmodule Lumina.Chain do
             :resources_not_encompassed,
             "6487#7.2",
             :resources,
-            "#{Enum.join(shown, ", ")} not held by the issuer"
+            Enum.join(shown, ", ") <> @not_held
           )
         ]
     end

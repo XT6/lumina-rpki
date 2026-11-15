@@ -150,6 +150,12 @@ defmodule Lumina.Sync do
     failed_points = Enum.count(walk.points, &(&1.status == :failed))
     fallback = Enum.count(walk.points, &(&1.status == :fallback))
 
+    # CA certificates holding resources outside their issuer's (#155); the
+    # walk validates no signed objects, so their EE certificates are
+    # lumina validate's.
+    overclaims =
+      Enum.count(walk.issues, &(&1.kind == :invalid and Lumina.Chain.overclaim?(&1.detail)))
+
     notes =
       for {n, label} <- [
             {stale, "stale"},
@@ -163,6 +169,11 @@ defmodule Lumina.Sync do
       "  publication points: #{length(walk.points)}" <>
         if(notes != [], do: " (#{Enum.join(notes, ", ")})", else: "") <> "\n",
       "  rsync fetches: #{length(walk.fetches)}, #{failed} failed\n",
+      if(overclaims > 0,
+        do:
+          "  overclaims: #{overclaims} (resources outside the issuer's, RFC 6487 section 7.2)\n",
+        else: []
+      ),
       for issue <- walk.issues do
         "    #{issue.kind}: #{issue.uri}" <>
           if(issue.detail, do: " (#{reason(issue.detail)})", else: "") <> "\n"
@@ -189,7 +200,7 @@ defmodule Lumina.Sync do
   defp reason(%{covered_by: uri}), do: "no copy; fetched with #{uri}"
 
   defp reason([%{rule: _} | _] = problems),
-    do: Enum.map_join(problems, ", ", &to_string(&1.rule))
+    do: Enum.map_join(problems, ", ", &Lumina.Chain.rule_text/1)
 
   defp reason(other), do: inspect(other)
 

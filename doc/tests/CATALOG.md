@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 81 Barry fixtures: 15 valid, 66 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 736 unit tests in 62 modules.
+- 744 unit tests in 62 modules.
 
 ## Barry fixtures
 
@@ -1539,6 +1539,15 @@ repository's certificates to it (`:remap`, see `Lumina.Walk`).
 - *syncing:* without --tal, every TAL in the TAL folder is synced
 - *syncing:* a partial failure exits 1 and names the failure and its reason (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
 - *syncing:* a TAL whose TA can't be fetched exits 1, with each attempt listed (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)))
+- *overclaims (#155):* an overclaiming CA certificate is listed with the resources outside its issuer's, and counted (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)))
+  m6-overclaim-ipv4: ca2 claims 2.0.0.0/16, outside ca1's. Like any
+  invalid CA it isn't a fetch failure (exit 0), and it isn't
+  walked.
+- *overclaims (#155):* a signed object's overclaim is not reported by sync (RFC [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
+  The walk validates CA certificates only, so a ROA whose EE
+  certificate overclaims (m6-overclaim-roa-ee) is lumina
+  validate's to report.
+- *overclaims (#155):* a sync without overclaims prints no overclaims line
 - *--per-host (#98):* --per-host 1 makes at most one rsync run at a time per host
   m3-walk-siblings (eight sibling publication points) from a daemon
   that refuses a second connection: with --per-host 1 every fetch
@@ -1639,6 +1648,18 @@ Syncs run at 2026-11-13, inside the fixtures' default validity.
   The sync kept each accepted point. A listed file then changes in
   the mirror: validate falls back to the kept copy, says so, and the
   ROA is still validated.
+- *overclaims (#155):* an overclaiming CA certificate is listed with the resources outside its issuer's, and counted (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)))
+  m6-overclaim-ipv4: ca2 claims 2.0.0.0/16, outside ca1's
+  1.0.0.0/8. The line names the prefix after the rule, and the TAL
+  summary counts one overclaim.
+- *overclaims (#155):* a signed object whose EE certificate overclaims is listed with the resources, and counted (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)))
+  m6-overclaim-roa-ee: the EE certificate of roa1.roa claims 2.0.0.0/16.
+- *overclaims (#155):* an AS range partly outside the issuer's is listed as the part outside (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [3779 §3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.3)))
+  m6-overclaim-as-range: only the half of ca2's AS range above ca1's is named.
+- *overclaims (#155):* an overclaim counts as invalid toward --max-invalid (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
+  m6-overclaim-grandchild: one invalid object (ca3) of nine, 11%:
+  above the default 10%, within --max-invalid 12 (D-022).
+- *overclaims (#155):* a tree without overclaims prints no overclaims line
 - *failures and usage:* a cache without the TAL's TA exits 1 and says to sync first
 - *failures and usage:* a valid CA whose publication point isn't in the cache is reported missing, exit 0 (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
   Missing publication points are a fetch problem, reported by sync (D-022).

@@ -271,6 +271,82 @@ defmodule Lumina.CLIValidateTest do
     end
   end
 
+  describe "overclaims (#155)" do
+    @tag :rsync
+    @tag rfc: ["6487#7.2", "3779#2.3"],
+         doc: """
+         m6-overclaim-ipv4: ca2 claims 2.0.0.0/16, outside ca1's
+         1.0.0.0/8. The line names the prefix after the rule, and the TAL
+         summary counts one overclaim.
+         """
+    test "an overclaiming CA certificate is listed with the resources outside its issuer's, and counted",
+         %{tmp_dir: tmp} do
+      {tal, cache, _report} = synced!(tmp, "m6-overclaim-ipv4")
+
+      assert {1, out, ""} = run(["validate", "--cache", cache, "--tal", tal])
+
+      assert out =~
+               "    invalid: rsync://localhost:8873/rpki/ca1/ca2.cer " <>
+                 "(resources_not_encompassed: 2.0.0.0/16)\n"
+
+      assert out =~ "  overclaims: 1 (resources outside the issuer's, RFC 6487 section 7.2)\n"
+    end
+
+    @tag :rsync
+    @tag rfc: ["6487#7.2", "6488#3"],
+         doc: "m6-overclaim-roa-ee: the EE certificate of roa1.roa claims 2.0.0.0/16."
+    test "a signed object whose EE certificate overclaims is listed with the resources, and counted",
+         %{tmp_dir: tmp} do
+      {tal, cache, _report} = synced!(tmp, "m6-overclaim-roa-ee")
+
+      assert {1, out, ""} = run(["validate", "--cache", cache, "--tal", tal])
+
+      assert out =~
+               "    invalid: rsync://localhost:8873/rpki/ca1/roa1.roa " <>
+                 "(resources_not_encompassed: 2.0.0.0/16)\n"
+
+      assert out =~ "  ROAs: 0 valid, 1 invalid\n"
+      assert out =~ "  overclaims: 1 (resources outside the issuer's, RFC 6487 section 7.2)\n"
+    end
+
+    @tag :rsync
+    @tag rfc: ["6487#7.2", "3779#3.3"],
+         doc: "m6-overclaim-as-range: only the half of ca2's AS range above ca1's is named."
+    test "an AS range partly outside the issuer's is listed as the part outside", %{tmp_dir: tmp} do
+      {tal, cache, _report} = synced!(tmp, "m6-overclaim-as-range")
+
+      assert {1, out, ""} = run(["validate", "--cache", cache, "--tal", tal])
+
+      assert out =~
+               "    invalid: rsync://localhost:8873/rpki/ca1/ca2.cer " <>
+                 "(resources_not_encompassed: AS33554432-AS33554687)\n"
+    end
+
+    @tag :rsync
+    @tag rfc: "6487#7.2",
+         doc: """
+         m6-overclaim-grandchild: one invalid object (ca3) of nine, 11%:
+         above the default 10%, within --max-invalid 12 (D-022).
+         """
+    test "an overclaim counts as invalid toward --max-invalid", %{tmp_dir: tmp} do
+      {tal, cache, _report} = synced!(tmp, "m6-overclaim-grandchild")
+      args = ["validate", "--cache", cache, "--tal", tal]
+
+      assert {1, out, ""} = run(args)
+      assert out =~ "1 TAL(s), 8 object(s) valid, 1 invalid, at "
+      assert out =~ "  overclaims: 1 (resources outside the issuer's, RFC 6487 section 7.2)\n"
+      assert {0, _out, ""} = run(args ++ ["--max-invalid", "12"])
+    end
+
+    @tag :rsync
+    test "a tree without overclaims prints no overclaims line", %{tmp_dir: tmp} do
+      {tal, cache, _report} = synced!(tmp, "m0-minimal-valid")
+
+      assert {0, out, ""} = run(["validate", "--cache", cache, "--tal", tal])
+      refute out =~ "  overclaims:"
+    end
+  end
+
   describe "failures and usage" do
     test "a cache without the TAL's TA exits 1 and says to sync first", %{tmp_dir: tmp} do
       tal = Fixture.load!("m0-minimal-valid").tal_path
