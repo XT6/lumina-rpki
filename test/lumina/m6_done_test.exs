@@ -101,7 +101,7 @@ defmodule Lumina.M6DoneTest do
        doc: """
        Driven by the fixture metadata; fixtures whose TA is rejected are
        M4DoneTest's. For an M6 fixture: validate exits 1 exactly when it
-       states an overclaim; each overclaiming certificate is listed by
+       states a reject; each overclaiming certificate is listed by
        validate, and by sync when it is a CA certificate, as
        `resources_not_encompassed: <the reason without " not held by the
        issuer">`; both print `overclaims: N` with N the overclaims stated
@@ -170,15 +170,23 @@ defmodule Lumina.M6DoneTest do
             refute Enum.any?(result.objects, &String.starts_with?(&1.uri, below)), fixture.id
           end
 
-          assert code == if(stated == [], do: 0, else: 1), "#{fixture.id}:\n#{out}"
-          if stated == [], do: :m6_valid, else: :m6_overclaim
+          # Other ruled rejects (m6-inherit-ee's ROA, RFC 9582 §5, #171)
+          # fail validate too.
+          invalid? = match?({:invalid, [_ | _]}, fixture.expected)
+          assert code == if(invalid?, do: 1, else: 0), "#{fixture.id}:\n#{out}"
+
+          cond do
+            stated != [] -> :m6_overclaim
+            invalid? -> :m6_other_invalid
+            true -> :m6_valid
+          end
         else
           :other
         end
       end
 
     assert Enum.count(outcomes, &(&1 == :m6_overclaim)) >= 8
-    assert Enum.count(outcomes, &(&1 == :m6_valid)) >= 6
+    assert Enum.count(outcomes, &(&1 == :m6_valid)) >= 5
     assert Enum.count(outcomes, &(&1 == :other)) >= 60
   end
 

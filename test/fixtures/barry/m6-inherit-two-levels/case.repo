@@ -17,3 +17,9 @@ obj.tbsCertificate.extensions.as.extnValue.asnum = inherit
 # Inherited from ca2, which inherits from ca1: resolves to ca1's resources.
 obj.tbsCertificate.extensions.ip.extnValue = inherit
 obj.tbsCertificate.extensions.as.extnValue.asnum = inherit
+
+[node: roa1.roa]
+# Barry's default under an inheriting CA is an inheriting EE certificate,
+# which RFC 9582 section 5 forbids in a ROA; these are ca3's (ca1's)
+# addresses, explicit.
+obj.content.certificates.0.tbsCertificate.extensions.ip.extnValue = [ 1.0.0.0/8, 100::/8 ]

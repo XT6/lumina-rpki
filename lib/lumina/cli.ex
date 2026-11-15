@@ -106,7 +106,7 @@ defmodule Lumina.CLI do
   section 6) is validated from its last valid copy, kept by lumina sync,
   while that copy's manifest is current; otherwise it counts as one
   invalid manifest, with nothing in it validated. A signed object is checked for its CMS envelope, signature
-  and EE certificate; ROA contents are not checked yet.
+  and EE certificate, and a ROA for its content too (RFC 9582).
 
   Flags:
     --cache DIR   the cache directory (default: as for lumina sync)
