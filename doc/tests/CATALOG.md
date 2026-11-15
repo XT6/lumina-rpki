@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 84 Barry fixtures: 18 valid, 66 invalid.
+- 85 Barry fixtures: 19 valid, 66 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 754 unit tests in 64 modules.
+- 755 unit tests in 64 modules.
 
 ## Barry fixtures
 
@@ -251,6 +251,14 @@ fetches them concurrently, at most a fixed number at once per host
 - **Expected:** valid
 - **RFC:** [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5))
 - **Files:** [descriptor](../../test/fixtures/barry/m3-walk-siblings/case.repo) · [metadata](../../test/fixtures/barry/m3-walk-siblings/case.exs) · [rsync tree](../../test/fixtures/barry/m3-walk-siblings/rsync)
+
+#### `m3-walk-silent-branch`: A silent host on one branch, a deep branch elsewhere
+
+The TA certifies ca1 and ca2. ca1 publishes on silent.example, which tests point at a server that accepts TCP connections and never answers, as some delegated repositories do (#88): each fetch from it waits for rsync's connect timeout (D-008). ca2, ca3 and ca4 form a chain, each publishing in a module of its own, so every level of that branch needs an rsync run. A walk that waits for a whole level before going on holds the deep branch up for the silent host's timeout; the walk must instead go down the deep branch while the silent fetch is still waiting (#88).
+
+- **Expected:** valid
+- **RFC:** [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5))
+- **Files:** [descriptor](../../test/fixtures/barry/m3-walk-silent-branch/case.repo) · [metadata](../../test/fixtures/barry/m3-walk-silent-branch/case.exs) · [rsync tree](../../test/fixtures/barry/m3-walk-silent-branch/rsync)
 
 #### `m3-walk-unreachable`: A child CA whose publication point is on an unreachable host
 
@@ -3210,6 +3218,14 @@ and reports keep the names from the certificates.
   they really run at the same time.
 - *concurrent fetches (D-011):* points and fetches are reported in walk order, whatever order the fetches finish in (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
   The order a sequential walk gives: the TA's module first, then s1 to s8 as listed.
+- *not waiting for a slow host (#88):* a deep branch is walked while a silent host's fetch is still waiting (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  m3-walk-silent-branch: ca1's host accepts connections and never
+  answers (rsync's connect timeout covers only the TCP connection,
+  so the I/O timeout ends that fetch: both 5 s here); ca2, ca3 and ca4 each need a
+  fetch, one level after the other. Each point is validated as soon
+  as its module is in and its children's modules are fetched right
+  away, so ca4's module arrives while ca1's fetch is still waiting.
+  Points, fetches and issues are still reported in walk order.
 - *validation (D-014):* every positive Barry fixture walks without an invalid CA (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
   Same points as M3 gave: no CA of a positive fixture is reported
   invalid. Warnings are allowed (m4-cert-unknown-extension, D-013).

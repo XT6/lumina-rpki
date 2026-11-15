@@ -72,6 +72,15 @@ defmodule Lumina.WalkTest do
 
   defp kinds(result), do: Enum.map(result.issues, &{&1.kind, &1.uri})
 
+  # The messages in the mailbox, in arrival order.
+  defp messages do
+    receive do
+      message -> [message | messages()]
+    after
+      0 -> []
+    end
+  end
+
   describe "mirroring" do
     @tag rfc: ["6481#5", "6481#2"],
          doc: """
@@ -84,7 +93,7 @@ defmodule Lumina.WalkTest do
       for dir <- Fixtures.case_dirs(),
           id = Path.basename(dir),
           not String.starts_with?(id, "m2-ta-"),
-          id not in ["m3-walk-delegation", "m3-walk-unreachable"] do
+          id not in ["m3-walk-delegation", "m3-walk-unreachable", "m3-walk-silent-branch"] do
         tmp = Path.join(tmp, id)
         result = walk!(tmp, id)
 
@@ -301,6 +310,51 @@ defmodule Lumina.WalkTest do
     end
   end
 
+  describe "not waiting for a slow host (#88)" do
+    @tag rfc: "6481#5",
+         doc: """
+         m3-walk-silent-branch: ca1's host accepts connections and never
+         answers (rsync's connect timeout covers only the TCP connection,
+         so the I/O timeout ends that fetch: both 5 s here); ca2, ca3 and ca4 each need a
+         fetch, one level after the other. Each point is validated as soon
+         as its module is in and its children's modules are fetched right
+         away, so ca4's module arrives while ca1's fetch is still waiting.
+         Points, fetches and issues are still reported in walk order.
+         """
+    test "a deep branch is walked while a silent host's fetch is still waiting", %{
+      tmp_dir: tmp
+    } do
+      test = self()
+      progress = fn event -> send(test, {:progress, event}) end
+      silent = "127.0.0.1:#{RsyncDaemon.silent_server!()}"
+
+      result =
+        walk!(tmp, "m3-walk-silent-branch",
+          remap: %{"silent.example:8873" => silent},
+          rsync: [contimeout: 5, timeout: 5],
+          progress: progress
+        )
+
+      finished =
+        for {:progress, {:fetch_finished, uri, _host, outcome, _files}} <- messages(),
+            do: {uri, outcome}
+
+      base = "rsync://localhost:8873"
+      silent_uri = "rsync://silent.example:8873/repo"
+
+      assert Enum.find_index(finished, &(&1 == {base <> "/d4", :ok})) <
+               Enum.find_index(finished, &(&1 == {silent_uri, :error}))
+
+      assert Enum.map(result.fetches, & &1.uri) ==
+               [@module, silent_uri, base <> "/d2", base <> "/d3", base <> "/d4"]
+
+      assert Enum.map(result.points, & &1.uri) ==
+               [@module <> "/ta", base <> "/d2/ca2", base <> "/d3/ca3", base <> "/d4/ca4"]
+
+      assert kinds(result) == [{:fetch_failed, silent_uri}, {:missing, silent_uri <> "/ca1"}]
+    end
+  end
+
   describe "validation (D-014)" do
     @tag rfc: ["6481#5", "6487#7.2"],
          doc: """
@@ -311,7 +365,7 @@ defmodule Lumina.WalkTest do
       for dir <- Fixtures.case_dirs(),
           id = Path.basename(dir),
           Fixture.load!(id).expected == :valid,
-          id not in ["m3-walk-delegation", "m3-walk-unreachable"] do
+          id not in ["m3-walk-delegation", "m3-walk-unreachable", "m3-walk-silent-branch"] do
         result = walk!(Path.join(tmp, id), id)
 
         assert Enum.filter(result.issues, &(&1.kind == :invalid)) == [], id

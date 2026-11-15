@@ -1,0 +1,32 @@
+ta.cer
+	ca1.cer
+		roa1.roa
+	ca2.cer
+		ca3.cer
+			ca4.cer
+				roa4.roa
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+# ca1 publishes on a host of its own, which tests point at a server that
+# accepts connections and never answers. Its files are generated under
+# rsync/silent/ but never served.
+[node: ca1.cer]
+rpp.uri = rsync://silent.example:8873/repo/ca1
+rpp.path = silent/ca1
+
+# ca2, ca3 and ca4 each publish in a module of their own, so each level of
+# that branch needs an rsync run.
+[node: ca2.cer]
+rpp.uri = rsync://localhost:8873/d2/ca2
+rpp.path = d2/ca2
+
+[node: ca3.cer]
+rpp.uri = rsync://localhost:8873/d3/ca3
+rpp.path = d3/ca3
+
+[node: ca4.cer]
+rpp.uri = rsync://localhost:8873/d4/ca4
+rpp.path = d4/ca4
