@@ -66,9 +66,19 @@ defmodule Lumina.Validate do
             }
           | %{uri: String.t(), kind: :decode_failed, reason: term()}
 
+  @type vrp :: %{
+          asn: non_neg_integer(),
+          afi: :ipv4 | :ipv6,
+          address: non_neg_integer(),
+          length: non_neg_integer(),
+          max_length: non_neg_integer(),
+          ta: String.t() | nil,
+          uri: String.t()
+        }
   @type result :: %{
           ta: %{uri: String.t(), path: Path.t(), valid: boolean(), problems: [map()]} | nil,
           objects: [entry()],
+          vrps: [vrp()],
           unlisted: non_neg_integer(),
           fallback: non_neg_integer(),
           issues: [Walk.issue()]
@@ -259,7 +269,7 @@ defmodule Lumina.Validate do
   defp entry(name, {:object, type}, ee, value, result) do
     own = CMS.check(signed_object(value)) ++ content(value, ee)
 
-    %{
+    entry = %{
       uri: name,
       kind: :object,
       type: type,
@@ -267,6 +277,9 @@ defmodule Lumina.Validate do
       valid: result.valid and Profile.passes?(own),
       problems: result.problems ++ own
     }
+
+    # What a ROA asserts, used only when it is valid (`run/3`).
+    with %ROA{} <- value, do: Map.put(entry, :vrps, ROA.vrps(value)), else: (_ -> entry)
   end
 
   defp content(%ROA{} = roa, ee), do: ROA.check(roa, ee)
@@ -360,7 +373,17 @@ defmodule Lumina.Validate do
   CA's publication point isn't in the cache), `:loop`, `:duplicate`,
   `:depth_exceeded`, `:no_repository` and `:bad_uri`.
 
-  Options: `:now` (default the current time) and `:max_depth` (32).
+  `:vrps` are the VRPs of the valid ROAs (#164): each `ROA.vrps/1` entry
+  (maxLength the prefix length when absent, RFC 9582 §4.3.2.2) with the
+  trust anchor's name (`:name`) and the URI of the ROA it comes from. A
+  ROA served from its point's last valid copy (D-023) is valid and
+  counts. Two ROAs stating the same VRP give two entries (`--wide`,
+  D-033, lists both); they are sorted IPv4 first, then by address,
+  prefix length, maxLength, AS, trust anchor and URI.
+
+  Options: `:now` (default the current time), `:max_depth` (32) and
+  `:name`, the trust anchor's name for VRPs (`ta_name/1` of the TAL's
+  path, D-032).
   """
   @spec run(TAL.t(), Path.t(), keyword()) :: {:ok, result()} | {:error, :no_ta}
   def run(%TAL{} = tal, root, opts \\ []) do
@@ -391,16 +414,48 @@ defmodule Lumina.Validate do
             do: walk([{cert, uri, 0, [], result.resources}], state),
             else: state
 
+        objects = Enum.reverse(state.objects)
+
         {:ok,
          %{
            ta: ta,
-           objects: Enum.reverse(state.objects),
+           objects: objects,
+           vrps: vrps(objects, Keyword.get(opts, :name)),
            unlisted: state.unlisted,
            fallback: state.fallback,
            issues: Enum.reverse(state.issues)
          }}
     end
   end
+
+  @doc """
+  The name of the trust anchor a TAL file stands for, as VRPs show it:
+  the file name without `.tal` (D-032).
+
+  ## Examples
+
+      iex> Lumina.Validate.ta_name("tals/ripe-ncc.tal")
+      "ripe-ncc"
+
+  """
+  @spec ta_name(Path.t()) :: String.t()
+  def ta_name(path), do: Path.basename(path, ".tal")
+
+  defp vrps(objects, name) do
+    vrps =
+      for %{type: :roa, valid: true, vrps: vrps, uri: uri} <- objects,
+          vrp <- vrps,
+          do: Map.merge(vrp, %{ta: name, uri: uri})
+
+    Enum.sort_by(vrps, &vrp_order/1)
+  end
+
+  # IPv4 first, then address, prefix length, maxLength, AS, trust anchor
+  # and URI.
+  defp vrp_order(vrp),
+    do:
+      {if(vrp.afi == :ipv4, do: 0, else: 1), vrp.address, vrp.length, vrp.max_length, vrp.asn,
+       vrp.ta, vrp.uri}
 
   # One breadth-first level at a time, as the walk goes. Each entry is
   # {valid CA certificate, its name, depth, ancestor publication points,

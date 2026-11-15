@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 89 Barry fixtures: 20 valid, 69 invalid.
+- 90 Barry fixtures: 21 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 772 unit tests in 65 modules.
+- 778 unit tests in 66 modules.
 
 ## Barry fixtures
 
@@ -1174,6 +1174,14 @@ ROA content validation (#171).
   - `ca1/roa1.roa`: 1.2.0.0/16 not in the EE certificate's addresses
 - **RFC:** [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5))
 - **Files:** [descriptor](../../test/fixtures/barry/m7-roa-prefix-outside-ee/case.repo) · [metadata](../../test/fixtures/barry/m7-roa-prefix-outside-ee/case.exs) · [rsync tree](../../test/fixtures/barry/m7-roa-prefix-outside-ee/rsync)
+
+#### `m7-vrp-duplicate`: Two ROAs stating the same VRP
+
+ca1 publishes roa1.roa and roa2.roa, both authorizing AS64496 to originate 1.1.0.0/16, each with its own EE certificate holding that prefix. Both are valid (RFC 9582 section 5). The VRP is one authorization, so the default output lists it once; collecting VRPs (#164) keeps one per ROA, each with its URI, so `lumina vrps --wide` can show both (D-033).
+
+- **Expected:** valid
+- **RFC:** [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5))
+- **Files:** [descriptor](../../test/fixtures/barry/m7-vrp-duplicate/case.repo) · [metadata](../../test/fixtures/barry/m7-vrp-duplicate/case.exs) · [rsync tree](../../test/fixtures/barry/m7-vrp-duplicate/rsync)
 
 ## Test TALs
 
@@ -3260,6 +3268,42 @@ Barry fixtures and the RIR TALs, must parse and map as expected.
   always names a rule.
 - *real URIs:* every URI in every RIR TAL parses, and its text is already normal (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
 - *real URIs:* every Barry TAL's rsync URI is in module rpki on localhost:8873 (RFC [5781 §2](../rfc/rfc5781.txt) ([html](https://www.rfc-editor.org/rfc/rfc5781.html#section-2)))
+
+### `Lumina.VRPCollectionTest`
+
+[test/lumina/vrp_collection_test.exs](../../test/lumina/vrp_collection_test.exs)
+
+Tests collecting VRPs in `Lumina.Validate.run/3` (#164): the VRPs of
+the valid ROAs, each with the trust anchor's name (D-032) and the URI
+of the ROA it comes from, in a fixed order (IPv4 first, then address,
+prefix length, maxLength, AS, trust anchor, URI).
+
+RFC 9582 §4.3.2.2: without maxLength, "the AS is only authorized to
+advertise the exact prefix", so the VRP's maxLength is the prefix
+length. §5: an invalid ROA "in its entirety" gives nothing. Duplicates
+are kept here, one per ROA; the default output lists a VRP once
+(D-033).
+
+Each test syncs a Barry fixture from a local rsync daemon and validates
+the cache at 2030-01-01.
+
+- *Validate.run/3:* a fixture's VRPs are those its valid ROAs state, in order, with trust anchor and URI (RFC [9582 §4.3.2.2](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.2)), [9582 §4.3.2.1](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.1)))
+  m1-roa-prefixes: AS64496 with 1.1.0.0/17-24, 1.1.128.0/24 and
+  0101::/16-48, IPv4 first and in address order.
+- *Validate.run/3:* a prefix without maxLength gives a VRP whose maxLength is the prefix length (RFC [9582 §4.3.2.2](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.2)))
+  m1-roa-prefixes' 1.1.128.0/24 has no maxLength: the VRP's is 24.
+- *Validate.run/3:* an invalid ROA contributes no VRPs, and the other ROAs at the point still do (RFC [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)))
+  m7-roa-prefix-outside-ee: roa1.roa is invalid (a prefix outside its
+  EE certificate), so none of its prefixes count, not even 1.1.0.0/16,
+  which is inside; roa2.roa's do.
+- *Validate.run/3:* two ROAs stating the same VRP both appear, each with its URI (RFC [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)))
+  m7-vrp-duplicate: both ROAs authorize AS64496 for 1.1.0.0/16 (D-033).
+- *Validate.run/3:* a ROA served from its point's last valid copy contributes its VRPs (RFC [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)), [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)))
+  A copy of m0-minimal-valid: after a first sync, a newer manifest
+  number is recorded for ca1, so the live point is a replay
+  (manifest_number_replay, D-024) and its last valid copy stands in
+  (D-023). The ROA there is valid and its VRPs count.
+- the trust anchor's name is the TAL file's name without .tal (D-032)
 
 ### `Lumina.WalkTest`
 
