@@ -37,6 +37,12 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-027](#d-027-resources-are-compared-as-sets) | Resources are compared as sets | 2026-11-14 | #152, F-034 |
 | [D-028](#d-028-an-overclaiming-certificate-is-invalid-as-a-whole) | An overclaiming certificate is invalid as a whole (RFC 6487 §7.2, not RFC 8360) | 2026-11-14 | M6 plan, #154 |
 | [D-029](#d-029-a-manifest-ee-certificate-listing-resources-explicitly-only-warns) | A manifest EE certificate listing resources explicitly only warns; an absent kind is fine | 2026-11-15 | #157, F-035 |
+| [D-030](#d-030-roa-encoding-shoulds-only-warn) | RFC 9582's SHOULDs on ROA encoding only warn; its MUSTs reject the ROA | 2026-11-15 | M7 plan, #171, F-018 |
+| [D-031](#d-031-lumina-vrps-writes-vrps-from-the-cache) | `lumina vrps` validates the cache offline and writes the VRPs | 2026-11-15 | M7 plan, #165 |
+| [D-032](#d-032-vrp-csv-in-routinators-columns) | VRP CSV in Routinator's columns; trust anchor named after its TAL file; JSON is our own | 2026-11-15 | M7 plan, #165, #167 |
+| [D-033](#d-033-one-row-per-distinct-vrp-unless---wide) | One row per distinct VRP; `--wide` adds the ROA's URI and keeps duplicates | 2026-11-15 | M7 plan, #164, #166 |
+| [D-034](#d-034-vrps-are-written-even-above---max-invalid) | Above `--max-invalid`, `lumina vrps` still writes the VRPs and warns | 2026-11-15 | M7 plan, #165 |
+| [D-035](#d-035-vrps-compared-with-routinators-live-csv) | VRPs are compared with Routinator's live CSV, downloaded when the comparison runs | 2026-11-15 | M7 plan, #168, #170 |
 
 ## D-001: CLI model
 
@@ -403,3 +409,45 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Where:** #157.
 - **Consequences:** every Barry manifest not declared in its fixture's tree carries the warning; tests check errors and this warning separately. Make it an error once Barry writes inherit on manifests by default (`doc/barry.md`).
 - **As implemented (#157):** `Lumina.PublicationPoint.process/5` adds one warning per manifest (field `:resources`), its message listing the explicit kinds: `the manifest's EE certificate lists IPv4, IPv6, AS numbers explicitly instead of using inherit`. `lumina validate` shows it on the manifest's warning line.
+
+## D-030: ROA encoding SHOULDs only warn
+
+- **Date:** 2026-11-15
+- **Decision:** a ROA that breaks a SHOULD of RFC 9582 §4.3 is valid and gets a warning: a maxLength equal to the prefix length (§4.3.2.2), addresses out of canonical order or repeated (§4.3.3). The MUSTs reject the whole ROA (§5): version 0, one ROAIPAddressFamily per AFI and no IPv4-mapped IPv6 prefixes (§4.3.1), maxLength within the prefix length and the address width (§4.3.2.2), and the §5 checks on the EE certificate.
+- **Why:** the RFC makes them SHOULDs and only tells CAs to "anticipate" stricter RPs (F-018); rejecting them would drop VRPs the RFC calls valid.
+- **Where:** M7 plan (maintainer: "only warn"), #171.
+
+## D-031: `lumina vrps` writes VRPs from the cache
+
+- **Date:** 2026-11-15
+- **Decision:** VRPs are written by a new command, `lumina vrps [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT] [--format csv|json] [--output FILE] [--wide]`. Like `lumina validate`, it validates the cache offline from each TAL's stored TA; it doesn't fetch. A one-shot command that syncs and then writes VRPs may come later.
+- **Why:** D-001 (commands are verbs, each with its own flags); fetching and validating stay separate, as in `sync` and `validate`.
+- **Where:** M7 plan (maintainer: "Agree"), #165.
+
+## D-032: VRP CSV in Routinator's columns
+
+- **Date:** 2026-11-15
+- **Decision:** the default output is CSV with the columns and value forms of Routinator's CSV output: header `ASN,IP Prefix,Max Length,Trust Anchor`, rows such as `AS13335,1.0.0.0/24,24,apnic`. The trust anchor column is the TAL file's name without `.tal` (`lacnic`, `ripe-ncc`, `apnic-rfc7730-https`); the comparison (D-035) maps names to Routinator's. JSON (`--format json`) is Lumina's own format, documented in `doc/output.md`, with room for ASPA.
+- **Why:** there's no RFC for VRP output (`doc/rfc/README.md`); a format operators already read, and that matches the reference used for comparison, makes the comparison a set difference. Only the published format is followed, not any code. Naming the trust anchor after its TAL file works for any TAL a user adds.
+- **Where:** M7 plan (maintainer: "Use the same format as routinator"), #165, #167.
+
+## D-033: One row per distinct VRP, unless `--wide`
+
+- **Date:** 2026-11-15
+- **Decision:** the output has one row per distinct (AS, prefix, maxLength, trust anchor), however many ROAs state it. `--wide` adds a column with the rsync URI of the ROA and lists one row per (VRP, ROA), duplicates included.
+- **Why:** a VRP is the same authorization whichever ROA states it; for debugging, knowing which ROAs state it matters.
+- **Where:** M7 plan (maintainer: a `--wide` or `--full` flag with the rsync URI and duplicates), #164, #166.
+
+## D-034: VRPs are written even above `--max-invalid`
+
+- **Date:** 2026-11-15
+- **Decision:** when more than `--max-invalid` percent of a TAL's certificates are invalid (D-022), `lumina vrps` still writes all the VRPs, warns on stderr, and exits 1 as `lumina validate` does. A missing or invalid TA gives no VRPs for that TAL.
+- **Why:** the VRPs from valid ROAs are still valid; withholding them would hurt more than the anomaly. The warning and exit code let an operator notice.
+- **Where:** M7 plan (maintainer: "Warn"), #165.
+
+## D-035: VRPs compared with Routinator's live CSV
+
+- **Date:** 2026-11-15
+- **Decision:** as a sanity check, Lumina's VRPs are compared with the CSV Routinator publishes for all trust anchors at https://routinator.labs.lacnic.net/csv, downloaded when the comparison runs, never committed. The VRPs only one side has are reported per trust anchor. Only the published output is used, never another validator's code (M7 milestone).
+- **Why:** a file supplied in advance would have drifted from the live repositories by the time the tests run.
+- **Where:** M7 plan (maintainer), #168, #170.
