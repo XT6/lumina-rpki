@@ -397,7 +397,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 
 ## D-029: A manifest EE certificate listing resources explicitly only warns
 
-- **Date:** 2026-11-15 (the warning: maintainer, 2026-11-14, on #157; the absent-kind reading: proposed in PR, for the maintainer to confirm).
+- **Date:** 2026-11-15 (the warning: maintainer, 2026-11-14, on #157; the absent-kind reading: proposed on PR #162, confirmed by the maintainer on 2026-11-15, after an example comparing it with the strict reading that every kind must be present with inherit).
 - **Decision:** when a manifest's EE certificate lists IPv4, IPv6 or AS numbers explicitly instead of using inherit, the publication point gets the warning `manifest_ee_resources_not_inherit` (`9286#5.1`), naming those kinds, and is still accepted. A kind the EE certificate leaves out doesn't warn.
 - **Why:** RFC 9286 §5.1 requires inherit and asks RPs to verify it, without saying what failing means (F-035). Real data follows the rule: all 148 manifests sampled from the LACNIC repository inherit every kind. Barry doesn't: it writes explicit resources on every manifest a fixture doesn't declare in its tree, so as an error the check would fail every fixture (the same situation as D-025). On absent kinds, §5.1 asks for inherit "rather than an explicit description of a resource set", and an absent kind describes nothing; RFC 6487 §4.8.10 and §4.8.11 allow leaving a kind out.
 - **Where:** #157.
