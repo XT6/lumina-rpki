@@ -8,8 +8,9 @@ defmodule Lumina.CLI do
       lumina print [--brief] FILE...
       lumina sync [--cache DIR] [--tal FILE]... [--timeout SECONDS] [--max-depth N]
       lumina validate [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT]
+                      [--progress | --quiet]
       lumina vrps [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT]
-                  [--format csv] [--output FILE] [--wide]
+                  [--format csv] [--output FILE] [--wide] [--progress | --quiet]
       lumina help [command]
 
   Exit codes, shared by all commands: 0 success, 1 a file failed to
@@ -81,9 +82,8 @@ defmodule Lumina.CLI do
                        the repository server
     --rsync PATH       the rsync binary to use, 3.1.0 or later (default: the
                        first rsync on PATH)
-    --progress         report progress on stderr even when it isn't a
-                       terminal, as timestamped lines (on a terminal, a
-                       status line is shown anyway)
+    --progress         report progress on stderr (the default): a status
+                       line on a terminal, timestamped lines otherwise
     --quiet            no progress report
 
   Prints one summary per TAL: the TA URI used, the publication points
@@ -99,7 +99,7 @@ defmodule Lumina.CLI do
 
   @validate_usage """
   Usage: lumina validate [--cache DIR] [--tal FILE]... [--now TIME]
-                         [--max-invalid PERCENT]
+                         [--max-invalid PERCENT] [--progress | --quiet]
 
   Validate what the last sync put in the cache, without fetching
   anything: for each TAL, its stored trust anchor certificate, then every
@@ -122,6 +122,9 @@ defmodule Lumina.CLI do
                   the share of a TAL's CA certificates and signed objects
                   that may be invalid before the run fails, 0 to 100
                   (default: 10); 0 fails on any invalid one
+    --progress    report progress on stderr (the default): a status
+                  line on a terminal, timestamped lines otherwise
+    --quiet       no progress report
 
   Prints one summary per TAL: the trust anchor, the number of valid and
   invalid CA certificates and signed objects of each type, every invalid
@@ -139,7 +142,7 @@ defmodule Lumina.CLI do
   @vrps_usage """
   Usage: lumina vrps [--cache DIR] [--tal FILE]... [--now TIME]
                      [--max-invalid PERCENT] [--format csv] [--output FILE]
-                     [--wide]
+                     [--wide] [--progress | --quiet]
 
   Validate the cache as lumina validate does, offline, and write the
   Validated ROA Payloads (VRPs) of the valid ROAs: one per distinct AS,
@@ -162,9 +165,12 @@ defmodule Lumina.CLI do
     --wide        for debugging: add a URI column with the rsync URI of
                   the ROA, and write one row per VRP and ROA, so a VRP
                   that several ROAs state appears once for each
+    --progress    report progress on stderr (the default): a status
+                  line on a terminal, timestamped lines otherwise
+    --quiet       no progress report
 
   A short summary goes to standard error: the VRPs of each TAL, and
-  warnings.
+  warnings; so does the progress report.
 
   Exit codes: 0 written, 1 a TAL with no trust anchor in the cache, an
   invalid one, or more than PERCENT invalid objects (the VRPs of the
@@ -303,6 +309,8 @@ defmodule Lumina.CLI do
     tal: :keep,
     now: :string,
     max_invalid: :integer,
+    progress: :boolean,
+    quiet: :boolean,
     help: :boolean
   ]
 
@@ -316,12 +324,7 @@ defmodule Lumina.CLI do
              {:ok, tals} <- read_tals(paths),
              {:ok, now} <- now_flag(opts[:now], internal),
              {:ok, max_invalid} <- max_invalid_flag(Keyword.get(opts, :max_invalid, 10)) do
-          cache = opts[:cache] || default_cache()
-
-          reports =
-            for {path, tal} <- tals,
-                do: {path, Validate.run(tal, cache, now: now, name: Validate.ta_name(path))}
-
+          reports = validate_all(tals, opts, now, err)
           IO.write(out, Validate.summary(reports, now))
 
           if Enum.any?(reports, fn {_path, report} -> Validate.failed?(report, max_invalid) end),
@@ -347,6 +350,8 @@ defmodule Lumina.CLI do
     format: :string,
     output: :string,
     wide: :boolean,
+    progress: :boolean,
+    quiet: :boolean,
     help: :boolean
   ]
 
@@ -361,11 +366,7 @@ defmodule Lumina.CLI do
              {:ok, now} <- now_flag(opts[:now], internal),
              {:ok, max_invalid} <- max_invalid_flag(Keyword.get(opts, :max_invalid, 10)),
              :ok <- format_flag(Keyword.get(opts, :format, "csv")) do
-          cache = opts[:cache] || default_cache()
-
-          reports =
-            for {path, tal} <- tals,
-                do: {path, Validate.run(tal, cache, now: now, name: Validate.ta_name(path))}
+          reports = validate_all(tals, opts, now, err)
 
           vrps = VRP.sort(for {_path, {:ok, r}} <- reports, v <- r.vrps, do: v)
 
@@ -394,6 +395,24 @@ defmodule Lumina.CLI do
 
       {_opts, [arg | _], []} ->
         written(err, "lumina vrps: unexpected argument #{arg}\n\n" <> @vrps_usage, 2)
+    end
+  end
+
+  # Validate.run/3 for each TAL, with a progress report on stderr (#180).
+  defp validate_all(tals, opts, now, err) do
+    cache = opts[:cache] || default_cache()
+    total = length(tals)
+
+    {progress, stop} = progress_listener(opts, err)
+
+    try do
+      for {{path, tal}, index} <- Enum.with_index(tals, 1) do
+        Progress.emit(progress, {:tal_started, path, index, total})
+
+        {path, Validate.run(tal, cache, [now: now, name: Validate.ta_name(path)] ++ progress)}
+      end
+    after
+      stop.()
     end
   end
 
@@ -507,21 +526,29 @@ defmodule Lumina.CLI do
 
   # Repositories need rsync 3.1.0 or later. Checked before anything is
   # fetched, so an old rsync fails clearly instead of every fetch failing.
-  # Progress on stderr (#96): a status line when stderr is a terminal,
-  # timestamped lines with --progress otherwise, nothing with --quiet.
+  # Progress on stderr (#96, D-036): a status line when stderr is a
+  # terminal, timestamped lines otherwise, nothing with --quiet.
   defp with_progress(opts, err, fun) do
+    {progress, stop} = progress_listener(opts, err)
+
+    try do
+      fun.(progress)
+    after
+      stop.()
+    end
+  end
+
+  # The :progress option for the work, and a function that stops the
+  # report. Progress is on by default (D-036): a status line on a
+  # terminal, timestamped lines elsewhere; --quiet turns it off.
+  defp progress_listener(opts, err) do
     tty? = err == :stderr and Progress.stderr_tty?()
 
-    if opts[:quiet] || !(tty? || opts[:progress]) do
-      fun.([])
+    if opts[:quiet] do
+      {[], fn -> :ok end}
     else
       {listener, stop} = Progress.start(err, if(tty?, do: :tty, else: :plain))
-
-      try do
-        fun.(progress: listener)
-      after
-        stop.()
-      end
+      {[progress: listener], stop}
     end
   end
 
