@@ -439,6 +439,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Decision:** the output has one row per distinct (AS, prefix, maxLength, trust anchor), however many ROAs state it. `--wide` adds a column with the rsync URI of the ROA and lists one row per (VRP, ROA), duplicates included.
 - **Why:** a VRP is the same authorization whichever ROA states it; for debugging, knowing which ROAs state it matters.
 - **Where:** M7 plan (maintainer: a `--wide` or `--full` flag with the rsync URI and duplicates), #164, #166.
+- **As implemented (#166):** `lumina vrps --wide`; `Lumina.VRP.csv(vrps, wide: true)` adds a `URI` column and writes every VRP of `Validate.run/3` (one per ROA), in the VRP order, whose last key is the URI.
 
 ## D-034: VRPs are written even above `--max-invalid`
 

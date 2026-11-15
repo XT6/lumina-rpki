@@ -9,7 +9,7 @@ defmodule Lumina.CLI do
       lumina sync [--cache DIR] [--tal FILE]... [--timeout SECONDS] [--max-depth N]
       lumina validate [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT]
       lumina vrps [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT]
-                  [--format csv] [--output FILE]
+                  [--format csv] [--output FILE] [--wide]
       lumina help [command]
 
   Exit codes, shared by all commands: 0 success, 1 a file failed to
@@ -139,6 +139,7 @@ defmodule Lumina.CLI do
   @vrps_usage """
   Usage: lumina vrps [--cache DIR] [--tal FILE]... [--now TIME]
                      [--max-invalid PERCENT] [--format csv] [--output FILE]
+                     [--wide]
 
   Validate the cache as lumina validate does, offline, and write the
   Validated ROA Payloads (VRPs) of the valid ROAs: one per distinct AS,
@@ -158,6 +159,9 @@ defmodule Lumina.CLI do
                   AS13335,1.0.0.0/24,24,apnic
     --output FILE write the VRPs to FILE, replacing it in one step,
                   instead of to standard output
+    --wide        for debugging: add a URI column with the rsync URI of
+                  the ROA, and write one row per VRP and ROA, so a VRP
+                  that several ROAs state appears once for each
 
   A short summary goes to standard error: the VRPs of each TAL, and
   warnings.
@@ -342,6 +346,7 @@ defmodule Lumina.CLI do
     max_invalid: :integer,
     format: :string,
     output: :string,
+    wide: :boolean,
     help: :boolean
   ]
 
@@ -369,7 +374,7 @@ defmodule Lumina.CLI do
 
           IO.write(err, vrps_summary(reports, failed, max_invalid))
 
-          case write_vrps(opts[:output], VRP.csv(vrps), out) do
+          case write_vrps(opts[:output], VRP.csv(vrps, wide: opts[:wide] == true), out) do
             :ok ->
               if failed == [], do: 0, else: 1
 

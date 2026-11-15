@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 90 Barry fixtures: 21 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 787 unit tests in 67 modules.
+- 790 unit tests in 67 modules.
 
 ## Barry fixtures
 
@@ -1781,6 +1781,12 @@ sync`, then runs `lumina vrps` at 2030-01-01 (`--now`), through
   anchor, named after its TAL file (D-032), in the VRP order.
 - *CSV output:* a VRP stated by two ROAs is written once
   m7-vrp-duplicate: roa1.roa and roa2.roa both state AS64496, 1.1.0.0/16 (D-033).
+- *--wide (#166):* adds the ROA's URI and lists a VRP once per ROA that states it
+  m7-vrp-duplicate: roa1.roa and roa2.roa both state AS64496,
+  1.1.0.0/16. --wide lists it once for each, with its ROA's URI
+  (D-033); without it, once.
+- *--wide (#166):* every row's URI is the ROA the VRP comes from, in the default order
+  m1-roa-prefixes: one ROA, so each row's URI is roa1.roa.
 - *--output:* writes the same bytes as standard output, and nothing to standard output
 - *--output:* a file that can't be written fails with exit 1 and leaves nothing behind
 - *failures:* above --max-invalid the VRPs are still written, with a warning, and exit 1 (RFC [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)))
@@ -1788,6 +1794,8 @@ sync`, then runs `lumina vrps` at 2030-01-01 (`--now`), through
   above the default 10% (D-022). roa2.roa's VRPs are written anyway
   (D-034).
 - *failures:* a TAL with no trust anchor in the cache gives no rows, and exit 1
+- *Lumina.VRP.csv/2:* a field holding a comma or a quote is quoted, its quotes doubled
+  Lumina.URI accepts a comma in a path; the field is quoted so the columns hold.
 - *usage:* an unknown format is a usage error
 - *usage:* lumina help vrps describes the command and its flags
 
