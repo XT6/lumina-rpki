@@ -528,6 +528,37 @@ defmodule Lumina.WalkTest do
       assert length(result.fetches) == 2
     end
 
+    @tag rfc: ["6481#5", "9286#6.5"],
+         doc: """
+         m3-walk-shared-module: ca2 and ca3 are siblings in one module,
+         both caught mid-update. A level's points are validated in parallel
+         before they are reported (#169); the refetch the first triggers
+         repairs the second too, which must be validated again rather than
+         keep its result from before the refetch.
+         """
+    test "a sibling in a module refetched in the same level is validated against the new copy",
+         %{tmp_dir: tmp} do
+      copy = Path.join(tmp, "copy")
+      File.cp_r!(rsync_root("m3-walk-shared-module"), copy)
+      roas = [Path.join(copy, "ca2/roa1.roa"), Path.join(copy, "ca3/roa2.roa")]
+      originals = Map.new(roas, &{&1, File.read!(&1)})
+      for roa <- roas, do: File.write!(roa, "being written", [:append])
+      daemon = RsyncDaemon.start!(Path.join(tmp, "localhost"), %{"rpki" => copy})
+
+      result =
+        Walk.run(ta!("m3-walk-shared-module"), cache(tmp),
+          now: @now,
+          remap: %{"localhost:8873" => "127.0.0.1:#{daemon.port}"},
+          before_refetch: fn _module ->
+            for {roa, bytes} <- originals, do: File.write!(roa, bytes)
+          end
+        )
+
+      assert [%{kind: :refetched, uri: @module}] = result.issues
+      assert Enum.map(result.points, & &1.status) == [:accepted, :accepted, :accepted, :accepted]
+      assert length(result.fetches) == 2
+    end
+
     @tag rfc: "6481#5", doc: "A revoked manifest isn't an update in progress: no retry."
     test "a point that fails for another reason isn't fetched again", %{tmp_dir: tmp} do
       result = walk!(tmp, "m5-pp-manifest-revoked")

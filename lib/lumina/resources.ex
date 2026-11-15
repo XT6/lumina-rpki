@@ -110,6 +110,7 @@ defmodule Lumina.Resources do
   that neither overlap nor touch.
   """
   @type intervals :: [{non_neg_integer(), non_neg_integer()}]
+  @type held :: {:held, %{ipv4: intervals(), ipv6: intervals(), as: intervals()}}
 
   @doc """
   The resources of one kind (`:ipv4`, `:ipv6` or `:as`) as a set of
@@ -156,8 +157,20 @@ defmodule Lumina.Resources do
   encompassed, although §7.1 read literally wants a single range of `x`
   to cover it (F-034). The empty set is encompassed by anything.
   """
-  @spec encompasses?(effective(), effective()) :: boolean()
+  @spec encompasses?(effective() | held(), effective()) :: boolean()
   def encompasses?(x, y), do: outside(y, x) == %{ipv4: [], ipv6: [], as: []}
+
+  @doc """
+  `x` with each kind merged into intervals (`intervals/2`), for comparing
+  many certificates with the same issuer: `outside(y, held(x))` is
+  `outside(y, x)` without merging `x` again for every `y`.
+  `encompasses?/2` and `outside/2` take either form.
+  """
+  @spec held(effective() | held()) :: held()
+  def held({:held, _} = held), do: held
+
+  def held(x),
+    do: {:held, Map.new([:ipv4, :ipv6, :as], &{&1, intervals(Map.get(x, &1, []), &1)})}
 
   @doc """
   The part of `y` that `x` doesn't hold, per kind, as resources that
@@ -173,11 +186,12 @@ defmodule Lumina.Resources do
       %{ipv4: [{:prefix, 0x0A800000, 9}], ipv6: [], as: [{:id, 64511}]}
 
   """
-  @spec outside(effective(), effective()) :: effective()
+  @spec outside(effective(), effective() | held()) :: effective()
   def outside(y, x) do
+    {:held, x} = held(x)
+
     Map.new([:ipv4, :ipv6, :as], fn kind ->
-      left =
-        subtract(intervals(Map.get(y, kind, []), kind), intervals(Map.get(x, kind, []), kind))
+      left = subtract(intervals(Map.get(y, kind, []), kind), x[kind])
 
       {kind, Enum.map(left, &resource(&1, kind))}
     end)

@@ -117,6 +117,8 @@ defmodule Lumina.Walk do
       # Modules fetched again this run because a point in them was caught
       # mid-update (RFC 6481 §5): at most once each.
       refetched: MapSet.new(),
+      # Those of the current level: results validated before them are stale.
+      refetched_in_level: MapSet.new(),
       points: [],
       fetches: [],
       issues: []
@@ -182,7 +184,9 @@ defmodule Lumina.Walk do
           Enum.reduce(results, state.fetched, fn {pp, r}, acc -> Map.put(acc, pp, r.outcome) end)
     }
 
-    {next, state} = Enum.flat_map_reduce(plans, state, &report(&1, &2, results))
+    validated = validate_all(plans, state)
+    state = %{state | refetched_in_level: MapSet.new()}
+    {next, state} = Enum.flat_map_reduce(plans, state, &report(&1, &2, {results, validated}))
 
     Progress.emit(
       state.opts,
@@ -241,7 +245,11 @@ defmodule Lumina.Walk do
   defp report({:issue, kind, uri, detail}, state, _results),
     do: {[], issue(state, kind, uri, detail)}
 
-  defp report({:point, {cert, _name, depth, ancestors, resources}, pp, covered}, state, results) do
+  defp report(
+         {:point, {cert, _name, depth, ancestors, resources}, pp, covered},
+         state,
+         {results, validated}
+       ) do
     key = to_string(pp)
 
     {covered_by, module, outcome, state} =
@@ -278,7 +286,8 @@ defmodule Lumina.Walk do
       }
 
       state = %{state | points: [point | state.points]}
-      children({cert, resources}, path, key, depth, [key | ancestors], {module, outcome}, state)
+      source = {module, outcome, Map.get(validated, key)}
+      children({cert, resources}, path, key, depth, [key | ancestors], source, state)
     else
       {[], issue(state, :missing, key, %{covered_by: covered_by})}
     end
@@ -326,17 +335,15 @@ defmodule Lumina.Walk do
   # fails only because listed files are missing or don't match their
   # hashes, the repository may have been caught mid-update (RFC 6481 §5,
   # D-007): its module is fetched once more and the point validated again.
-  defp validated({ca, resources}, path, key, {module, outcome}, state) do
-    validate = fn ->
-      Validate.point(ca, path, key, state.now,
-        last_valid: state.root,
-        save: true,
-        resources: resources
-      )
-    end
-
-    result = validate.()
+  defp validated({ca, resources}, path, key, {module, outcome, first}, state) do
+    validate = fn -> validate_point(ca, resources, path, key, state.now, state.root) end
     module_key = to_string(module)
+
+    # A result from before this level's refetch of the module is stale.
+    result =
+      if first && not MapSet.member?(state.refetched_in_level, module_key),
+        do: first,
+        else: validate.()
 
     if outcome == :ok and mid_update?(result.point) and
          not MapSet.member?(state.refetched, module_key) do
@@ -351,6 +358,7 @@ defmodule Lumina.Walk do
       state = %{
         state
         | refetched: MapSet.put(state.refetched, module_key),
+          refetched_in_level: MapSet.put(state.refetched_in_level, module_key),
           fetches: [fetch | state.fetches]
       }
 
@@ -364,6 +372,36 @@ defmodule Lumina.Walk do
     else
       {result, state}
     end
+  end
+
+  defp validate_point(ca, resources, path, key, now, root),
+    do: Validate.point(ca, path, key, now, last_valid: root, save: true, resources: resources)
+
+  # The level's publication points in the cache, validated in parallel
+  # (each also in parallel inside, `Validate.point/5`): %{key => result}.
+  # Reports still go in order; a point caught mid-update is fetched and
+  # validated again there.
+  defp validate_all(plans, state) do
+    # Only these go to the tasks: `state` holds every report so far.
+    %{root: root, now: now} = state
+
+    plans
+    |> Enum.flat_map(fn
+      {:point, {cert, _name, _depth, _ancestors, resources}, pp, _covered} ->
+        path = Cache.path(root, pp)
+        if File.dir?(path), do: [{cert, resources, path, to_string(pp)}], else: []
+
+      _other ->
+        []
+    end)
+    |> Task.async_stream(
+      fn {cert, resources, path, key} ->
+        {key, validate_point(cert, resources, path, key, now, root)}
+      end,
+      timeout: :infinity,
+      max_concurrency: System.schedulers_online()
+    )
+    |> Map.new(fn {:ok, result} -> result end)
   end
 
   @mid_update [:file_missing, :hash_mismatch]

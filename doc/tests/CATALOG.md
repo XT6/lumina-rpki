@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 83 Barry fixtures: 17 valid, 66 invalid.
+- 84 Barry fixtures: 18 valid, 66 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 753 unit tests in 64 modules.
+- 754 unit tests in 64 modules.
 
 ## Barry fixtures
 
@@ -229,6 +229,14 @@ most of the tree.
 - **Expected:** valid
 - **RFC:** [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [6481 §2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2))
 - **Files:** [descriptor](../../test/fixtures/barry/m3-walk-nested/case.repo) · [metadata](../../test/fixtures/barry/m3-walk-nested/case.exs) · [rsync tree](../../test/fixtures/barry/m3-walk-nested/rsync)
+
+#### `m3-walk-shared-module`: Two sibling CAs publishing in the same rsync module
+
+The TA certifies ca1, which certifies ca2 and ca3, each with a ROA. All of them publish under the TA's module (rpki), so the walk fetches the module once (D-012) and finds ca2's and ca3's publication points at the same level, covered by that fetch. A level's points are validated in parallel before they are reported (#169); this is the shape where a refetch of the module caused by one sibling must be seen by the other (RFC 6481 section 5, #137).
+
+- **Expected:** valid
+- **RFC:** [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5))
+- **Files:** [descriptor](../../test/fixtures/barry/m3-walk-shared-module/case.repo) · [metadata](../../test/fixtures/barry/m3-walk-shared-module/case.exs) · [rsync tree](../../test/fixtures/barry/m3-walk-shared-module/rsync)
 
 #### `m3-walk-siblings`: Eight CAs, each publishing in its own rsync module on one host
 
@@ -3232,6 +3240,12 @@ and reports keep the names from the certificates.
 - *caught mid-update (RFC 6481 §5, #137):* a point whose files don't match its manifest is fetched once more, and accepted (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [9286 §6.5](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.5)))
   The update finishes between the two fetches: the point is accepted after the retry.
 - *caught mid-update (RFC 6481 §5, #137):* a point that stays inconsistent fails after exactly one retry (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [9286 §6.5](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.5)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)))
+- *caught mid-update (RFC 6481 §5, #137):* a sibling in a module refetched in the same level is validated against the new copy (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [9286 §6.5](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.5)))
+  m3-walk-shared-module: ca2 and ca3 are siblings in one module,
+  both caught mid-update. A level's points are validated in parallel
+  before they are reported (#169); the refetch the first triggers
+  repairs the second too, which must be validated again rather than
+  keep its result from before the refetch.
 - *caught mid-update (RFC 6481 §5, #137):* a point that fails for another reason isn't fetched again (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
   A revoked manifest isn't an update in progress: no retry.
 - *selecting CAs (D-005):* a certificate that isn't a CA isn't followed (RFC [6487 §4.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.1)))

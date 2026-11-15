@@ -117,25 +117,36 @@ defmodule Lumina.Validate do
   def point(%Certificate{} = ca, path, key, %DateTime{} = now, opts \\ []) do
     objects? = Keyword.get(opts, :objects, false)
     {point, dir} = processed(ca, path, key, now, opts)
+    # The CA's resources, merged once for all its children.
+    held = Keyword.get_lazy(opts, :resources, fn -> Lumina.Resources.effective(ca, nil) end)
+    child_opts = [resources: held, held: Lumina.Resources.held(held)]
 
-    {entries, _crls} =
+    # Files are decoded and children validated in parallel, in file order;
+    # each CRL is read once, in between.
+    {checks, _crls} =
       point.files
       |> Enum.sort()
-      |> Enum.flat_map_reduce(%{}, fn {file, full}, crls ->
-        name = key <> "/" <> file
+      |> parallel(fn {file, full} -> {key <> "/" <> file, candidate(full, objects?)} end)
+      |> Enum.flat_map_reduce(%{}, fn
+        {_name, :skip}, crls ->
+          {[], crls}
 
-        case candidate(full, objects?) do
-          :skip ->
-            {[], crls}
+        {name, {:error, reason}}, crls ->
+          {[{:done, %{uri: name, kind: :decode_failed, reason: reason}}], crls}
 
-          {:error, reason} ->
-            {[%{uri: name, kind: :decode_failed, reason: reason}], crls}
+        {name, {kind, cert, object}}, crls ->
+          {crl, crls} = crl(cert, ca, point, dir, key, crls, now)
+          {[{:check, name, kind, cert, object, crl}], crls}
+      end)
 
-          {kind, cert, object} ->
-            {crl, crls} = crl(cert, ca, point, dir, key, crls, now)
-            result = Chain.child(cert, chain_kind(kind), ca, crl, now, resources_opt(opts))
-            {[entry(name, kind, cert, object, result)], crls}
-        end
+    entries =
+      parallel(checks, fn
+        {:done, entry} ->
+          entry
+
+        {:check, name, kind, cert, object, crl} ->
+          result = Chain.child(cert, chain_kind(kind), ca, crl, now, child_opts)
+          entry(name, kind, cert, object, result)
       end)
 
     if objects?,
@@ -311,6 +322,13 @@ defmodule Lumina.Validate do
 
   # The CA's CRL result for the CRL `cert`'s CRLDP names: one on the
   # point's manifest (RFC 9829 §3.2, #116), validated once per URI.
+  # `fun` over `list` on every scheduler, results in the order of `list`.
+  defp parallel(list, fun) do
+    list
+    |> Task.async_stream(fun, timeout: :infinity, max_concurrency: System.schedulers_online())
+    |> Enum.map(fn {:ok, result} -> result end)
+  end
+
   defp crl(cert, ca, point, path, key, crls, now) do
     uri = Chain.crl_uri(cert)
 
@@ -381,21 +399,42 @@ defmodule Lumina.Validate do
 
   # One breadth-first level at a time, as the walk goes. Each entry is
   # {valid CA certificate, its name, depth, ancestor publication points,
-  # its effective resources}.
+  # its effective resources}. A level is planned in order, its points are
+  # validated in parallel, and the results are folded in order, so the
+  # outcome is the same as visiting the entries one by one.
   defp walk([], state), do: state
 
   defp walk(level, state) do
-    {next, state} = Enum.flat_map_reduce(level, state, &visit/2)
+    {plans, state} = Enum.map_reduce(level, state, &plan/2)
+    # Only these go to the tasks: `state` holds every entry so far.
+    %{now: now, root: root} = state
+
+    {next, state} =
+      plans
+      |> parallel(fn
+        {:point, cert, path, key, depth, ancestors, resources} ->
+          validated =
+            point(cert, path, key, now, objects: true, last_valid: root, resources: resources)
+
+          {:point, validated, key, depth, ancestors}
+
+        other ->
+          other
+      end)
+      |> Enum.flat_map_reduce(state, &visit/2)
+
     walk(next, state)
   end
 
-  defp visit({cert, name, depth, ancestors, resources}, state) do
+  # What an entry needs: nothing, an issue, or its publication point
+  # validated.
+  defp plan({cert, name, depth, ancestors, resources}, state) do
     case Walk.repository(cert) do
       :not_ca ->
-        {[], state}
+        {:skip, state}
 
       {:error, kind, detail} ->
-        {[], issue(state, kind, name, detail)}
+        {{:issue, kind, name, detail}, state}
 
       {:ok, pp} ->
         key = to_string(pp)
@@ -403,42 +442,40 @@ defmodule Lumina.Validate do
 
         cond do
           depth > state.max_depth ->
-            {[], issue(state, :depth_exceeded, key, %{certificate: name, depth: depth})}
+            {{:issue, :depth_exceeded, key, %{certificate: name, depth: depth}}, state}
 
           key in ancestors ->
-            {[], issue(state, :loop, key, %{certificate: name})}
+            {{:issue, :loop, key, %{certificate: name}}, state}
 
           MapSet.member?(state.visited, key) ->
-            {[], issue(state, :duplicate, key, %{certificate: name})}
+            {{:issue, :duplicate, key, %{certificate: name}}, state}
 
           not File.dir?(path) ->
-            {[], issue(%{state | visited: MapSet.put(state.visited, key)}, :missing, key, nil)}
+            {{:issue, :missing, key, nil}, %{state | visited: MapSet.put(state.visited, key)}}
 
           true ->
-            state = %{state | visited: MapSet.put(state.visited, key)}
-
-            %{point: point, entries: entries} =
-              point(cert, path, key, state.now,
-                objects: true,
-                last_valid: state.root,
-                resources: resources
-              )
-
-            state = %{
-              state
-              | objects: Enum.reverse(entries, state.objects),
-                unlisted: state.unlisted + length(point.unlisted),
-                fallback: state.fallback + if(point.status == :fallback, do: 1, else: 0)
-            }
-
-            next =
-              for %{kind: :ca, valid: true} = entry <- entries,
-                  do:
-                    {entry.certificate, entry.uri, depth + 1, [key | ancestors], entry.resources}
-
-            {next, state}
+            {{:point, cert, path, key, depth, ancestors, resources},
+             %{state | visited: MapSet.put(state.visited, key)}}
         end
     end
+  end
+
+  defp visit(:skip, state), do: {[], state}
+  defp visit({:issue, kind, uri, detail}, state), do: {[], issue(state, kind, uri, detail)}
+
+  defp visit({:point, %{point: point, entries: entries}, key, depth, ancestors}, state) do
+    state = %{
+      state
+      | objects: Enum.reverse(entries, state.objects),
+        unlisted: state.unlisted + length(point.unlisted),
+        fallback: state.fallback + if(point.status == :fallback, do: 1, else: 0)
+    }
+
+    next =
+      for %{kind: :ca, valid: true} = entry <- entries,
+          do: {entry.certificate, entry.uri, depth + 1, [key | ancestors], entry.resources}
+
+    {next, state}
   end
 
   @doc """
