@@ -424,6 +424,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Decision:** VRPs are written by a new command, `lumina vrps [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT] [--format csv|json] [--output FILE] [--wide]`. Like `lumina validate`, it validates the cache offline from each TAL's stored TA; it doesn't fetch. A one-shot command that syncs and then writes VRPs may come later.
 - **Why:** D-001 (commands are verbs, each with its own flags); fetching and validating stay separate, as in `sync` and `validate`.
 - **Where:** M7 plan (maintainer: "Agree"), #165.
+- **As implemented (#165):** `Lumina.CLI` `vrps_command`; `--format` takes `csv` (JSON in #167, `--wide` in #166). A short summary goes to stderr (VRPs per TAL, and why a TAL fails); stdout has only the CSV. `--output` writes a temporary file next to FILE and renames it over FILE.
 
 ## D-032: VRP CSV in Routinator's columns
 
