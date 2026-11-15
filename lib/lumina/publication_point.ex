@@ -26,7 +26,9 @@ defmodule Lumina.PublicationPoint do
     * §6.5: with the SHA-256 the manifest gives (`:hash_mismatch`).
 
   Problems have the `Lumina.Profile` shape. Warnings (a stale CRL, D-016;
-  absent rsaEncryption parameters, D-025) don't fail the point. Files in
+  absent rsaEncryption parameters, D-025; a manifest EE certificate
+  listing resources instead of inheriting them, RFC 9286 §5.1, D-029)
+  don't fail the point. Files in
   the directory but not on the manifest aren't part of the result: §6
   says they "MUST NOT be used". What the walk and `lumina validate` do
   with a failed point is #134's.
@@ -274,7 +276,8 @@ defmodule Lumina.PublicationPoint do
         crl = Chain.crl(read_crl(crl_uri, path, key), ca, now)
 
         Chain.child(ee, :ee, ca, crl, now, Keyword.take(opts, [:resources])).problems ++
-          crl_listed(crl_uri, manifest, key)
+          crl_listed(crl_uri, manifest, key) ++
+          inherit(ee)
       else
         []
       end
@@ -285,6 +288,48 @@ defmodule Lumina.PublicationPoint do
       signed_object_uri(ee, uri) ++
       current(manifest, now)
   end
+
+  # RFC 9286 §5.1: the EE certificate "MUST describe its Internet Number
+  # Resources (INRs) using the 'inherit' attribute, rather than an
+  # explicit description of a resource set". One warning naming the kinds
+  # listed explicitly; a kind left out isn't described at all (D-029). A
+  # warning, not an error, while Barry writes explicit resources on every
+  # manifest a fixture doesn't declare (#157).
+  defp inherit(ee) do
+    ip = Certificate.extension_value(ee, :ip_resources)
+    as = Certificate.extension_value(ee, :as_resources)
+
+    explicit =
+      for {kind, choice} <- [
+            {"IPv4", ip_choice(ip, :ipv4)},
+            {"IPv6", ip_choice(ip, :ipv6)},
+            {"AS numbers", as_choice(as)}
+          ],
+          is_list(choice),
+          do: kind
+
+    if explicit == [],
+      do: [],
+      else: [
+        %{
+          rule: :manifest_ee_resources_not_inherit,
+          rfc: "9286#5.1",
+          field: :resources,
+          message:
+            "the manifest's EE certificate lists #{Enum.join(explicit, ", ")} " <>
+              "explicitly instead of using inherit",
+          severity: :warning
+        }
+      ]
+  end
+
+  defp ip_choice(families, afi) when is_list(families),
+    do: Enum.find_value(families, fn f -> if f.afi == afi, do: f.resources end)
+
+  defp ip_choice(_absent_or_malformed, _afi), do: nil
+
+  defp as_choice(%{asnum: asnum}), do: asnum
+  defp as_choice(_absent_or_malformed), do: nil
 
   # RFC 9981 §4.
   defp signed_object_uri(nil, _uri), do: []

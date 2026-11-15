@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 81 Barry fixtures: 15 valid, 66 invalid.
+- 83 Barry fixtures: 17 valid, 66 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 744 unit tests in 62 modules.
+- 749 unit tests in 63 modules.
 
 ## Barry fixtures
 
@@ -1001,6 +1001,26 @@ Effective resources (#153): everything validates.
 - **Expected:** valid
 - **RFC:** [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [3779 §3.2.3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.3)), [6487 §4.8.10](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.10)), [6487 §4.8.11](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.11))
 - **Files:** [descriptor](../../test/fixtures/barry/m6-inherit-two-levels/case.repo) · [metadata](../../test/fixtures/barry/m6-inherit-two-levels/case.exs) · [rsync tree](../../test/fixtures/barry/m6-inherit-two-levels/rsync)
+
+#### `m6-mft-ee-explicit-ipv4`: Manifest whose EE certificate lists IPv4 explicitly and leaves IPv6 out
+
+The baseline tree (m0-minimal-valid) with ca1's manifest declared in the tree and its EE certificate changed: IPv4 is an explicit 1.2.0.0/16, IPv6 is absent, and AS numbers are inherited. RFC 9286 section 5.1 wants the 'inherit' attribute "rather than an explicit description of a resource set", so IPv4 gets the manifest_ee_resources_not_inherit warning, naming IPv4 only. An absent kind isn't an explicit description and doesn't warn (D-029); inherited AS numbers conform.
+
+Manifest EE inherit check (#157, D-029): a warning only, so the point is accepted and everything validates.
+
+- **Expected:** valid
+- **RFC:** [9286 §5.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-5.1))
+- **Files:** [descriptor](../../test/fixtures/barry/m6-mft-ee-explicit-ipv4/case.repo) · [metadata](../../test/fixtures/barry/m6-mft-ee-explicit-ipv4/case.exs) · [rsync tree](../../test/fixtures/barry/m6-mft-ee-explicit-ipv4/rsync)
+
+#### `m6-mft-ee-inherit`: Manifest whose EE certificate inherits every resource kind
+
+The baseline tree (m0-minimal-valid) with ca1's manifest declared in the tree, so that its EE certificate can use inherit for IPv4, IPv6 and AS numbers, as RFC 9286 section 5.1 requires ("MUST describe its Internet Number Resources (INRs) using the 'inherit' attribute ... RPs are required to verify this"). ca1.mft gets no manifest_ee_resources_not_inherit warning. The TA's manifest isn't declared, so Barry gives its EE certificate explicit resources and it keeps the warning: both cases in one repository.
+
+Manifest EE inherit check (#157, D-029): everything validates; only ta.mft warns.
+
+- **Expected:** valid
+- **RFC:** [9286 §5.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-5.1)), [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [3779 §3.2.3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.3))
+- **Files:** [descriptor](../../test/fixtures/barry/m6-mft-ee-inherit/case.repo) · [metadata](../../test/fixtures/barry/m6-mft-ee-inherit/case.exs) · [rsync tree](../../test/fixtures/barry/m6-mft-ee-inherit/rsync)
 
 #### `m6-overclaim-as`: CA certificate claiming an AS number its issuer doesn't hold
 
@@ -2289,6 +2309,36 @@ m0-minimal-valid manifest changed in memory.
   Case-sensitive (§4.2.2): .ROA is not a registered extension, and A.roa is not a.roa.
 - *file names:* names without a base, with two dots, a path, or a long extension are rejected (RFC [9286 §4.2.2](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.2)))
 - *file names:* a name listed three times is one problem (RFC [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)))
+
+### `Lumina.ManifestEEInheritTest`
+
+[test/lumina/manifest_ee_inherit_test.exs](../../test/lumina/manifest_ee_inherit_test.exs)
+
+Tests the RFC 9286 §5.1 check on a manifest's EE certificate (#157):
+it "MUST describe its Internet Number Resources (INRs) using the
+'inherit' attribute, rather than an explicit description of a resource
+set (see [RFC3779]). (RPs are required to verify this.)"
+
+`Lumina.PublicationPoint.process/5` warns
+`manifest_ee_resources_not_inherit` once, naming each kind (IPv4, IPv6,
+AS numbers) the EE certificate lists explicitly. It is a warning, not
+an error, while Barry writes explicit resources on every manifest it
+isn't told about (D-029); a kind left out doesn't warn (D-029). Barry's
+default manifests warn naming all three kinds, `m6-mft-ee-inherit`'s ca1
+manifest inherits every kind, and `m6-mft-ee-explicit-ipv4`'s lists
+IPv4, leaves IPv6 out and inherits AS numbers. Points are processed at
+2030-01-01.
+
+- *PublicationPoint.process/5:* a manifest EE certificate listing every kind explicitly warns once, naming them, and the point is accepted (RFC [9286 §5.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-5.1)))
+  Barry writes explicit IPv4, IPv6 and AS numbers on manifests it isn't told about.
+- *PublicationPoint.process/5:* m6-mft-ee-inherit: a manifest EE certificate inheriting every kind gets no warning (RFC [9286 §5.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-5.1)), [3779 §2.2.3.5](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.2.3.5)), [3779 §3.2.3.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-3.2.3.3)))
+- *PublicationPoint.process/5:* m6-mft-ee-explicit-ipv4: only the kind listed explicitly warns (RFC [9286 §5.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-5.1)))
+- *PublicationPoint.process/5:* a kind the manifest EE certificate leaves out doesn't warn (RFC [9286 §5.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-5.1)))
+  D-029: m6-mft-ee-explicit-ipv4's manifest has no IPv6 at all. §5.1
+  asks for inherit "rather than an explicit description", and an
+  absent kind describes nothing; RFC 6487 §4.8.10 lets a
+  certificate leave a family out.
+- *lumina validate:* the warning is shown on the manifest's line, and doesn't change the exit code (RFC [9286 §5.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-5.1)))
 
 ### `Lumina.ManifestStateTest`
 
