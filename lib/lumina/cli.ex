@@ -10,7 +10,7 @@ defmodule Lumina.CLI do
       lumina validate [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT]
                       [--progress | --quiet]
       lumina vrps [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT]
-                  [--format csv] [--output FILE] [--wide] [--progress | --quiet]
+                  [--format csv|json] [--output FILE] [--wide] [--progress | --quiet]
       lumina help [command]
 
   Exit codes, shared by all commands: 0 success, 1 a file failed to
@@ -141,8 +141,8 @@ defmodule Lumina.CLI do
 
   @vrps_usage """
   Usage: lumina vrps [--cache DIR] [--tal FILE]... [--now TIME]
-                     [--max-invalid PERCENT] [--format csv] [--output FILE]
-                     [--wide] [--progress | --quiet]
+                     [--max-invalid PERCENT] [--format csv|json]
+                     [--output FILE] [--wide] [--progress | --quiet]
 
   Validate the cache as lumina validate does, offline, and write the
   Validated ROA Payloads (VRPs) of the valid ROAs: one per distinct AS,
@@ -157,14 +157,19 @@ defmodule Lumina.CLI do
     --max-invalid PERCENT
                   as for lumina validate (default: 10); above it the VRPs
                   are still written, with a warning
-    --format csv  the output format (default: csv): a header line, then
-                  ASN,IP Prefix,Max Length,Trust Anchor rows, such as
-                  AS13335,1.0.0.0/24,24,apnic
+    --format csv|json
+                  the output format (default: csv). csv: a header line,
+                  then ASN,IP Prefix,Max Length,Trust Anchor rows, such as
+                  AS13335,1.0.0.0/24,24,apnic. json: an object with
+                  "metadata" (times, version, trust anchors, counts) and
+                  "roas", the same rows, such as {"asn":"AS13335",
+                  "prefix":"1.0.0.0/24","maxLength":24,"ta":"apnic"}
     --output FILE write the VRPs to FILE, replacing it in one step,
                   instead of to standard output
-    --wide        for debugging: add a URI column with the rsync URI of
-                  the ROA, and write one row per VRP and ROA, so a VRP
-                  that several ROAs state appears once for each
+    --wide        for debugging: add a URI column ("uri" in JSON) with
+                  the rsync URI of the ROA, and write one row per VRP and
+                  ROA, so a VRP that several ROAs state appears once for
+                  each
     --progress    report progress on stderr (the default): a status
                   line on a terminal, timestamped lines otherwise
     --quiet       no progress report
@@ -209,8 +214,9 @@ defmodule Lumina.CLI do
   exit code. Separate from `main/1` so it can be tested without halting.
 
   `internal` is for tests only: options passed to `Lumina.Sync.run/3`
-  (`:remap`, `:https`, `:rsync`, `:now`) and `:tal_dir`, the folder that
-  stands in for `./tals/`.
+  (`:remap`, `:https`, `:rsync`, `:now`), `:tal_dir`, the folder that
+  stands in for `./tals/`, and `:generated`, the time `lumina vrps
+  --format json` gives as made.
   """
   @spec run([String.t()], IO.device(), IO.device(), keyword()) :: 0 | 1 | 2
   def run(args, out \\ :stdio, err \\ :stderr, internal \\ []) do
@@ -365,7 +371,7 @@ defmodule Lumina.CLI do
              {:ok, tals} <- read_tals(paths),
              {:ok, now} <- now_flag(opts[:now], internal),
              {:ok, max_invalid} <- max_invalid_flag(Keyword.get(opts, :max_invalid, 10)),
-             :ok <- format_flag(Keyword.get(opts, :format, "csv")) do
+             {:ok, format} <- format_flag(Keyword.get(opts, :format, "csv")) do
           reports = validate_all(tals, opts, now, err)
 
           vrps = VRP.sort(for {_path, {:ok, r}} <- reports, v <- r.vrps, do: v)
@@ -375,7 +381,26 @@ defmodule Lumina.CLI do
 
           IO.write(err, vrps_summary(reports, failed, max_invalid))
 
-          case write_vrps(opts[:output], VRP.csv(vrps, wide: opts[:wide] == true), out) do
+          wide = [wide: opts[:wide] == true]
+
+          data =
+            case format do
+              :csv ->
+                VRP.csv(vrps, wide)
+
+              :json ->
+                generated = Keyword.get_lazy(internal, :generated, &DateTime.utc_now/0)
+
+                metadata = %{
+                  generated: generated,
+                  now: now,
+                  trust_anchors: ta_status(reports, failed)
+                }
+
+                VRP.json(vrps, metadata, wide)
+            end
+
+          case write_vrps(opts[:output], data, out) do
             :ok ->
               if failed == [], do: 0, else: 1
 
@@ -416,8 +441,25 @@ defmodule Lumina.CLI do
     end
   end
 
-  defp format_flag("csv"), do: :ok
-  defp format_flag(other), do: {:error, "--format must be csv, not #{inspect(other)}"}
+  defp format_flag("csv"), do: {:ok, :csv}
+  defp format_flag("json"), do: {:ok, :json}
+  defp format_flag(other), do: {:error, "--format must be csv or json, not #{inspect(other)}"}
+
+  # Each TAL's trust anchor for the JSON metadata (#167): its name, file
+  # and outcome, as the summary on stderr gives it.
+  defp ta_status(reports, failed) do
+    for {path, report} <- reports do
+      status =
+        case {List.keymember?(failed, path, 0), report} do
+          {false, _} -> "ok"
+          {true, {:error, :no_ta}} -> "no_trust_anchor"
+          {true, {:ok, %{ta: %{valid: false}}}} -> "invalid_trust_anchor"
+          {true, {:ok, _}} -> "too_many_invalid"
+        end
+
+      %{name: Validate.ta_name(path), tal: path, status: status}
+    end
+  end
 
   # One line per TAL on stderr, and why a TAL fails (D-034: its VRPs are
   # still written when only the share of invalid objects is too high).

@@ -117,7 +117,7 @@ A valid ROA produces VRPs, each a (prefix, maxLength, origin ASN) tuple, which a
 | 6811 | BGP Prefix Origin Validation | [txt](rfc6811.txt) | [html](https://www.rfc-editor.org/rfc/rfc6811.html) | Valid/Invalid/NotFound; updated by 8481, 8893 |
 | 9319 | The Use of maxLength in the RPKI | [txt](rfc9319.txt) | [html](https://www.rfc-editor.org/rfc/rfc9319.html) | BCP 185 |
 
-There is no RFC for the TXT or JSON output format. We define the format ourselves.
+There is no RFC for the TXT or JSON output format. We define the format ourselves: [`doc/output.md`](../output.md).
 
 ## 9. Other signed objects
 

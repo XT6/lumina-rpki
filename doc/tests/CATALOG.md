@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 90 Barry fixtures: 21 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 795 unit tests in 67 modules.
+- 801 unit tests in 67 modules.
 
 ## Barry fixtures
 
@@ -1767,7 +1767,8 @@ Tests `lumina vrps` (#165, D-031): it validates the cache offline, as
 `lumina validate` does, and writes the VRPs of the valid ROAs as CSV in
 Routinator's columns (D-032), one row per distinct AS, prefix,
 maxLength and trust anchor (D-033), to stdout or atomically to
-`--output FILE`. Above `--max-invalid` the VRPs are still written, with
+`--output FILE`, as CSV or as JSON (`--format json`, #167, RFC 8259,
+`doc/output.md`). Above `--max-invalid` the VRPs are still written, with
 a warning, and the exit code is 1 (D-034).
 
 Each test syncs Barry fixtures from a local rsync daemon with `lumina
@@ -1787,6 +1788,26 @@ sync`, then runs `lumina vrps` at 2030-01-01 (`--now`), through
   (D-033); without it, once.
 - *--wide (#166):* every row's URI is the ROA the VRP comes from, in the default order
   m1-roa-prefixes: one ROA, so each row's URI is roa1.roa.
+- *--format json (#167):* a fixture's JSON decodes to exactly the expected document (RFC [8259 §4](../rfc/rfc8259.txt) ([html](https://www.rfc-editor.org/rfc/rfc8259.html#section-4)), [8259 §5](../rfc/rfc8259.txt) ([html](https://www.rfc-editor.org/rfc/rfc8259.html#section-5)), [9582 §4.3.2.2](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.2)))
+  m1-roa-prefixes: the whole document, metadata and the three VRPs,
+  as `:json.decode/1` gives it.
+- *--format json (#167):* the JSON has the same VRPs as the CSV, in the same order
+  m0-minimal-valid's TAL under two names: the JSON rows, written as
+  CSV rows, are the CSV's rows, in its order, and each trust anchor
+  counts its own.
+- *--format json (#167):* with --wide, each VRP has its ROA's URI and duplicates are kept
+  m7-vrp-duplicate: with --wide, each row has "uri" and the VRP that
+  roa1.roa and roa2.roa both state is there twice (D-033).
+- *--format json (#167):* quotes, backslashes and control characters in a name are escaped (RFC [8259 §7](../rfc/rfc8259.txt) ([html](https://www.rfc-editor.org/rfc/rfc8259.html#section-7)))
+  A TAL file named with a double quote, a backslash and a control
+  character (U+0001): JSON escapes them in the trust anchor's name,
+  and decoding gives the name back. The solidus in a prefix stays
+  unescaped, as §7's prose allows (F-036).
+- *--format json (#167):* each trust anchor's status says why the run failed
+  m7-roa-prefix-outside-ee (over --max-invalid, D-034) and a TAL with
+  no trust anchor in the cache: each one's status, and the VRPs
+  still written for the first.
+- *--format json (#167):* with no VRPs, roas is an empty array
 - *--output:* writes the same bytes as standard output, and nothing to standard output
 - *--output:* a file that can't be written fails with exit 1 and leaves nothing behind
 - *failures:* above --max-invalid the VRPs are still written, with a warning, and exit 1 (RFC [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)))
