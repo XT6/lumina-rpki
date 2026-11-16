@@ -31,6 +31,7 @@ mix escript.build && ./lumina print [--brief] FILE...   # print RPKI objects and
 ./lumina validate [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT] [--progress | --quiet]   # validate the cache offline from each TAL's stored TA (Lumina.Validate); exit 1 if a TA is missing or invalid, or more than PERCENT (10) of a TAL's certificates are invalid (D-022)
 elixir scripts/token_usage.exs     # regenerate doc/token-usage.md (Claude Code token usage per milestone, at API prices) from the session transcript and GitHub; commit it with every PR
 ./lumina vrps [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT] [--format csv|json] [--output FILE] [--wide] [--progress | --quiet]   # validate offline and write the VRPs as CSV in Routinator's columns or as Lumina's JSON (Lumina.VRP, D-031 to D-034, #167; both formats in doc/output.md; --wide adds the ROA's URI and keeps duplicates, #166); summary on stderr; --output replaces the file atomically; exit 1 as validate, but the VRPs are still written
+mix lumina.compare_vrps [--csv FILE | --url URL] [--limit N] LUMINA_CSV   # compare lumina vrps output with Routinator's published CSV, downloaded now (Lumina.VRPCompare, D-035, #168): per trust anchor, counts and the VRPs only one side has; names mapped (ripe-ncc → ripe, apnic-rfc7730-https → apnic)
 mix lumina.asn1.extract            # regenerate asn1/rfc/ (verbatim from doc/rfc) and asn1/build/ (with asn1/patches/ applied)
 ```
 

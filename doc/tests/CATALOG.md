@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 90 Barry fixtures: 21 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 801 unit tests in 67 modules.
+- 812 unit tests in 68 modules.
 
 ## Barry fixtures
 
@@ -3380,6 +3380,36 @@ the cache at 2030-01-01.
   (manifest_number_replay, D-024) and its last valid copy stands in
   (D-023). The ROA there is valid and its VRPs count.
 - the trust anchor's name is the TAL file's name without .tal (D-032)
+
+### `Lumina.VRPCompareTest`
+
+[test/lumina/vrp_compare_test.exs](../../test/lumina/vrp_compare_test.exs)
+
+Tests comparing Lumina's VRPs with a reference CSV (#168, D-035):
+`Lumina.VRPCompare` and `mix lumina.compare_vrps`.
+
+The reference is Routinator's published CSV, in the columns `lumina
+vrps` writes (D-032). Both sides are compared per trust anchor as sets
+of VRPs, Lumina's trust anchor names mapped to the reference's; lines
+that aren't VRPs are reported, not fatal. Small CSVs written here cover
+the cases; the `:network` test downloads the live file.
+
+- *compare/2:* identical CSVs have no differences
+- *compare/2:* a VRP only one side has is listed under that side
+- *compare/2:* a trust anchor only one side has is reported as missing from the other
+  Lumina validated only LACNIC; the reference has every trust anchor.
+- *compare/2:* Lumina's trust anchor names are mapped to the reference's
+  Lumina names trust anchors after its TAL files (D-032).
+- *compare/2:* VRPs are compared by value, not by text, and duplicates count once
+  2001:DB8:0:0::/32 and 2001:db8::/32 are the same prefix; a repeated row counts once.
+- *parse/1:* a malformed line is reported with its number and skipped
+- *parse/1:* a CSV without the header is an error
+- *parse/1:* quoted fields and lumina vrps --wide output are read
+  Lumina.VRP quotes a field holding a comma or quote; --wide adds a URI column.
+- *report/2:* lists at most limit VRPs per side, and how many more
+- *mix lumina.compare_vrps:* compares two files and reports both sides' malformed lines
+- the live reference CSV downloads and parses, with every RIR's trust anchor
+  Downloads Routinator's CSV; about 34 MB and over a million VRPs (2026-11-15).
 
 ### `Lumina.WalkTest`
 

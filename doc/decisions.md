@@ -456,6 +456,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Decision:** as a sanity check, Lumina's VRPs are compared with the CSV Routinator publishes for all trust anchors at https://routinator.labs.lacnic.net/csv, downloaded when the comparison runs, never committed. The VRPs only one side has are reported per trust anchor. In the M7 done test they may differ by at most 1% of either side per trust anchor; when that bound is exceeded, the CSV is downloaded again once and compared again, to rule out drift. Only the published output is used, never another validator's code (M7 milestone).
 - **Why:** a file supplied in advance would have drifted from the live repositories by the time the tests run.
 - **Where:** M7 plan (maintainer; the 1% bound and the re-download, on the plan's follow-up), #168, #170.
+- **As implemented (#168):** `Lumina.VRPCompare` parses both CSVs into sets of VRPs per trust anchor (by value, so textual forms and duplicate rows don't matter; lines that aren't VRPs are listed and skipped), maps Lumina's names to Routinator's (`ripe-ncc` → `ripe`, `apnic-rfc7730-https` → `apnic`), and downloads the reference with `Lumina.HTTPS.fetch/2` (up to 128 MiB; the file was about 34 MB on 2026-11-15). `mix lumina.compare_vrps` prints the result. A trust anchor only one side has is reported as missing, not as differences.
 
 ## D-036: Every long-running operation reports progress
 
