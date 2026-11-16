@@ -12,6 +12,12 @@ defmodule Lumina.Sync do
 
   If every URI of a TAL fails but an earlier run accepted its TA, the walk
   goes ahead from that stale TA, and the failure is reported.
+
+  The TALs are walked one after the other, and each walk starts with the
+  modules the earlier ones fetched (#102): a module that several trees
+  share is fetched once per run, and one that failed isn't retried. A
+  point in it is reported by the walk that reaches it, covered by that
+  module; the fetch, and a failure, by the walk that ran it.
   """
 
   alias Lumina.{Cache, Progress, TA, TAL, Walk}
@@ -40,11 +46,21 @@ defmodule Lumina.Sync do
         {:ok, _} = Cache.recover(root)
         total = length(tals)
 
-        reports =
-          for {{path, tal}, index} <- Enum.with_index(tals, 1) do
+        # What each walk fetched goes to the next (#102), so a module
+        # shared by several trees is fetched once.
+        {reports, _modules} =
+          tals
+          |> Enum.with_index(1)
+          |> Enum.map_reduce([], fn {{path, tal}, index}, modules ->
             Progress.emit(opts, {:tal_started, path, index, total})
-            sync_tal(path, tal, root, opts)
-          end
+            report = sync_tal(path, tal, root, modules ++ opts)
+
+            {report,
+             if(report.walk,
+               do: Map.to_list(Map.take(report.walk, [:fetched, :refetched])),
+               else: modules
+             )}
+          end)
 
         {:ok, reports}
       after
@@ -150,6 +166,12 @@ defmodule Lumina.Sync do
     failed_points = Enum.count(walk.points, &(&1.status == :failed))
     fallback = Enum.count(walk.points, &(&1.status == :fallback))
 
+    # Modules an earlier TAL's walk fetched in this run (#102).
+    ours = MapSet.new(walk.fetches, & &1.uri)
+
+    shared =
+      walk.points |> Enum.map(& &1.covered_by) |> Enum.uniq() |> Enum.count(&(&1 not in ours))
+
     # CA certificates holding resources outside their issuer's (#155); the
     # walk validates no signed objects, so their EE certificates are
     # lumina validate's.
@@ -168,7 +190,8 @@ defmodule Lumina.Sync do
     [
       "  publication points: #{length(walk.points)}" <>
         if(notes != [], do: " (#{Enum.join(notes, ", ")})", else: "") <> "\n",
-      "  rsync fetches: #{length(walk.fetches)}, #{failed} failed\n",
+      "  rsync fetches: #{length(walk.fetches)}, #{failed} failed" <>
+        if(shared > 0, do: "; #{shared} modules fetched for an earlier TAL", else: "") <> "\n",
       if(overclaims > 0,
         do:
           "  overclaims: #{overclaims} (resources outside the issuer's, RFC 6487 section 7.2)\n",

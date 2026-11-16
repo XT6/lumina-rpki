@@ -233,7 +233,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Consequences:**
   - `Lumina.Walk` plans a fetch of the module of each publication point not covered; `fetches` list modules, and each point's `covered_by` is its module.
   - Fixtures can serve extra modules on `localhost:8873` with `rsync_modules` in `case.exs`; `m3-walk-siblings` puts eight CAs in eight modules to keep testing D-011's cap.
-  - A module is fetched again for each TAL in a sync (each TAL is a separate walk); sharing fetches across TALs would be a later improvement.
+  - A module is fetched again for each TAL in a sync (each TAL is a separate walk); sharing fetches across TALs would be a later improvement. **Done in #102:** `Lumina.Sync` passes each walk's fetched modules, with their outcomes, and the modules already refetched, to the next walk (`Walk.run/3` options and result `:fetched`, `:refetched`), so a module is fetched at most once per sync (plus one mid-update retry), and a failed one isn't retried. The TALs are still walked one after the other.
   - **Measured** (cold cache, 2026-11-13, LACNIC): 10 rsync runs instead of 3,685, and 1 min 52 s instead of 4 min 32 s. About a minute of what remains is three unresponsive delegated hosts waiting out rsync's 30 s connect timeout (#88). The cache holds 82,827 files.
 
 ## D-013: Unknown non-critical extensions accepted with a warning
