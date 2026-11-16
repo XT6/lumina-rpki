@@ -433,6 +433,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Decision:** the default output is CSV with the columns and value forms of Routinator's CSV output: header `ASN,IP Prefix,Max Length,Trust Anchor`, rows such as `AS13335,1.0.0.0/24,24,apnic`. The trust anchor column is the TAL file's name without `.tal` (`lacnic`, `ripe-ncc`, `apnic-rfc7730-https`); the comparison (D-035) maps names to Routinator's. JSON (`--format json`) is Lumina's own format, documented in `doc/output.md`, with room for ASPA.
 - **Why:** there's no RFC for VRP output (`doc/rfc/README.md`); a format operators already read, and that matches the reference used for comparison, makes the comparison a set difference. Only the published format is followed, not any code. Naming the trust anchor after its TAL file works for any TAL a user adds.
 - **Where:** M7 plan (maintainer: "Use the same format as routinator"; names kept as the TAL files'), #165, #167.
+- **As implemented (#167):** the JSON is an object with `metadata` (`generated`, `validationTime`, `lumina`, `trustAnchors` with each TAL's name, file, `status` and row count, and the total `vrps`) and `roas` (`asn`, `prefix`, `maxLength`, `ta`, and `uri` with `--wide`), the CSV's rows in its order. It's written by `Lumina.VRP.json/3` with OTP's `:json` for each value, members in a fixed order and one element per line, so it's deterministic apart from `generated`.
 
 ## D-033: One row per distinct VRP, unless `--wide`
 

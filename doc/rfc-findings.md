@@ -54,6 +54,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-033](#f-033-inheriting-resources-the-issuer-doesnt-hold) | 3779 §2.2.3.5, §3.2.3.3; 9286 §5.1 | ambiguity | none found (not reported) | Inheriting nothing is holding nothing (D-026, #153) |
 | [F-034](#f-034-encompass-is-worded-range-by-range) | 6487 §7.1; 3779 §2.3, §3.3 | ambiguity | [5188](https://www.rfc-editor.org/errata/eid5188), held (related); otherwise none found (not reported) | Compared as sets (D-027, #152) |
 | [F-035](#f-035-what-using-inherit-asks-of-a-manifest-ee-certificate) | 9286 §5.1 | ambiguity | none found (not reported; to report) | Explicit kinds warn, absent ones don't (D-029, #157) |
+| [F-036](#f-036-a-verified-erratum-makes-the-solidus-an-escape-only-character) | 8259 §7 | erratum | [5318](https://www.rfc-editor.org/errata/eid5318), verified (editorial) | `/` written unescaped, as the prose allows (#167) |
 
 ## Entries
 
@@ -579,6 +580,16 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Resolution:** a warning, `manifest_ee_resources_not_inherit`, naming each kind listed explicitly; an absent kind doesn't warn (D-029, #157). It becomes an error once Barry writes inherit by default.
 - **Suggested text (RFC 9286 §5.1):** *"This EE certificate MUST NOT contain an explicit description of a resource set (see [RFC3779]); each kind of INR it contains MUST use the 'inherit' attribute. An RP MUST consider a manifest whose EE certificate does not comply invalid."* (Or "SHOULD warn", if the intent was softer.)
 - **Talk note:** a requirement aimed at RPs ("required to verify") that doesn't say what verifying failure means leaves every RP to choose between a rejected publication point and a log line.
+
+### F-036: A verified erratum makes the solidus an escape-only character
+
+- **Where:** RFC 8259 §7: "All Unicode characters may be placed within the quotation marks, except for the characters that MUST be escaped: quotation mark, reverse solidus, and the control characters (U+0000 through U+001F)." The grammar below agrees: `unescaped = %x20-21 / %x23-5B / %x5D-10FFFF`, which includes the solidus `/` (U+002F), and lists `\/` among the optional escapes.
+- **Kind:** erratum.
+- **Official errata:** [5318](https://www.rfc-editor.org/errata/eid5318), verified, editorial, changes the rule to `unescaped = %x20-21 / %x23-2E / %x30-5B / %x5D-10FFFF`, so the solidus could only appear escaped. Its note: "The solidus U+002F is listed as being escaped above, but is not excluded in the 'unescaped' sequence." Also relevant: [7603](https://www.rfc-editor.org/errata/eid7603) (verified: a string is "Unicode code points", not characters), [7650](https://www.rfc-editor.org/errata/eid7650) (held: the rule name `char` clashes with ABNF's core `CHAR`). The rest are rejected, or about numbers and the media type (checked 2026-11-15). **Not reported.**
+- **The problem:** the erratum contradicts the prose it sits under, which lets every character but the quotation mark, the reverse solidus and the controls stand unescaped. Being listed as escapable doesn't make a character escape-only: every character "may be escaped" (§7). Read with the erratum, `"1.0.0.0/24"` isn't JSON, and neither is nearly every JSON text with a URL in it.
+- **Impact:** none in practice; decoders accept both forms, OTP's `:json` among them. Lumina's JSON has a solidus in every prefix and URI.
+- **Resolution:** follow the prose: the solidus is written unescaped (#167). The JSON tests decode with `:json.decode/1` and check that the prefixes come out with a plain `/`.
+- **Talk note:** a verified erratum can be wrong too; read it against the text it corrects.
 
 ## Process notes
 

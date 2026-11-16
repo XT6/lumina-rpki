@@ -4,7 +4,8 @@ defmodule Lumina.CLIVRPsTest do
   `lumina validate` does, and writes the VRPs of the valid ROAs as CSV in
   Routinator's columns (D-032), one row per distinct AS, prefix,
   maxLength and trust anchor (D-033), to stdout or atomically to
-  `--output FILE`. Above `--max-invalid` the VRPs are still written, with
+  `--output FILE`, as CSV or as JSON (`--format json`, #167, RFC 8259,
+  `doc/output.md`). Above `--max-invalid` the VRPs are still written, with
   a warning, and the exit code is 1 (D-034).
 
   Each test syncs Barry fixtures from a local rsync daemon with `lumina
@@ -143,6 +144,163 @@ defmodule Lumina.CLIVRPsTest do
     end
   end
 
+  describe "--format json (#167)" do
+    @describetag :rsync
+    @describetag :tmp_dir
+
+    # Microseconds, which the output drops.
+    @generated ~U[2026-11-15 12:00:00.123456Z]
+
+    defp json!(tal_flags, cache, internal, extra \\ []) do
+      args = vrps_args(tal_flags, cache, ["--format", "json" | extra])
+      {code, out, _err} = run(args, [generated: @generated] ++ internal)
+      {code, out, :json.decode(out)}
+    end
+
+    @tag rfc: ["8259#4", "8259#5", "9582#4.3.2.2"],
+         doc: """
+         m1-roa-prefixes: the whole document, metadata and the three VRPs,
+         as `:json.decode/1` gives it.
+         """
+    test "a fixture's JSON decodes to exactly the expected document", %{tmp_dir: tmp} do
+      {tals, cache, internal} = synced!(tmp, "m1-roa-prefixes")
+      ["--tal", tal] = tals
+
+      assert {0, _out, document} = json!(tals, cache, internal)
+
+      assert document == %{
+               "metadata" => %{
+                 "generated" => "2026-11-15T12:00:00Z",
+                 "validationTime" => "2030-01-01T00:00:00Z",
+                 "lumina" => Mix.Project.config()[:version],
+                 "trustAnchors" => [
+                   %{"name" => "case", "tal" => tal, "status" => "ok", "vrps" => 3}
+                 ],
+                 "vrps" => 3
+               },
+               "roas" => [
+                 %{
+                   "asn" => "AS64496",
+                   "prefix" => "1.1.0.0/17",
+                   "maxLength" => 24,
+                   "ta" => "case"
+                 },
+                 %{
+                   "asn" => "AS64496",
+                   "prefix" => "1.1.128.0/24",
+                   "maxLength" => 24,
+                   "ta" => "case"
+                 },
+                 %{"asn" => "AS64496", "prefix" => "101::/16", "maxLength" => 48, "ta" => "case"}
+               ]
+             }
+    end
+
+    @tag doc: """
+         m0-minimal-valid's TAL under two names: the JSON rows, written as
+         CSV rows, are the CSV's rows, in its order, and each trust anchor
+         counts its own.
+         """
+    test "the JSON has the same VRPs as the CSV, in the same order", %{tmp_dir: tmp} do
+      {tals, cache, internal} = synced!(tmp, "m0-minimal-valid", ["lacnic", "ripe-ncc"])
+
+      assert {0, csv, _} = run(vrps_args(tals, cache), internal)
+      assert {0, _out, document} = json!(tals, cache, internal)
+
+      rows =
+        for r <- document["roas"],
+            do: "#{r["asn"]},#{r["prefix"]},#{r["maxLength"]},#{r["ta"]}\n"
+
+      assert Enum.join([@header | rows]) == csv
+      assert length(rows) == 4
+
+      assert for(t <- document["metadata"]["trustAnchors"], do: {t["name"], t["vrps"]}) ==
+               [{"lacnic", 2}, {"ripe-ncc", 2}]
+    end
+
+    @tag doc: """
+         m7-vrp-duplicate: with --wide, each row has "uri" and the VRP that
+         roa1.roa and roa2.roa both state is there twice (D-033).
+         """
+    test "with --wide, each VRP has its ROA's URI and duplicates are kept", %{tmp_dir: tmp} do
+      {tals, cache, internal} = synced!(tmp, "m7-vrp-duplicate")
+
+      assert {0, _out, document} = json!(tals, cache, internal, ["--wide"])
+
+      assert document["roas"] == [
+               %{
+                 "asn" => "AS64496",
+                 "prefix" => "1.1.0.0/16",
+                 "maxLength" => 16,
+                 "ta" => "case",
+                 "uri" => "rsync://localhost:8873/rpki/ca1/roa1.roa"
+               },
+               %{
+                 "asn" => "AS64496",
+                 "prefix" => "1.1.0.0/16",
+                 "maxLength" => 16,
+                 "ta" => "case",
+                 "uri" => "rsync://localhost:8873/rpki/ca1/roa2.roa"
+               }
+             ]
+
+      assert document["metadata"]["vrps"] == 2
+      assert {0, _, %{"roas" => [_]}} = json!(tals, cache, internal)
+    end
+
+    @tag rfc: "8259#7",
+         doc: """
+         A TAL file named with a double quote, a backslash and a control
+         character (U+0001): JSON escapes them in the trust anchor's name,
+         and decoding gives the name back. The solidus in a prefix stays
+         unescaped, as §7's prose allows (F-036).
+         """
+    test "quotes, backslashes and control characters in a name are escaped", %{tmp_dir: tmp} do
+      name = "q\"b\\s\x01t"
+      {tals, cache, internal} = synced!(tmp, "m0-minimal-valid", [name])
+
+      assert {0, out, document} = json!(tals, cache, internal)
+
+      assert out =~ ~S("ta":"q\"b\\s\u0001t")
+      refute out =~ "\x01"
+      # The solidus may stand unescaped (§7's prose; F-036).
+      assert out =~ ~s("prefix":"1.1.0.0/16")
+      assert [%{"ta" => ^name} | _] = document["roas"]
+      assert [%{"name" => ^name}] = document["metadata"]["trustAnchors"]
+    end
+
+    @tag doc: """
+         m7-roa-prefix-outside-ee (over --max-invalid, D-034) and a TAL with
+         no trust anchor in the cache: each one's status, and the VRPs
+         still written for the first.
+         """
+    test "each trust anchor's status says why the run failed", %{tmp_dir: tmp} do
+      {tals, cache, internal} = synced!(tmp, "m7-roa-prefix-outside-ee")
+      missing = Path.join(tmp, "lacnic.tal")
+      File.cp!("tals/lacnic.tal", missing)
+
+      assert {1, _out, document} = json!(tals ++ ["--tal", missing], cache, internal)
+
+      assert for(
+               t <- document["metadata"]["trustAnchors"],
+               do: {t["name"], t["status"], t["vrps"]}
+             ) ==
+               [{"case", "too_many_invalid", 2}, {"lacnic", "no_trust_anchor", 0}]
+
+      assert length(document["roas"]) == 2
+    end
+
+    test "with no VRPs, roas is an empty array", %{tmp_dir: tmp} do
+      tal = Path.join(tmp, "lacnic.tal")
+      File.cp!("tals/lacnic.tal", tal)
+
+      assert {1, out, %{"roas" => [], "metadata" => %{"vrps" => 0}}} =
+               json!(["--tal", tal], Path.join(tmp, "empty"), [])
+
+      assert out =~ ~s("roas": []\n)
+    end
+  end
+
   describe "--output" do
     @describetag :rsync
     @describetag :tmp_dir
@@ -229,7 +387,7 @@ defmodule Lumina.CLIVRPsTest do
   describe "usage" do
     test "an unknown format is a usage error" do
       assert {2, "", err} = run(["vrps", "--format", "xml", "--tal", "tals/lacnic.tal"])
-      assert err =~ ~s(--format must be csv, not "xml")
+      assert err =~ ~s(--format must be csv or json, not "xml")
     end
 
     test "lumina help vrps describes the command and its flags" do
@@ -238,6 +396,7 @@ defmodule Lumina.CLIVRPsTest do
       assert out =~ "--output FILE"
       assert out =~ "ASN,IP Prefix,Max Length,Trust Anchor"
       assert out =~ "--wide"
+      assert out =~ "--format csv|json"
     end
   end
 end
