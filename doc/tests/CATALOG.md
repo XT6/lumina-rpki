@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 90 Barry fixtures: 21 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 815 unit tests in 69 modules.
+- 823 unit tests in 69 modules.
 
 ## Barry fixtures
 
@@ -1632,6 +1632,9 @@ repository's certificates to it (`:remap`, see `Lumina.Walk`).
 - *syncing:* without --tal, every TAL in the TAL folder is synced
 - *syncing:* a partial failure exits 1 and names the failure and its reason (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
 - *syncing:* a TAL whose TA can't be fetched exits 1, with each attempt listed (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)))
+- *sync times (#185):* each TAL whose tree was walked gets its sync time recorded
+  lumina vrps --sync measures a TAL's age from this record. A TAL
+  whose TA can't be retrieved, with none stored, gets none.
 - *overclaims (#155):* an overclaiming CA certificate is listed with the resources outside its issuer's, and counted (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [3779 §2.3](../rfc/rfc3779.txt) ([html](https://www.rfc-editor.org/rfc/rfc3779.html#section-2.3)))
   m6-overclaim-ipv4: ca2 claims 2.0.0.0/16, outside ca1's. Like any
   invalid CA it isn't a fetch failure (exit 0), and it isn't
@@ -1808,6 +1811,25 @@ sync`, then runs `lumina vrps` at 2030-01-01 (`--now`), through
   no trust anchor in the cache: each one's status, and the VRPs
   still written for the first.
 - *--format json (#167):* with no VRPs, roas is an empty array
+- *--sync (#185):* with an empty cache, the TAL is synced and its VRPs written
+- *--sync (#185):* a TAL synced within --max-age isn't synced again
+  Synced 10 minutes before, within the default --max-age of 1h: no
+  sync, shown by the repository host now pointing at a closed port,
+  which would fail one.
+- *--sync (#185):* a TAL last synced longer ago than --max-age is synced
+- *--sync (#185):* only the TALs that need it are synced, and a failed sync still writes the VRPs
+  Two TALs: case.tal, synced a minute ago, and dead.tal, with
+  m0-minimal-valid's key (so its own trust anchor) and only a URI
+  at a closed port. Only dead.tal is synced; that sync fails, and
+  case.tal's VRPs are still written, with exit 1.
+- *--sync (#185):* a fetch failing below the trust anchor's own publication point only warns
+  m3-walk-unreachable: the TA's publication point is fetched, the
+  delegated CA's host (unreachable.invalid) isn't. The sync's
+  failure is reported, but the trust anchor synced, so the exit
+  code is 0 (D-037).
+- *--sync (#185):* a TAL counts as synced only if its TA and the TA's own publication point were fetched
+  Reports as Lumina.Sync.run/3 gives them, reduced to what matters.
+- *--sync (#185):* sync flags without --sync, and a bad --max-age, are usage errors
 - *--output:* writes the same bytes as standard output, and nothing to standard output
 - *--output:* a file that can't be written fails with exit 1 and leaves nothing behind
 - *failures:* above --max-invalid the VRPs are still written, with a warning, and exit 1 (RFC [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)))

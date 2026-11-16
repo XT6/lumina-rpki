@@ -18,6 +18,14 @@ defmodule Lumina.Sync do
   share is fetched once per run, and one that failed isn't retried. A
   point in it is reported by the walk that reaches it, covered by that
   module; the fetch, and a failure, by the walk that ran it.
+
+  When a TAL's walk has run, the time is recorded in
+  `<cache>/.state/syncs/<TA SKI hex>.json`, keyed like the stored TA, and
+  `last_synced/2` reads it back: `lumina vrps --sync` syncs a TAL whose
+  last sync is older than `--max-age` (#185, D-037). A walk that ran
+  counts even if some fetches failed (a delegated host that is always
+  down would otherwise force a sync every time); a TAL whose TA couldn't
+  be retrieved, with no earlier TA to walk from, doesn't.
   """
 
   alias Lumina.{Cache, Progress, TA, TAL, Walk}
@@ -55,6 +63,11 @@ defmodule Lumina.Sync do
             Progress.emit(opts, {:tal_started, path, index, total})
             report = sync_tal(path, tal, root, modules ++ opts)
 
+            # When the walk ran (#185): lumina vrps --sync measures age from it.
+            _ =
+              if report.walk,
+                do: record(root, tal, Keyword.get_lazy(opts, :now, &DateTime.utc_now/0))
+
             {report,
              if(report.walk,
                do: Map.to_list(Map.take(report.walk, [:fetched, :refetched])),
@@ -67,6 +80,45 @@ defmodule Lumina.Sync do
         unlock(root)
       end
     end
+  end
+
+  @doc """
+  Whether a report's TAL synced at its root (#185, D-037): its TA was
+  retrieved this run, not a stale copy, and the TA's own publication point
+  was fetched (its module's fetch didn't fail). Failures further down
+  don't count; `lumina vrps --sync` only warns about them.
+  """
+  @spec ta_synced?(report()) :: boolean()
+  def ta_synced?(%{ta: {:ok, _}, walk: %{points: [%{depth: 0, stale: false} | _]}}), do: true
+  def ta_synced?(_report), do: false
+
+  @doc """
+  When `tal`'s tree was last synced into the cache at `root` (its walk
+  ran), or `nil` if never, or if the record can't be read.
+  """
+  @spec last_synced(Path.t(), TAL.t()) :: DateTime.t() | nil
+  def last_synced(root, %TAL{} = tal) do
+    with {:ok, text} <- File.read(state_file(root, tal)),
+         {:ok, %{"synced_at" => at}} <- JSON.decode(text),
+         {:ok, time, 0} <- DateTime.from_iso8601(at) do
+      time
+    else
+      _ -> nil
+    end
+  end
+
+  defp record(root, tal, time) do
+    file = state_file(root, tal)
+    temp = file <> ".tmp"
+
+    with :ok <- File.mkdir_p(Path.dirname(file)),
+         :ok <- File.write(temp, JSON.encode!(%{"synced_at" => DateTime.to_iso8601(time)})),
+         do: File.rename(temp, file)
+  end
+
+  defp state_file(root, tal) do
+    ski = Base.encode16(TAL.subject_key_identifier(tal), case: :lower)
+    Path.join([root, ".state", "syncs", ski <> ".json"])
   end
 
   defp sync_tal(path, tal, root, opts) do

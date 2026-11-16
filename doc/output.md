@@ -1,6 +1,6 @@
 # Output formats
 
-`lumina vrps` writes the Validated ROA Payloads (VRPs) of the valid ROAs, as CSV (the default) or as JSON (`--format json`). There is no RFC for VRP output (`doc/rfc/README.md`): the CSV follows the columns of Routinator's CSV output (D-032), and the JSON is Lumina's own. Both have the same rows in the same order.
+`lumina vrps` writes the Validated ROA Payloads (VRPs) of the valid ROAs, as CSV (the default) or as JSON (`--format json`). It validates what the cache holds; with `--sync`, it first syncs the TALs whose cache is missing or older than `--max-age` (D-037). There is no RFC for VRP output (`doc/rfc/README.md`): the CSV follows the columns of Routinator's CSV output (D-032), and the JSON is Lumina's own. Both have the same rows in the same order.
 
 A VRP is an AS number, a prefix, a maxLength and the trust anchor it was validated under (RFC 9582 §4.3.2.2: a ROA prefix without maxLength gives a VRP whose maxLength is the prefix length). The trust anchor is named after its TAL file, without `.tal` (`lacnic`, `ripe-ncc`, `apnic-rfc7730-https`).
 
