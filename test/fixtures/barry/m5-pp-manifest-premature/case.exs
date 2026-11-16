@@ -17,5 +17,6 @@
          reason: "the manifest is premature: thisUpdate is after the validation time",
          rule: :manifest_premature
        }
-     ]}
+     ]},
+  vrps: []
 }

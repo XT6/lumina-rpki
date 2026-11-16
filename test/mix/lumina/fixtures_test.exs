@@ -214,6 +214,48 @@ defmodule Mix.Lumina.FixturesTest do
     end
   end
 
+  describe "vrps (#170)" do
+    # A ROA in the fixture's tree makes `vrps` required.
+    defp with_roa(case_dir) do
+      File.mkdir_p!(Path.join([case_dir, "rsync", "ta"]))
+      File.write!(Path.join([case_dir, "rsync", "ta", "roa1.roa"]), "not a real ROA")
+      case_dir
+    end
+
+    test "a fixture with a ROA and no vrps fails", %{tmp_dir: tmp_dir} do
+      assert ["missing key :vrps (required: rsync/ holds a ROA; [] if none is valid)"] =
+               messages(with_roa(make_case(tmp_dir, @complete)))
+    end
+
+    test "a fixture with a ROA passes with its VRPs, or with none", %{tmp_dir: tmp_dir} do
+      for {id, vrps} <- [
+            {"m4-sample-full", ~s/["AS64496,1.1.0.0\/16,24", "AS64496,101::\/16,48"]/},
+            {"m4-sample-empty", "[]"}
+          ] do
+        meta =
+          @complete
+          |> edit(~s/id: "m4-sample-case"/, ~s/id: "#{id}"/)
+          |> edit(~s/rfc: ["6487#4.8.9"],/, ~s/rfc: ["6487#4.8.9"],\n  vrps: #{vrps},/)
+
+        assert {:ok, %{vrps: _}} =
+                 Fixtures.load(with_roa(make_case(tmp_dir, meta, id: id)), @library)
+      end
+    end
+
+    test "a malformed or repeated VRP fails", %{tmp_dir: tmp_dir} do
+      meta =
+        edit(
+          @complete,
+          ~s/rfc: ["6487#4.8.9"],/,
+          ~s/rfc: ["6487#4.8.9"],\n  vrps: ["1.1.0.0\/16 => AS64496", "AS1,1.0.0.0\/8,8", "AS1,1.0.0.0\/8,8"],/
+        )
+
+      assert [malformed, repeated] = messages(make_case(tmp_dir, meta))
+      assert malformed =~ ~s/vrps: "1.1.0.0\/16 => AS64496" must look like/
+      assert repeated == ~s/vrps: "AS1,1.0.0.0\/8,8" is listed twice/
+    end
+  end
+
   describe "case.exs is data, not code" do
     test "function calls are rejected without being run", %{tmp_dir: tmp_dir} do
       marker = Path.join(tmp_dir, "ran")

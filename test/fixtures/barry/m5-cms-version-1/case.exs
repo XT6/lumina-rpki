@@ -17,5 +17,6 @@
          reason: "the SignedData version is 1; RFC 6488 requires 3",
          rule: :signed_data_version
        }
-     ]}
+     ]},
+  vrps: []
 }

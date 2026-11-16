@@ -25,5 +25,6 @@
        %{object: "ca1/ca1.crl", reason: "the CRL's issuer holds an organizationName"},
        %{object: "ca1/ca1.mft", reason: "the EE certificate's issuer holds an organizationName"},
        %{object: "ca1/roa1.roa", reason: "the EE certificate's issuer holds an organizationName"}
-     ]}
+     ]},
+  vrps: []
 }

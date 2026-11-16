@@ -225,7 +225,9 @@ defmodule Lumina.RsyncTest do
     @tag doc: """
          The proxy resets the first connection as soon as it accepts it,
          as a server dropping the connection would, and passes the second
-         through to the daemon.
+         through to the daemon. rsync reports the reset as exit 12, or as
+         exit 10 when it arrives while rsync is still connecting (seen
+         under load); both are transient.
          """
     test "a dropped connection is transient, and the next try fetches the module", %{
       tmp_dir: tmp
@@ -235,9 +237,10 @@ defmodule Lumina.RsyncTest do
       uri = uri!("rsync://127.0.0.1:#{proxy}/rpki")
       dest = Path.join(tmp, "dest")
 
-      assert {:error, %{reason: :protocol_error, exit_status: 12} = error} =
+      assert {:error, %{exit_status: status} = error} =
                Rsync.fetch_dir(uri, dest)
 
+      assert status in [10, 12]
       assert Rsync.transient?(error)
       assert {:ok, _} = Rsync.fetch_dir(uri, dest)
       assert tree(dest) == tree(fixture_root())

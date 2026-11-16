@@ -17,5 +17,6 @@
          reason: "the hash of roa1.roa doesn't match the manifest",
          rule: :hash_mismatch
        }
-     ]}
+     ]},
+  vrps: []
 }

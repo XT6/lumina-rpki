@@ -17,5 +17,6 @@
          reason: "the manifest version is 1; RFC 9286 requires 0",
          rule: :manifest_version
        }
-     ]}
+     ]},
+  vrps: []
 }

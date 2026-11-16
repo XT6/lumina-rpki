@@ -16,5 +16,6 @@
          reason: "1.2.0.0/16 not in the EE certificate's addresses",
          rule: :roa_prefix_outside_ee
        }
-     ]}
+     ]},
+  vrps: ["AS1234,1.2.0.0/16,16", "AS1234,102::/16,16"]
 }

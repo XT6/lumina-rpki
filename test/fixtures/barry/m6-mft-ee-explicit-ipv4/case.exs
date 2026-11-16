@@ -8,5 +8,6 @@
   Manifest EE inherit check (#157, D-029): a warning only, so the point is accepted and everything validates.
   """,
   rfc: ["9286#5.1"],
-  expected: :valid
+  expected: :valid,
+  vrps: ["AS1234,1.3.0.0/16,16", "AS1234,103::/16,16"]
 }

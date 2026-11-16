@@ -21,5 +21,6 @@
          reason: "the CRL ca1.crl is not on the manifest",
          rule: :crl_not_listed
        }
-     ]}
+     ]},
+  vrps: []
 }

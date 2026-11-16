@@ -17,5 +17,6 @@
          reason: "the extension .xyz is not in the RPKI Repository Name Schemes registry",
          rule: :manifest_file_extension
        }
-     ]}
+     ]},
+  vrps: []
 }

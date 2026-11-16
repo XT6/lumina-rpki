@@ -17,5 +17,6 @@
          reason: "the signer is identified by issuer and serial number, not by SKI",
          rule: :sid_not_ski
        }
-     ]}
+     ]},
+  vrps: []
 }

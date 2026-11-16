@@ -11,9 +11,10 @@
   In M0 it proves the fixture pipeline works end to end: descriptor,
   generation, metadata check, catalog and test helper. In later milestones
   it is the positive baseline: every stage of the validator must accept it
-  and produce exactly one VRP. Invalid fixtures should differ from it in
+  and produce the VRPs of its one ROA, one per address family. Invalid fixtures should differ from it in
   one field, so a rejection can be traced to that one change.
   """,
   rfc: ["6481#2", "8630#2.2", "6487#4", "9286#4", "9582#4"],
-  expected: :valid
+  expected: :valid,
+  vrps: ["AS1234,1.1.0.0/16,16", "AS1234,101::/16,16"]
 }

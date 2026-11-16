@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 92 Barry fixtures: 23 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 841 unit tests in 69 modules.
+- 847 unit tests in 70 modules.
 
 ## Barry fixtures
 
@@ -24,7 +24,7 @@ and manifest Barry generates. Only the TA's serial number is overridden
 In M0 it proves the fixture pipeline works end to end: descriptor,
 generation, metadata check, catalog and test helper. In later milestones
 it is the positive baseline: every stage of the validator must accept it
-and produce exactly one VRP. Invalid fixtures should differ from it in
+and produce the VRPs of its one ROA, one per address family. Invalid fixtures should differ from it in
 one field, so a rejection can be traced to that one change.
 
 - **Expected:** valid
@@ -2509,6 +2509,54 @@ module checks that they hold together, over all the data at once.
   the certificates and signed objects, each one explained when the
   test is run. The summary's overclaims line agrees.
 
+### `Lumina.M7DoneTest`
+
+[test/lumina/m7_done_test.exs](../../test/lumina/m7_done_test.exs)
+
+The end-to-end check that closes M7, ROAs and VRP output (#170): "a full
+run from TALs to VRPs works against live RIR repositories". It runs
+`lumina sync` and then `lumina vrps` (`Lumina.CLI.run/4`) the way a user
+would.
+
+  * Every Barry fixture is synced from a local rsync daemon and its VRPs
+    written at 2030-01-01, as CSV and as JSON. Each fixture gives exactly
+    the VRPs its metadata states (`vrps:` in `case.exs`, required for a
+    fixture with ROAs), none from an invalid ROA.
+  * RFC 9582 §4 and §5 are covered by tests other than this one.
+  * Tagged `:network`, run by hand only (`mix test --only network`): the
+    five RIR TALs in `tals/` are synced and their VRPs compared with
+    Routinator's live CSV (#168, D-035). Per trust anchor, the VRPs only
+    one side has are at most 1% of that side's; if not, the CSV is
+    downloaded again once and compared again, to rule out drift between
+    the two snapshots.
+
+ROA decoding, validation and VRP output are tested in detail elsewhere
+(`ROATest`, `ROAValidationTest`, `VRPCollectionTest`, `CLIVRPsTest`,
+`VRPCompareTest`). This module checks that they hold together, over all
+the data at once, and against the live repositories.
+
+- every fixture gives exactly the VRPs its metadata states, as CSV and as JSON (RFC [9582 §4](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4)), [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)), [9582 §4.3.2.2](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.2)))
+  Driven by the fixture metadata, at 2030-01-01: for every fixture,
+  lumina vrps writes as CSV exactly the VRPs its `vrps:` states (none
+  for a fixture without one), each once, all under the trust anchor
+  "case"; the JSON output has the same rows; --wide names only ROAs
+  that no reject in the metadata names, so no VRP comes from an
+  invalid ROA. The expected VRPs were checked, when written, against
+  the payloads of the ROAs that no reject names and that lie below no
+  rejected certificate, manifest or CRL.
+- RFC 9582 §4 and §5 are covered by other tests
+  The coverage `mix lumina.rfc_coverage` reports, computed the same way,
+  ignoring this module's own tags. A section counts as covered by a
+  test of it or of one of its subsections.
+- *the five RIRs:* the five RIRs' VRPs agree with Routinator's live CSV within 1% per trust anchor (RFC [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)), [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  Run by hand: mix test --only network. Needs the Internet; takes
+  many minutes. Syncs every TAL in tals/ into an empty cache, writes
+  the VRPs as CSV, and compares them with Routinator's live CSV per
+  trust anchor, printing the run time, the counts and the
+  differences. Both commands exit 0: each trust anchor and its own
+  publication point synced (D-037), and no trust anchor above
+  --max-invalid (D-022). Each of the five has VRPs on both sides.
+
 ### `Lumina.ManifestCheckTest`
 
 [test/lumina/manifest_check_test.exs](../../test/lumina/manifest_check_test.exs)
@@ -3198,7 +3246,9 @@ read as an rsync option.
 - *transient failures (D-039, #193):* a dropped connection is transient, and the next try fetches the module
   The proxy resets the first connection as soon as it accepts it,
   as a server dropping the connection would, and passes the second
-  through to the daemon.
+  through to the daemon. rsync reports the reset as exit 12, or as
+  exit 10 when it arrives while rsync is still connecting (seen
+  under load); both are transient.
 - *transient failures (D-039, #193):* a refused connection, an unknown host, a missing module or path aren't transient
   Each would fail the same way again: a refused connection, a host
   that doesn't resolve, a module or a path the server doesn't have.
@@ -3763,6 +3813,9 @@ running any code in it. Fixtures are built in temporary directories.
 - *required metadata:* an unknown milestone fails
 - *required metadata:* an unknown key fails
 - *required metadata:* bad Barry options fail
+- *vrps (#170):* a fixture with a ROA and no vrps fails
+- *vrps (#170):* a fixture with a ROA passes with its VRPs, or with none
+- *vrps (#170):* a malformed or repeated VRP fails
 - *case.exs is data, not code:* function calls are rejected without being run
 - *case.exs is data, not code:* string interpolation is rejected
 - *case.exs is data, not code:* metadata that is not a map is rejected

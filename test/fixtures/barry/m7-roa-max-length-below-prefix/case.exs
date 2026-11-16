@@ -16,5 +16,6 @@
          reason: "1.1.0.0/16: maxLength 12 is outside 16..32",
          rule: :max_length_out_of_range
        }
-     ]}
+     ]},
+  vrps: []
 }

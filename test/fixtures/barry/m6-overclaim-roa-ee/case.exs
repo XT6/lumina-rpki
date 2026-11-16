@@ -16,5 +16,6 @@
          reason: "2.0.0.0/16 not held by the issuer",
          rule: :resources_not_encompassed
        }
-     ]}
+     ]},
+  vrps: []
 }

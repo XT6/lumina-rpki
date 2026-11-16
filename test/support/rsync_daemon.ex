@@ -81,7 +81,8 @@ defmodule Lumina.Test.RsyncDaemon do
   A TCP proxy on a free port in front of the daemon on `target` that
   resets some connections as soon as it accepts them, for retry tests
   (D-039): `drop` is the list of connection numbers to reset, counting
-  from 1, or `:all`. rsync sees a reset connection as exit 12. The other
+  from 1, or `:all`. rsync sees a reset connection as exit 12, or as
+  exit 10 if the reset comes while it is still connecting. The other
   connections are passed through. Returns the port.
   """
   @spec dropping_proxy!(:inet.port_number(), [pos_integer()] | :all) :: :inet.port_number()

@@ -10,5 +10,6 @@
   most of the tree.
   """,
   rfc: ["6481#5", "6481#2"],
-  expected: :valid
+  expected: :valid,
+  vrps: ["AS1234,1.1.0.0/16,16", "AS1234,101::/16,16"]
 }

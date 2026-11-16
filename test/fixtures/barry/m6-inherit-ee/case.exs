@@ -18,5 +18,6 @@
          reason: "the EE certificate's IP address delegation extension uses inherit",
          rule: :roa_ee_ip_inherit
        }
-     ]}
+     ]},
+  vrps: []
 }

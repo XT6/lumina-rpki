@@ -22,5 +22,6 @@
          reason: "version is 2; RFC 9582 section 4.1 requires 0",
          rule: :roa_version
        }
-     ]}
+     ]},
+  vrps: []
 }
