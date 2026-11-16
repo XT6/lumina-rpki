@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 90 Barry fixtures: 21 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 823 unit tests in 69 modules.
+- 824 unit tests in 69 modules.
 
 ## Barry fixtures
 
@@ -1630,7 +1630,14 @@ repository's certificates to it (`:remap`, see `Lumina.Walk`).
   Requested by the maintainer: --tal syncs that TAL only. The tals
   folder also holds a TAL that can't be reached; it must not be tried.
 - *syncing:* without --tal, every TAL in the TAL folder is synced
-- *syncing:* a partial failure exits 1 and names the failure and its reason (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+- *syncing:* a failure below the trust anchor's publication point exits 0 with a warning, named (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  m3-walk-unreachable: the delegated CA's host doesn't resolve. The
+  trust anchor and its own publication point synced, so the exit code
+  is 0 (D-037, #187), with the failure listed and a warning.
+- *syncing:* a trust anchor whose own publication point can't be fetched exits 1
+  The TA is retrieved from the daemon, but the repository host in its
+  certificate points at a closed port: its own publication point is
+  never fetched (#187).
 - *syncing:* a TAL whose TA can't be fetched exits 1, with each attempt listed (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)))
 - *sync times (#185):* each TAL whose tree was walked gets its sync time recorded
   lumina vrps --sync measures a TAL's age from this record. A TAL
@@ -2291,8 +2298,8 @@ and `:remap` for the repository URIs inside its certificates.
   Driven by the fixture metadata. A fixture whose TA is invalid exits 1
   with nothing mirrored. Every other fixture's TA arrives over HTTPS
   (D-003) and its whole repository over rsync. The delegated fixture's
-  second host is served too; the unreachable fixture exits 1, with the
-  rest mirrored.
+  second host is served too; the unreachable fixtures exit 0 (only a
+  delegated host fails, D-037, #187), with the rest mirrored.
 - RFC 5781 §2, RFC 6481 §3 and §5, and RFC 8630 §3 and §4 are covered by other tests
   The coverage `mix lumina.rfc_coverage` reports, computed the same way,
   ignoring this module's own tags.

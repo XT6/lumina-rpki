@@ -91,10 +91,12 @@ defmodule Lumina.CLI do
   certificates that don't validate. A CA certificate holding resources
   outside its issuer's is listed with them, and counted as an overclaim.
 
-  Exit codes: 0 everything fetched (an invalid CA certificate doesn't
-  change that), 1 some fetch failed (the cache is still usable), no TA
-  validated, another sync holds the cache, or rsync is missing or too
-  old, 2 usage error.
+  Exit codes: 0 each trust anchor and its own publication point fetched
+  (a fetch failing further down is listed, with a warning, and an
+  invalid CA certificate doesn't change that either), 1 a trust anchor
+  not retrieved (an earlier copy is used if there is one) or its own
+  publication point not fetched, another sync holds the cache, or rsync
+  is missing or too old, 2 usage error.
   """
 
   @validate_usage """
@@ -308,7 +310,7 @@ defmodule Lumina.CLI do
                   out,
                   err,
                   "lumina sync",
-                  fn reports, _err -> if Enum.any?(reports, & &1.failed?), do: 1, else: 0 end
+                  &synced(&1, &2, "lumina sync")
                 )
               end)
 
@@ -527,23 +529,43 @@ defmodule Lumina.CLI do
 
       true ->
         with_progress(opts, err, fn progress ->
-          sync(stale, cache, limits ++ progress ++ internal, err, err, "lumina vrps", &synced/2)
+          sync(
+            stale,
+            cache,
+            limits ++ progress ++ internal,
+            err,
+            err,
+            "lumina vrps",
+            &synced(&1, &2, "lumina vrps")
+          )
         end)
     end
   end
 
-  # The --sync exit code (D-037): 0 when each TAL's trust anchor was
+  # A sync's exit code (D-037, #187): 0 when each TAL's trust anchor was
   # retrieved and its own publication point fetched (Sync.ta_synced?/1),
   # even if fetches below failed, which only warn; else 1.
-  defp synced(reports, err) do
-    if Enum.any?(reports, & &1.failed?),
-      do:
+  defp synced(reports, out, command) do
+    code = if Enum.all?(reports, &Sync.ta_synced?/1), do: 0, else: 1
+
+    cond do
+      not Enum.any?(reports, & &1.failed?) ->
+        :ok
+
+      command == "lumina vrps" ->
         IO.write(
-          err,
+          out,
           "lumina vrps: warning: the sync had failures (above); the VRPs are written from what the cache holds\n"
         )
 
-    if Enum.all?(reports, &Sync.ta_synced?/1), do: 0, else: 1
+      code == 0 ->
+        IO.write(out, "warning: some fetches below the trust anchors failed (above)\n")
+
+      true ->
+        :ok
+    end
+
+    code
   end
 
   defp sync_reason(cache, tal, clock, max_age, max_age_text) do
@@ -752,12 +774,12 @@ defmodule Lumina.CLI do
   defp default_cache, do: :filename.basedir(:user_cache, "lumina") |> to_string()
 
   # Runs the sync and prints its summary to `out`; `code` gives the exit
-  # code from the reports.
+  # code from the reports, and may add to the summary.
   defp sync(tals, cache, opts, out, err, command, code) do
     case Sync.run(tals, cache, Keyword.drop(opts, [:tal_dir, :generated])) do
       {:ok, reports} ->
         IO.write(out, Sync.summary(reports))
-        code.(reports, err)
+        code.(reports, out)
 
       {:error, {:locked, pid}} ->
         written(err, "#{command}: #{cache} is in use by another sync (process #{pid})\n", 1)

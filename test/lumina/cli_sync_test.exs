@@ -205,16 +205,45 @@ defmodule Lumina.CLISyncTest do
     end
 
     @tag :rsync
-    @tag rfc: "6481#5"
-    test "a partial failure exits 1 and names the failure and its reason", %{tmp_dir: tmp} do
+    @tag rfc: "6481#5",
+         doc: """
+         m3-walk-unreachable: the delegated CA's host doesn't resolve. The
+         trust anchor and its own publication point synced, so the exit code
+         is 0 (D-037, #187), with the failure listed and a warning.
+         """
+    test "a failure below the trust anchor's publication point exits 0 with a warning, named",
+         %{tmp_dir: tmp} do
       {tal, remap} = served_tal(tmp, "m3-walk-unreachable", Path.join(tmp, "tals"))
 
-      assert {1, out, ""} =
+      assert {0, out, ""} =
                run(["sync", "--cache", Path.join(tmp, "cache"), "--tal", tal], remap: remap)
 
       assert out =~ "fetch_failed: rsync://unreachable.invalid/repo (unknown_host)"
       assert out =~ "rsync fetches: 2, 1 failed"
       assert out =~ "1 TAL(s) with failures"
+
+      assert String.ends_with?(
+               out,
+               "warning: some fetches below the trust anchors failed (above)\n"
+             )
+    end
+
+    @tag :rsync
+    @tag doc: """
+         The TA is retrieved from the daemon, but the repository host in its
+         certificate points at a closed port: its own publication point is
+         never fetched (#187).
+         """
+    test "a trust anchor whose own publication point can't be fetched exits 1", %{tmp_dir: tmp} do
+      {tal, _remap} = served_tal(tmp, "m0-minimal-valid", Path.join(tmp, "tals"))
+      closed = %{"localhost:8873" => "127.0.0.1:#{RsyncDaemon.closed_port()}"}
+
+      assert {1, out, ""} =
+               run(["sync", "--cache", Path.join(tmp, "cache"), "--tal", tal], remap: closed)
+
+      assert out =~ ~r"  ta: rsync://127\.0\.0\.1:\d+/rpki/ta\.cer\n"
+      assert out =~ "fetch_failed: rsync://localhost:8873/rpki"
+      refute out =~ "warning: some fetches below"
     end
 
     @tag :rsync
@@ -329,12 +358,13 @@ defmodule Lumina.CLISyncTest do
       {tal, remap} =
         served_tal(tmp, "m3-walk-siblings", Path.join(tmp, "tals"), max_connections: 1)
 
-      assert {1, out, ""} =
+      assert {0, out, ""} =
                run(["sync", "--cache", Path.join(tmp, "cache"), "--tal", tal, "--per-host", "8"],
                  remap: remap
                )
 
       assert out =~ "fetch_failed"
+      assert out =~ "warning: some fetches below the trust anchors failed"
     end
 
     test "--per-host must be a number of at least 1", %{tmp_dir: tmp} do
@@ -549,7 +579,7 @@ defmodule Lumina.CLISyncTest do
           do: assert(out =~ flag)
 
       assert out =~
-               "Exit codes: 0 everything fetched (an invalid CA certificate doesn't\nchange that), 1 some fetch failed"
+               "Exit codes: 0 each trust anchor and its own publication point fetched"
 
       assert {0, ^out, ""} = run(["sync", "--help"])
     end
