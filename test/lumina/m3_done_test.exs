@@ -114,8 +114,8 @@ defmodule Lumina.M3DoneTest do
        Driven by the fixture metadata. A fixture whose TA is invalid exits 1
        with nothing mirrored. Every other fixture's TA arrives over HTTPS
        (D-003) and its whole repository over rsync. The delegated fixture's
-       second host is served too; the unreachable fixture exits 1, with the
-       rest mirrored.
+       second host is served too; the unreachable fixtures exit 0 (only a
+       delegated host fails, D-037, #187), with the rest mirrored.
        """
   test "every Barry fixture syncs through lumina sync into a byte-identical mirror", %{
     tmp_dir: tmp
@@ -161,8 +161,11 @@ defmodule Lumina.M3DoneTest do
             assert {:ok, %Object{}} = Object.decode_file(path), path
           end
 
-          expected = if match?({_, _, _, :unreachable}, @elsewhere[fixture.id]), do: 1, else: 0
-          assert code == expected, "#{fixture.id}:\n#{out}"
+          assert code == 0, "#{fixture.id}:\n#{out}"
+
+          if match?({_, _, _, :unreachable}, @elsewhere[fixture.id]),
+            do: assert(out =~ "warning: some fetches below the trust anchors failed", fixture.id)
+
           :mirrored
         end
       end
