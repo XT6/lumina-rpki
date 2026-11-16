@@ -130,7 +130,8 @@ defmodule Lumina.SyncSharedModulesTest do
 
     assert summary =~ "  rsync fetches: 2, 0 failed, 1 retried\n"
 
-    assert summary =~ "    retried: #{@module} (protocol_error: "
+    # rsync's exit 12, or 10 if the reset comes while it is still connecting.
+    assert summary =~ ~r"    retried: #{@module} \((protocol_error: |socket_error\))"
 
     assert summary =~ "1 TAL(s), 2 rsync fetch(es), 0 TAL(s) with failures\n"
   end

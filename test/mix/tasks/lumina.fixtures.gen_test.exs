@@ -20,7 +20,8 @@ defmodule Mix.Tasks.Lumina.Fixtures.GenTest do
     milestone: "M0",
     rationale: "Exercises the generator.",
     rfc: ["6487#4"],
-    expected: :valid
+    expected: :valid,
+    vrps: []
   }
   """
 

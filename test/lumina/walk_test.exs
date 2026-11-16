@@ -17,7 +17,7 @@ defmodule Lumina.WalkTest do
   """
   use ExUnit.Case, async: true
 
-  alias Lumina.{Cache, Certificate, Object, URI, Walk}
+  alias Lumina.{Cache, Certificate, Object, Rsync, URI, Walk}
   alias Lumina.Test.{Fixture, RsyncDaemon}
   alias Mix.Lumina.Fixtures
 
@@ -597,12 +597,13 @@ defmodule Lumina.WalkTest do
       result = dropping!(tmp, "m0-minimal-valid", [1])
 
       assert [
-               %{uri: @module, outcome: :retried, detail: %{exit_status: 12}},
+               %{uri: @module, outcome: :retried, detail: first},
                %{uri: @module, outcome: :ok}
              ] = result.fetches
 
-      assert [%{kind: :retried, uri: @module, detail: %{reason: :protocol_error}}] =
-               result.issues
+      # Exit 12, or 10 if the reset comes while rsync is still connecting.
+      assert Rsync.transient?(first)
+      assert [%{kind: :retried, uri: @module, detail: ^first}] = result.issues
 
       assert Enum.all?(result.points, &(&1.status == :accepted and not &1.stale))
       assert mirror(tmp, "localhost:8873/rpki") == tree(rsync_root("m0-minimal-valid"))
@@ -625,8 +626,8 @@ defmodule Lumina.WalkTest do
 
       result = dropping!(tmp, "m0-minimal-valid", :all)
 
-      assert [%{outcome: :retried}, %{outcome: :error, detail: %{exit_status: 12}}] =
-               result.fetches
+      assert [%{outcome: :retried}, %{outcome: :error, detail: second}] = result.fetches
+      assert Rsync.transient?(second)
 
       assert kinds(result) == [{:retried, @module}, {:fetch_failed, @module}]
       assert Enum.all?(result.points, & &1.stale)

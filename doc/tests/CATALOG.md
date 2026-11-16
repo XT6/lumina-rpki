@@ -3246,7 +3246,9 @@ read as an rsync option.
 - *transient failures (D-039, #193):* a dropped connection is transient, and the next try fetches the module
   The proxy resets the first connection as soon as it accepts it,
   as a server dropping the connection would, and passes the second
-  through to the daemon.
+  through to the daemon. rsync reports the reset as exit 12, or as
+  exit 10 when it arrives while rsync is still connecting (seen
+  under load); both are transient.
 - *transient failures (D-039, #193):* a refused connection, an unknown host, a missing module or path aren't transient
   Each would fail the same way again: a refused connection, a host
   that doesn't resolve, a module or a path the server doesn't have.
