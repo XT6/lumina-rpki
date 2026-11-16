@@ -135,13 +135,27 @@ defmodule Lumina.RsyncTest do
 
     @tag doc: """
          F-025: the rsync daemon reads a path starting with "-" as its own
-         option. With the ./ the runner inserts, --help is just a missing file.
+         option. With the ./ the runner inserts before such a path, --help
+         is just a missing file.
          """
     test "a URI path that looks like an rsync option is only a path", %{tmp_dir: tmp} do
       base = serve_fixture(tmp)
 
       assert {:error, %{reason: :not_found}} =
                Rsync.fetch_dir(uri!(base <> "/--help"), Path.join(tmp, "dest"))
+    end
+
+    @tag doc: """
+         Only the start of the path after the module reaches the daemon's
+         option parser, so a later segment like --help needs no ./ (#189).
+         """
+    test "a later path segment that looks like an rsync option is only a path", %{
+      tmp_dir: tmp
+    } do
+      base = serve_fixture(tmp)
+
+      assert {:error, %{reason: :not_found}} =
+               Rsync.fetch_dir(uri!(base <> "/ta/--help"), Path.join(tmp, "dest"))
     end
 
     @tag doc: "Base64url names can start with \"-\"; such directories and files must still fetch."

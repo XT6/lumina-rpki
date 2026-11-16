@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 90 Barry fixtures: 21 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 826 unit tests in 69 modules.
+- 827 unit tests in 69 modules.
 
 ## Barry fixtures
 
@@ -3152,7 +3152,11 @@ read as an rsync option.
   would let one oversize file freeze the publication point.
 - *untrusted servers:* a URI path that looks like an rsync option is only a path
   F-025: the rsync daemon reads a path starting with "-" as its own
-  option. With the ./ the runner inserts, --help is just a missing file.
+  option. With the ./ the runner inserts before such a path, --help
+  is just a missing file.
+- *untrusted servers:* a later path segment that looks like an rsync option is only a path
+  Only the start of the path after the module reaches the daemon's
+  option parser, so a later segment like --help needs no ./ (#189).
 - *untrusted servers:* directories and files whose names start with - are fetched
   Base64url names can start with "-"; such directories and files must still fetch.
 - *untrusted servers:* a URI with no module can't be fetched
