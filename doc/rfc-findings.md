@@ -15,6 +15,8 @@ Each entry records the following:
 
 Reporting a new erratum to the RFC Editor is the maintainer's call. Entries marked *not reported* are candidates.
 
+Where a live repository departs from the RFCs, or its servers from what everyone else's accept, the entry goes under [TA deviations](#ta-deviations) instead, numbered `TD-NNN`: those aren't gaps in the RFC texts.
+
 ## Summary
 
 | ID | RFC | Kind | Official errata | Status in Lumina |
@@ -43,7 +45,7 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 | [F-022](#f-022-the-whole-rp-procedure-for-tals-is-a-should) | 8630 §3 | ambiguity | none found (not reported) | Lumina performs every step (#56) |
 | [F-023](#f-023-a-non-empty-set-of-resources-across-one-or-two-extensions) | 8630 §2.3; 3779 App. A | ambiguity | none found (not reported) | Each present extension must be non-empty (#56) |
 | [F-024](#f-024-the-rsync-uri-scheme-has-no-module-and-no-encoding) | 5781 §2 | ambiguity | none found (not reported) | Module = first path segment; percent-encoding rejected (#70) |
-| [F-025](#f-025-an-rsync-uri-path-can-become-an-option-on-the-server) | 5781 §2, §4; 6487 §4.8.8 | tooling | none found (not reported) | Source written as `module/./path` (#72) |
+| [F-025](#f-025-an-rsync-uri-path-can-become-an-option-on-the-server) | 5781 §2, §4; 6487 §4.8.8 | tooling | none found (not reported) | Source written as `module/./path` when the path starts with `-` (#72, #189) |
 | [F-026](#f-026-otps-http-client-cant-bound-a-response-body) | 8630 §4 (OTP `:httpc`) | tooling | n/a | Own HTTP/1.1 GET over `:ssl` (#73) |
 | [F-027](#f-027-rfc-7935-names-a-signature-algorithm-as-the-public-key-algorithm) | 7935 §3.1; 4055 §1.2 | erratum | [5737](https://www.rfc-editor.org/errata/eid5737) (Rejected) | Accept both for reading the key; the profile check is #109 |
 | [F-028](#f-028-rfc-7935-4-cites-the-public-key-section-for-the-signature-format) | 7935 §4 | reference | none found (not reported) | Signature format from RFC 4055 §3.2 and RFC 5280 §4.1.1.3 (#108) |
@@ -468,8 +470,9 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
   - **Who controls the path:** any CA can put any `caRepository` path in a certificate it issues, and every RP that fetches it passes that path to the named rsync server. A path segment starting with `-` reaches the server as an option, not a file name.
   - **Why it can't simply be rejected:** RPKI file and directory names can legitimately start with `-`, because base64url uses it.
 - **Resolution:**
-  - `Lumina.Rsync` writes every source as `rsync://host/module/./path`. Without `--relative`, the `./` is a no-op, and nothing after it starts with `-`.
-  - Tests check both sides: `--help` is now just a missing file, and directories and files named `-x/-a.cer` still fetch.
+  - `Lumina.Rsync` wrote every source as `rsync://host/module/./path`. Without `--relative`, the `./` is a no-op, and nothing after it starts with `-`.
+  - Since #189, only a path starting with `-` gets the `./`: APNIC's server refuses any path with a `./` segment (TD-001), and only the start of the path reaches the daemon's option parser.
+  - Tests check both sides: `--help` is now just a missing file, at the start of the path or below it, and directories and files named `-x/-a.cer` still fetch.
 - **Suggested text** (for RFC 6481 or a future rsync-in-RPKI document): *"Relying parties MUST ensure that no part of an rsync URI taken from a certificate is interpreted as an rsync option, on the client or the server."*
 - **Talk note:**
   - The URI comes from the signed object, the path from the URI, and the option parser runs on someone else's server.
@@ -590,6 +593,22 @@ Reporting a new erratum to the RFC Editor is the maintainer's call. Entries mark
 - **Impact:** none in practice; decoders accept both forms, OTP's `:json` among them. Lumina's JSON has a solidus in every prefix and URI.
 - **Resolution:** follow the prose: the solidus is written unescaped (#167). The JSON tests decode with `:json.decode/1` and check that the prefixes come out with a plain `/`.
 - **Talk note:** a verified erratum can be wrong too; read it against the text it corrects.
+
+## TA deviations
+
+Where a trust anchor's repository, or the servers it publishes on, departs from the RFCs or from what other repositories do, and Lumina has to decide what to do about it. Found by syncing the live RPKI.
+
+| ID | Trust anchor | What | Status in Lumina |
+| --- | --- | --- | --- |
+| [TD-001](#td-001-apnics-rsync-server-refuses-a-path-with-a-dot-segment) | APNIC | rsync server refuses `module/./path` | `./` only before a path starting with `-` (#189) |
+
+### TD-001: APNIC's rsync server refuses a path with a dot segment
+
+- **Where:** `rsync://rpki.apnic.net/repository`, the module APNIC's TA publishes in. RFC 5781 §2 defines rsync URIs; it says nothing about dot segments, and RFC 3986 §5.2.4 treats `./` as a no-op.
+- **Found:** by the M7 done test's live run (#170), 2026-11-16. `rsync://rpki.apnic.net/repository/./` and `.../repository/./838DB214166511E2B3BC286172FD1FF2/` fail with `change_dir "/." (in repository) failed: No such file or directory` (exit 23); without the `./` both list. The other RIRs' servers and every delegated one Lumina reached accept the form.
+- **Impact:** Lumina wrote every source as `module/./path` (F-025), so it couldn't fetch APNIC's repository at all, and APNIC gave no VRPs.
+- **Resolution:** maintainer decision (2026-11-16): the `./` is written only when the path after the module starts with `-`, the only case F-025 needs it (#189). An APNIC path starting with `-` would still fail; none does today.
+- **Talk note:** a defence that is a no-op by the rsync manual still depends on every server's path handling.
 
 ## Process notes
 
