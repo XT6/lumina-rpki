@@ -25,9 +25,10 @@ defmodule Lumina.Rsync do
   server, and an rsync daemon reads a path starting with `-` as one of its
   own options, with or without `--secluded-args`. Repository file names
   may legitimately start with `-` (base64url), so they can't simply be
-  rejected. Instead the source is always written
-  `rsync://host/module/./path`: the `./` is a no-op for rsync without
-  `--relative`, and nothing after it can start with `-` (F-025).
+  rejected. Instead such a source is written `rsync://host/module/./path`:
+  the `./` is a no-op for rsync without `--relative`, and nothing after it
+  can start with `-` (F-025). Only such a path gets it: APNIC's server
+  refuses any path with a `./` segment (TD-001, #189).
 
   A file over the size limit doesn't fail the fetch: rsync skips it and
   the rest is fetched. Its name is reported in `:oversize`, and the
@@ -96,9 +97,11 @@ defmodule Lumina.Rsync do
   end
 
   @doc """
-  The source argument for `uri`: `rsync://host[:port]/module/./path`. The
-  `./` keeps the rsync daemon from reading a path that starts with `-` as
-  an option (F-025).
+  The source argument for `uri`: `rsync://host[:port]/module/path`, or
+  `rsync://host[:port]/module/./path` when the path starts with `-`. The
+  `./` keeps the rsync daemon from reading such a path as an option
+  (F-025); it is left out otherwise because some servers refuse a path with
+  a `./` segment (TD-001, #189).
 
   ## Examples
 
@@ -106,11 +109,20 @@ defmodule Lumina.Rsync do
       iex> Lumina.Rsync.source(uri)
       {:ok, "rsync://h.example/rpki/./-x/ca.cer"}
 
+      iex> {:ok, uri} = Lumina.URI.parse("rsync://h.example/rpki/ca/-x.cer")
+      iex> Lumina.Rsync.source(uri)
+      {:ok, "rsync://h.example/rpki/ca/-x.cer"}
+
+      iex> {:ok, uri} = Lumina.URI.parse("rsync://h.example/rpki")
+      iex> Lumina.Rsync.source(uri)
+      {:ok, "rsync://h.example/rpki"}
+
   """
   @spec source(URI.t()) :: {:ok, String.t()} | {:error, error()}
   def source(%URI{scheme: "rsync", path: [module | rest]} = uri) do
     {:ok, base} = URI.module(%{uri | path: [module]})
-    {:ok, Enum.join([to_string(base), "." | rest], "/")}
+    dot = if match?(["-" <> _ | _], rest), do: ["."], else: []
+    {:ok, Enum.join([to_string(base) | dot ++ rest], "/")}
   end
 
   def source(%URI{}),

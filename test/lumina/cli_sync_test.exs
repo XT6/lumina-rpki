@@ -498,8 +498,8 @@ defmodule Lumina.CLISyncTest do
 
       calls = log |> File.read!() |> String.split("\n", trim: true)
       assert ["--version" | fetches] = calls
-      assert Enum.any?(fetches, &(&1 =~ "/rpki/./ta.cer"))
-      assert Enum.count(fetches, &(&1 =~ ~r"/rpki/\./ ")) == 1
+      assert Enum.any?(fetches, &(&1 =~ "/rpki/ta.cer "))
+      assert Enum.count(fetches, &(&1 =~ ~r"/rpki/ ")) == 1
     end
 
     @tag doc: """
