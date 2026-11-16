@@ -47,7 +47,8 @@ defmodule Lumina.Rsync do
       rsync older than 3.1.0, such as macOS's openrsync)
     * `:protocol_error`, `:rsync_error`
 
-  `output` keeps rsync's own messages, for reports.
+  `output` keeps rsync's own messages, for reports. `transient?/1` says
+  which failures are worth one more try (D-039).
   """
 
   alias Lumina.URI
@@ -127,6 +128,32 @@ defmodule Lumina.Rsync do
 
   def source(%URI{}),
     do: {:error, %{reason: :no_module, exit_status: nil, output: "the URI names no rsync module"}}
+
+  @doc """
+  Whether a failed fetch may succeed if tried again soon (D-039, #193):
+  the connection was dropped or the data stream broke (exit 12), a socket
+  I/O error other than a refused connection or an unknown host (exit 10),
+  or the connection timed out (exit 35). A missing module or path, an
+  unknown host and a refused connection would fail the same way again; the
+  I/O timeout (exit 30) isn't retried either, as a silent server would
+  cost another `--timeout`.
+
+  ## Examples
+
+      iex> Lumina.Rsync.transient?(%{reason: :protocol_error, exit_status: 12, output: ""})
+      true
+
+      iex> Lumina.Rsync.transient?(%{reason: :protocol_error, exit_status: 5, output: ""})
+      false
+
+      iex> Lumina.Rsync.transient?(%{reason: :connection_refused, exit_status: 10, output: ""})
+      false
+
+  """
+  @spec transient?(error()) :: boolean()
+  def transient?(%{reason: :protocol_error, exit_status: 12}), do: true
+  def transient?(%{reason: reason}) when reason in [:socket_error, :connect_timeout], do: true
+  def transient?(_error), do: false
 
   @doc """
   Finds the rsync binary and checks its version (3.1.0 or later, for

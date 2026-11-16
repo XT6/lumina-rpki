@@ -27,6 +27,8 @@ Fetches the trust anchors and repositories into a local cache. Nothing is valida
 
 On a terminal, a status line on stderr shows progress: the TAL, the walk level, publication points, rsync runs (done, running, failed), files mirrored, and the slowest fetch in progress. `--progress` writes timestamped lines instead when stderr isn't a terminal (logs, CI); `--quiet` turns progress off. The summary on stdout is the same either way.
 
+A module fetch whose connection drops or times out is tried once more after 10 to 30 s, and listed as `retried` in the summary; other failures (an unknown host, a refused connection, a missing module) aren't ([D-039](doc/decisions.md#d-039-a-module-fetch-is-retried-once-after-a-transient-failure)).
+
 Exit codes: `0` everything fetched, `1` a fetch failed (the cache is still usable), the cache is in use, or rsync is missing or too old, `2` usage error.
 
 ## `lumina print`

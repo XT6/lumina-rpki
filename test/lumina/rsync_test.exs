@@ -221,6 +221,57 @@ defmodule Lumina.RsyncTest do
     end
   end
 
+  describe "transient failures (D-039, #193)" do
+    @tag doc: """
+         The proxy resets the first connection as soon as it accepts it,
+         as a server dropping the connection would, and passes the second
+         through to the daemon.
+         """
+    test "a dropped connection is transient, and the next try fetches the module", %{
+      tmp_dir: tmp
+    } do
+      daemon = RsyncDaemon.start!(tmp, %{"rpki" => fixture_root()})
+      proxy = RsyncDaemon.dropping_proxy!(daemon.port, [1])
+      uri = uri!("rsync://127.0.0.1:#{proxy}/rpki")
+      dest = Path.join(tmp, "dest")
+
+      assert {:error, %{reason: :protocol_error, exit_status: 12} = error} =
+               Rsync.fetch_dir(uri, dest)
+
+      assert Rsync.transient?(error)
+      assert {:ok, _} = Rsync.fetch_dir(uri, dest)
+      assert tree(dest) == tree(fixture_root())
+    end
+
+    @tag doc: """
+         Each would fail the same way again: a refused connection, a host
+         that doesn't resolve, a module or a path the server doesn't have.
+         """
+    test "a refused connection, an unknown host, a missing module or path aren't transient", %{
+      tmp_dir: tmp
+    } do
+      base = serve_fixture(tmp)
+      dest = Path.join(tmp, "dest")
+
+      for uri <- [
+            "rsync://127.0.0.1:#{RsyncDaemon.closed_port()}/rpki",
+            "rsync://no-such-host.invalid/rpki",
+            String.replace(base, "/rpki", "/nope"),
+            base <> "/missing"
+          ] do
+        assert {:error, error} = Rsync.fetch_dir(uri!(uri), dest)
+        refute Rsync.transient?(error), "#{uri}: #{inspect(error.reason)}"
+      end
+    end
+
+    @tag doc: "The I/O timeout isn't retried: a silent server would cost another one (D-039)."
+    test "the I/O timeout isn't transient" do
+      refute Rsync.transient?(%{reason: :timeout, exit_status: 30, output: ""})
+      assert Rsync.transient?(%{reason: :connect_timeout, exit_status: 35, output: ""})
+      assert Rsync.transient?(%{reason: :socket_error, exit_status: 10, output: ""})
+    end
+  end
+
   describe "the rsync binary" do
     test "check finds rsync 3.1.0 or later" do
       assert {:ok, %{version: version}} = Rsync.check()

@@ -77,6 +77,75 @@ defmodule Lumina.Test.RsyncDaemon do
     port
   end
 
+  @doc """
+  A TCP proxy on a free port in front of the daemon on `target` that
+  resets some connections as soon as it accepts them, for retry tests
+  (D-039): `drop` is the list of connection numbers to reset, counting
+  from 1, or `:all`. rsync sees a reset connection as exit 12. The other
+  connections are passed through. Returns the port.
+  """
+  @spec dropping_proxy!(:inet.port_number(), [pos_integer()] | :all) :: :inet.port_number()
+  def dropping_proxy!(target, drop) do
+    {:ok, listen} = :gen_tcp.listen(0, [:binary, ip: {127, 0, 0, 1}, active: false])
+    {:ok, port} = :inet.port(listen)
+    server = spawn(fn -> proxy(listen, target, drop, 1) end)
+    :ok = :gen_tcp.controlling_process(listen, server)
+    on_exit(fn -> Process.exit(server, :kill) end)
+    port
+  end
+
+  defp proxy(listen, target, drop, n) do
+    case :gen_tcp.accept(listen) do
+      {:ok, client} ->
+        if drop == :all or n in drop do
+          :ok = :inet.setopts(client, linger: {true, 0})
+          :gen_tcp.close(client)
+        else
+          pipe = spawn(fn -> pipe(client, target) end)
+          :ok = :gen_tcp.controlling_process(client, pipe)
+          send(pipe, :go)
+        end
+
+        proxy(listen, target, drop, n + 1)
+
+      {:error, _} ->
+        :ok
+    end
+  end
+
+  defp pipe(client, target) do
+    receive do
+      :go -> :ok
+    end
+
+    {:ok, upstream} = :gen_tcp.connect({127, 0, 0, 1}, target, [:binary, active: true])
+    :ok = :inet.setopts(client, active: true)
+    pipe_loop(client, upstream)
+  end
+
+  defp pipe_loop(client, upstream) do
+    receive do
+      {:tcp, ^client, data} ->
+        _ = :gen_tcp.send(upstream, data)
+        pipe_loop(client, upstream)
+
+      {:tcp, ^upstream, data} ->
+        _ = :gen_tcp.send(client, data)
+        pipe_loop(client, upstream)
+
+      {:tcp_closed, _socket} ->
+        close(client, upstream)
+
+      {:tcp_error, _socket, _reason} ->
+        close(client, upstream)
+    end
+  end
+
+  defp close(client, upstream) do
+    :gen_tcp.close(client)
+    :gen_tcp.close(upstream)
+  end
+
   @doc "A port on 127.0.0.1 that nothing listens on (at the time of the call)."
   @spec closed_port() :: :inet.port_number()
   def closed_port, do: free_port()

@@ -144,6 +144,23 @@ defmodule Lumina.ProgressTest do
       refute Progress.render(scripted(), 5_500) =~ "slowest"
     end
 
+    @tag doc: """
+         A transient failure (D-039, #193) ends the first run without
+         counting it done or failed; the retry is a fetch of its own.
+         """
+    test "a fetch being retried leaves the running ones and is counted as retried" do
+      state =
+        scripted()
+        |> Progress.update(
+          {:fetch_retrying, "rsync://c.example/repo/z", "c.example", %{reason: :protocol_error}},
+          4_000
+        )
+
+      assert Progress.render(state, 4_500) ==
+               "4s  lacnic.tal (1/2)  level 1 (3 points)  points 4  " <>
+                 "rsync 2 done, 0 running, 1 failed, 1 retried  files 120"
+    end
+
     test "on a terminal, the status line is cut to the terminal width" do
       assert Progress.render(scripted(), 4_000, columns: 30) == "4s  lacnic.tal (1/2)  level 1"
     end
