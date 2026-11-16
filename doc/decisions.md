@@ -46,6 +46,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-036](#d-036-every-long-running-operation-reports-progress) | Every long-running operation reports progress | 2026-11-15 | #180 |
 | [D-037](#d-037-lumina-vrps---sync-syncs-only-what-needs-it) | `lumina vrps --sync` syncs only the TALs that need it | 2026-11-16 | #185 |
 | [D-038](#d-038-rpkinotify-in-an-ee-certificates-sia-only-warns) | rpkiNotify in an EE certificate's SIA only warns | 2026-11-16 | #190 |
+| [D-039](#d-039-a-module-fetch-is-retried-once-after-a-transient-failure) | A module fetch is retried once after a transient failure | 2026-11-16 | #193 |
 
 ## D-001: CLI model
 
@@ -489,3 +490,16 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Why:** AFRINIC's manifest EE certificates carry rpkiNotify (TD-002). RFC 6487 §4.8.8.2 forbids any method but signedObject, and verified erratum 7239 confirms RFC 8182 §3.2 asks for rpkiNotify in CA certificates only; but RFC 8182 as published says "resource certificates", the method has no bearing on validation, and rejecting it drops a whole RIR's tree. The warning keeps the deviation visible.
 - **Where:** maintainer, 2026-11-16 ("Warn for rpkiNotify"), after the M7 done test's live run (#170); #190.
 - **Consequences:** `Lumina.Profile` warns; AFRINIC validates.
+
+## D-039: A module fetch is retried once after a transient failure
+
+- **Date:** 2026-11-16
+- **Decision:** a module fetch that fails in a way that may not happen again is tried once more, after a short random delay, in the same sync. Transient: the connection dropped or the protocol data stream broke (rsync exit 12), a socket I/O error (exit 10, other than a refused connection or an unknown host), a connect timeout (`--contimeout`, exit 35). Not retried: an unknown host, a missing module or path, a refused connection, and the I/O timeout (`--timeout`, exit 30). At most one retry per module per sync, beside the one fetch and the at most one mid-update refetch (D-007).
+- **Why:** the M7 done test's first five-RIR run (#170) lost ARIN's whole tree to one connection reset; the same module fetched fine minutes later. On a fresh cache there is no last good copy to fall back on. Failures that would recur aren't worth a second try, and a silent server would cost another 300 s per module.
+- **Where:** maintainer, 2026-11-16 ("retry once, transient failures only, in M7"), #193.
+- **As implemented (#193):**
+  - `Lumina.Rsync.transient?/1` classifies a failure.
+  - The walk waits 10 to 30 s (random) before the retry, without holding the host's place (D-011): other fetches to the host run meanwhile, and the retry then queues first in line. `Walk.run/3`'s `:retry_delay` option sets the delay (tests).
+  - The retry runs into the same staging directory, so rsync fetches only what the first run didn't bring; if it fails too, the staging directory is dropped and the last good copy kept, as for any failed fetch.
+  - Reported: the first run is a fetch with outcome `:retried` (the fetch count is the number of rsync runs), a `retried` walk issue with the first error, `retried` in the `lumina sync` summary's fetch line, and the progress event `{:fetch_retrying, uri, host, error}`.
+  - Once per sync: a module retried by one TAL's walk isn't fetched again by the next (#102). The mid-update refetch isn't retried.

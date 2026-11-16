@@ -17,6 +17,9 @@ defmodule Lumina.Progress do
     * `{:fetch_started, uri, host}` and
       `{:fetch_finished, uri, host, outcome, files}` (`files`: regular files
       in the publication point after the fetch)
+    * `{:fetch_retrying, uri, host, error}`: a fetch that failed
+      transiently ends this way instead, and starts again after a delay
+      (D-039)
     * `{:level_finished, level, %{points: n, issues: n}}`: running totals
       for the walk
 
@@ -70,6 +73,7 @@ defmodule Lumina.Progress do
       issues: 0,
       fetches_done: 0,
       fetches_failed: 0,
+      fetches_retried: 0,
       level_fetches: 0,
       running: %{},
       files: 0,
@@ -110,6 +114,14 @@ defmodule Lumina.Progress do
         fetches_done: state.fetches_done + 1,
         fetches_failed: state.fetches_failed + if(outcome == :ok, do: 0, else: 1),
         files: state.files + files
+    }
+  end
+
+  def update(state, {:fetch_retrying, uri, _host, _error}, _now) do
+    %{
+      state
+      | running: Map.delete(state.running, uri),
+        fetches_retried: state.fetches_retried + 1
     }
   end
 
@@ -179,7 +191,8 @@ defmodule Lumina.Progress do
 
   defp rsync(state) do
     failed = if state.fetches_failed > 0, do: ", #{state.fetches_failed} failed", else: ""
-    "rsync #{state.fetches_done} done, #{map_size(state.running)} running#{failed}"
+    retried = if state.fetches_retried > 0, do: ", #{state.fetches_retried} retried", else: ""
+    "rsync #{state.fetches_done} done, #{map_size(state.running)} running#{failed}#{retried}"
   end
 
   # The fetch running longest, once it has taken more than 5 s: a slow or

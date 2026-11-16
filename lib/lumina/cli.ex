@@ -90,6 +90,8 @@ defmodule Lumina.CLI do
   and rsync fetches, every failure with its reason, and the CA
   certificates that don't validate. A CA certificate holding resources
   outside its issuer's is listed with them, and counted as an overclaim.
+  A fetch whose connection dropped or timed out is tried once more after
+  10 to 30 s, and listed as retried.
 
   Exit codes: 0 each trust anchor and its own publication point fetched
   (a fetch failing further down is listed, with a warning, and an

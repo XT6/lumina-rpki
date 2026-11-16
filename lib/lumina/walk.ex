@@ -51,6 +51,16 @@ defmodule Lumina.Walk do
   more and the point validated again; a module is fetched again at most
   once per run, and the retry is reported (`:refetched`).
 
+  **A dropped connection (D-039, #193):** a module fetch that fails in a
+  way that may not happen again (`Lumina.Rsync.transient?/1`: the
+  connection dropped, a socket error, a connect timeout) is tried once
+  more after a short delay (10 to 30 s, random), into the same staging
+  directory, so rsync fetches only what the first run didn't bring. The
+  delay doesn't hold the host's place (D-011): the retry queues again
+  first in line. A module is retried at most once per sync: the result's
+  `:fetched` carries its final outcome to the next walk, which doesn't
+  fetch it again. The mid-update refetch below isn't retried.
+
   **Limits (D-008):** a certificate deeper than `:max_depth` (the TA is
   depth 0) isn't followed, and a publication point already visited isn't
   walked again: a loop if it is the publication point of an ancestor,
@@ -66,7 +76,7 @@ defmodule Lumina.Walk do
       its `status` (`:accepted`, `:failed`, or `:fallback` when its last
       valid copy stands in, RFC 9286 §6, D-023);
     * `:fetches`: each rsync run, by module URI, with its outcome (their number is the
-      number of rsync runs);
+      number of rsync runs; a first run that was retried is `:retried`);
     * `:fetched` and `:refetched`: every module fetched (or attempted) so
       far, with its outcome, and those fetched again after a mid-update
       failure, including the ones given as options, for the next walk of
@@ -77,6 +87,8 @@ defmodule Lumina.Walk do
       rejects, by its manifest URI; the detail lists the reasons),
       `:refetched` (a module fetched again because a point in it was caught
       mid-update; the detail names the manifest and the reasons),
+      `:retried` (a module fetched once more after a transient failure;
+      the detail is the first run's error),
       `:point_fallback` (one that failed but whose last valid copy, D-023,
       is used instead; the detail lists why the live copy failed),
       `:invalid` (a CA that doesn't validate; the detail lists its errors), `:warning` (a valid CA's warnings), `:no_repository`,
@@ -100,7 +112,7 @@ defmodule Lumina.Walk do
           stale: boolean(),
           status: :accepted | :failed | :fallback
         }
-  @type fetch :: %{uri: String.t(), outcome: :ok | :error, detail: term()}
+  @type fetch :: %{uri: String.t(), outcome: :ok | :error | :retried, detail: term()}
   @type result :: %{
           points: [point()],
           fetches: [fetch()],
@@ -120,7 +132,9 @@ defmodule Lumina.Walk do
   mid-update retry, so a test can finish the "update"),
   `:fetched` and `:refetched` (the result's, from an earlier walk of the
   same sync: modules not to fetch again, #102),
-  `:rsync` (options for `Lumina.Rsync.fetch_dir/3`), and `:remap`,
+  `:rsync` (options for `Lumina.Rsync.fetch_dir/3`), `:retry_delay`
+  (milliseconds before retrying a transient failure, D-039; default
+  random between 10 and 30 s; tests set it low), and `:remap`,
   for tests: a map from `"host:port"` in repository URIs to the
   `"host:port"` actually connected to. Remapping changes only where rsync
   connects; cache paths and reports keep the URIs from the certificates.
@@ -153,6 +167,11 @@ defmodule Lumina.Walk do
         running: %{},
         requested: MapSet.new(),
         done: %{},
+        # Modules whose first run failed transiently, back in the queue:
+        # module => {staging directory, first error} (D-039).
+        retries: %{},
+        # Set when the walk is over: retries still pending are dropped.
+        draining: false,
         # Points (by `point_id/3`) waiting for their module, scheduled
         # (waiting, queued, running or done), queued, validated, and found
         # missing from the cache.
@@ -346,6 +365,12 @@ defmodule Lumina.Walk do
         state = put_in(state.pool.tasks, tasks)
 
         case job do
+          {:fetch, module} when result.outcome == :retry ->
+            retry_later(state, module, result)
+
+          {:retry_wait, module, retry} ->
+            retry_now(state, module, retry)
+
           {:fetch, module} ->
             state = fetched(state, module, result)
             {points, waiting} = Map.pop(state.pool.waiting, module, [])
@@ -449,8 +474,9 @@ defmodule Lumina.Walk do
       [module | rest] when running < state.per_host ->
         # Only these go to the task: `state` holds every report so far.
         context = Map.take(state, [:root, :opts, :now])
-        task = Task.async(fn -> fetch(module, context) end)
-        pool = state.pool
+        {retry, retries} = Map.pop(state.pool.retries, module, :allowed)
+        task = Task.async(fn -> fetch(module, context, retry) end)
+        pool = %{state.pool | retries: retries}
 
         start_fetches(
           %{
@@ -471,19 +497,50 @@ defmodule Lumina.Walk do
   end
 
   defp fetched(state, module, result) do
+    state
+    |> update_in([:pool, :done], &Map.put(&1, module, result))
+    |> release(module)
+  end
+
+  # The fetch of `module` no longer holds its host's place (D-011).
+  defp release(state, module) do
     host = {module.host, module.port}
-    pool = state.pool
+    state |> update_in([:pool, :running, host], &(&1 - 1)) |> start_fetches(host)
+  end
 
-    state = %{
+  # A transient failure (D-039): the host's place goes to the next fetch
+  # while a task waits out the delay, then the module queues again, first
+  # in line.
+  defp retry_later(state, module, %{staging: staging, detail: error}) do
+    state = release(state, module)
+
+    if state.pool.draining do
+      abandon(state, module, staging, error)
+    else
+      delay = Keyword.get_lazy(state.opts, :retry_delay, fn -> Enum.random(10_000..30_000) end)
+      task = Task.async(fn -> Process.sleep(delay) end)
+      put_in(state.pool.tasks[task.ref], {:retry_wait, module, {staging, error}})
+    end
+  end
+
+  defp retry_now(state, module, {staging, error} = retry) do
+    if state.pool.draining do
+      abandon(state, module, staging, error)
+    else
+      host = {module.host, module.port}
+
       state
-      | pool: %{
-          pool
-          | done: Map.put(pool.done, module, result),
-            running: Map.update!(pool.running, host, &(&1 - 1))
-        }
-    }
+      |> update_in([:pool, :retries], &Map.put(&1, module, retry))
+      |> update_in([:pool, :queued], &Map.update(&1, host, [module], fn q -> [module | q] end))
+      |> start_fetches(host)
+    end
+  end
 
-    start_fetches(state, host)
+  # A retry the walk no longer needs: the first run's failure stands.
+  defp abandon(state, module, staging, error) do
+    Cache.discard(staging)
+    Cache.record(state.root, module, {:error, error}, state.now)
+    state
   end
 
   # After a refetch of `module`, results computed ahead for points in it
@@ -509,7 +566,14 @@ defmodule Lumina.Walk do
   # (a point validated again after a refetch can list other children) is
   # dropped, and running tasks are waited for.
   defp drain(state) do
-    state = %{state | pool: %{state.pool | queued: %{}, validations: [], waiting: %{}}}
+    pool = %{state.pool | queued: %{}, validations: [], waiting: %{}, draining: true}
+
+    # Retries already queued again are dropped too.
+    state =
+      Enum.reduce(pool.retries, %{state | pool: %{pool | retries: %{}}}, fn
+        {module, {staging, error}}, st -> abandon(st, module, staging, error)
+      end)
+
     finish(state)
   end
 
@@ -581,6 +645,17 @@ defmodule Lumina.Walk do
 
           state =
             Enum.reduce(result.issues, state, fn {kind, uri}, st -> issue(st, kind, uri, nil) end)
+
+          # A first run that failed transiently and was retried (D-039).
+          state =
+            case result.retried do
+              nil ->
+                state
+
+              first ->
+                retried = %{uri: fetched, outcome: :retried, detail: first}
+                issue(%{state | fetches: [retried | state.fetches]}, :retried, fetched, first)
+            end
 
           state =
             if result.outcome == :error,
@@ -670,7 +745,7 @@ defmodule Lumina.Walk do
     if outcome == :ok and mid_update?(result.point) and
          not MapSet.member?(state.refetched, module_key) do
       if hook = state.opts[:before_refetch], do: hook.(module_key)
-      fetched = fetch(module, state)
+      fetched = fetch(module, state, :no)
 
       fetch = %{uri: module_key, outcome: fetched.outcome, detail: fetched.detail}
 
@@ -730,8 +805,12 @@ defmodule Lumina.Walk do
   end
 
   # One rsync run into a staging directory, committed on success. Returns
-  # the outcome, its detail and the issues it raised, as {kind, uri}.
-  defp fetch(pp, state) do
+  # the outcome, its detail and the issues it raised, as {kind, uri}, and
+  # the first run's error if this is a retry (`retried`). `retry` is
+  # `:allowed` (a transient failure returns outcome `:retry` with the
+  # staging directory, kept for the retry), `:no`, or the
+  # `{staging, first error}` of the run being retried (D-039).
+  defp fetch(pp, state, retry) do
     %{root: root, opts: opts} = state
     key = to_string(pp)
     live = Cache.path(root, pp)
@@ -739,8 +818,14 @@ defmodule Lumina.Walk do
     rsync_opts = if File.dir?(live), do: [{:link_dest, live} | rsync_opts], else: rsync_opts
     Progress.emit(opts, {:fetch_started, key, pp.host})
 
+    {staged, first} =
+      case retry do
+        {staging, first} -> {{:ok, staging}, first}
+        _ -> {Cache.stage(root), nil}
+      end
+
     result =
-      with {:ok, staging} <- Cache.stage(root) do
+      with {:ok, staging} <- staged do
         case Rsync.fetch_dir(remap(pp, opts[:remap]), staging, rsync_opts) do
           {:ok, %{oversize: oversize}} ->
             oversize = for file <- oversize, do: {:oversize, key <> "/" <> file}
@@ -756,19 +841,32 @@ defmodule Lumina.Walk do
             end
 
           {:error, error} ->
-            Cache.discard(staging)
-            %{outcome: :error, detail: error, issues: []}
+            if retry == :allowed and Rsync.transient?(error) do
+              %{outcome: :retry, detail: error, issues: [], staging: staging}
+            else
+              Cache.discard(staging)
+              %{outcome: :error, detail: error, issues: []}
+            end
         end
       else
         {:error, reason} -> %{outcome: :error, detail: {:stage_failed, reason}, issues: []}
       end
 
+    finished(Map.put(result, :retried, first), pp, live, state)
+  end
+
+  defp finished(%{outcome: :retry} = result, pp, _live, state) do
+    Progress.emit(state.opts, {:fetch_retrying, to_string(pp), pp.host, result.detail})
+    result
+  end
+
+  defp finished(result, pp, live, state) do
     status = if result.outcome == :ok, do: :ok, else: {:error, result.detail}
-    Cache.record(root, pp, status, state.now)
+    Cache.record(state.root, pp, status, state.now)
 
     Progress.emit(
-      opts,
-      {:fetch_finished, key, pp.host, result.outcome, files(opts, live, result)}
+      state.opts,
+      {:fetch_finished, to_string(pp), pp.host, result.outcome, files(state.opts, live, result)}
     )
 
     result

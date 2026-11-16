@@ -571,6 +571,126 @@ defmodule Lumina.WalkTest do
     end
   end
 
+  describe "a dropped connection (D-039, #193)" do
+    # Walks fixture `id` with localhost:8873 behind a proxy that resets the
+    # connections numbered in `drop` (or `:all`), retrying at once unless
+    # `opts` says otherwise.
+    defp dropping!(tmp, id, drop, opts \\ []) do
+      daemon = RsyncDaemon.start!(Path.join(tmp, "localhost"), Fixture.load!(id).modules)
+      proxy = RsyncDaemon.dropping_proxy!(daemon.port, drop)
+
+      Walk.run(
+        ta!(id),
+        cache(tmp),
+        [now: @now, retry_delay: 0, remap: %{"localhost:8873" => "127.0.0.1:#{proxy}"}] ++ opts
+      )
+    end
+
+    @tag rfc: "6481#5",
+         doc: """
+         As ARIN's module was lost to one connection reset in the M7 done
+         test's first five-RIR run (#170).
+         """
+    test "a module whose connection drops is fetched once more, and the retry is reported", %{
+      tmp_dir: tmp
+    } do
+      result = dropping!(tmp, "m0-minimal-valid", [1])
+
+      assert [
+               %{uri: @module, outcome: :retried, detail: %{exit_status: 12}},
+               %{uri: @module, outcome: :ok}
+             ] = result.fetches
+
+      assert [%{kind: :retried, uri: @module, detail: %{reason: :protocol_error}}] =
+               result.issues
+
+      assert Enum.all?(result.points, &(&1.status == :accepted and not &1.stale))
+      assert mirror(tmp, "localhost:8873/rpki") == tree(rsync_root("m0-minimal-valid"))
+      {:ok, module} = URI.parse(@module)
+      assert %{outcome: :ok} = Cache.status(cache(tmp), module)
+    end
+
+    @tag rfc: ["6481#5", "8897#7"],
+         doc: """
+         The first walk goes straight to the daemon; in the second, every
+         connection is reset. The cache keeps the first walk's copy, and no
+         staging directory is left behind.
+         """
+    test "a module that fails twice is a failed fetch, and its last good copy is kept", %{
+      tmp_dir: tmp
+    } do
+      walk!(Path.join(tmp, "first"), "m0-minimal-valid")
+      File.rename!(Path.join(tmp, "first/cache"), cache(tmp))
+      before = mirror(tmp, "localhost:8873/rpki")
+
+      result = dropping!(tmp, "m0-minimal-valid", :all)
+
+      assert [%{outcome: :retried}, %{outcome: :error, detail: %{exit_status: 12}}] =
+               result.fetches
+
+      assert kinds(result) == [{:retried, @module}, {:fetch_failed, @module}]
+      assert Enum.all?(result.points, & &1.stale)
+      assert mirror(tmp, "localhost:8873/rpki") == before
+      assert Path.wildcard(Path.join(cache(tmp), ".staging/*")) == []
+    end
+
+    @tag doc: """
+         A refused connection would be refused again: one rsync run, no
+         retry, even with a delay that would stall the test if it waited.
+         """
+    test "a refused connection isn't retried", %{tmp_dir: tmp} do
+      result =
+        Walk.run(ta!("m0-minimal-valid"), cache(tmp),
+          now: @now,
+          retry_delay: 60_000,
+          remap: %{"localhost:8873" => "127.0.0.1:#{RsyncDaemon.closed_port()}"}
+        )
+
+      assert [%{outcome: :error, detail: %{reason: :connection_refused}}] = result.fetches
+      assert kinds(result) == [{:fetch_failed, @module}, {:missing, @module <> "/ta"}]
+    end
+
+    @tag rfc: "6481#5",
+         doc: """
+         m3-walk-siblings with one rsync run at a time on the host: s1's
+         connection (the second; the first is the TA's module) is reset.
+         While s1 waits out the delay, s2 takes the host's place; s1's retry
+         then queues first in line, ahead of s3.
+         """
+    test "the delay before a retry doesn't hold the host's place (D-011)", %{tmp_dir: tmp} do
+      test = self()
+      progress = fn event -> send(test, {:progress, event}) end
+
+      result =
+        dropping!(tmp, "m3-walk-siblings", [2],
+          per_host: 1,
+          retry_delay: 300,
+          progress: progress
+        )
+
+      s = fn i -> "rsync://localhost:8873/s#{i}" end
+
+      order =
+        for {:progress, event} <- messages(),
+            elem(event, 0) in [:fetch_started, :fetch_retrying],
+            do: {elem(event, 0), elem(event, 1)}
+
+      assert Enum.take(order, 5) == [
+               {:fetch_started, @module},
+               {:fetch_started, s.(1)},
+               {:fetch_retrying, s.(1)},
+               {:fetch_started, s.(2)},
+               {:fetch_started, s.(1)}
+             ]
+
+      assert kinds(result) == [{:retried, s.(1)}]
+
+      assert Enum.map(result.fetches, &{&1.uri, &1.outcome}) ==
+               [{@module, :ok}, {s.(1), :retried}, {s.(1), :ok}] ++
+                 for(i <- 2..8, do: {s.(i), :ok})
+    end
+  end
+
   describe "caught mid-update (RFC 6481 §5, #137)" do
     # Serves a copy of m0-minimal-valid whose roa1.roa no longer matches its
     # manifest hash, as if the manifest had been updated but not yet the
