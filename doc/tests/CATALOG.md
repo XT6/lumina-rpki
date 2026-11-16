@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 90 Barry fixtures: 21 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 812 unit tests in 68 modules.
+- 815 unit tests in 69 modules.
 
 ## Barry fixtures
 
@@ -3166,6 +3166,30 @@ Profile violations decode; only non-DER or unparseable input fails.
   see its order (X.690 11.6). Only re-encoding catches unsorted
   attributes, and the signature covers these exact bytes.
 - *structural decoding:* non-DER, truncated and unrelated input are errors naming the layer
+
+### `Lumina.SyncSharedModulesTest`
+
+[test/lumina/sync_shared_modules_test.exs](../../test/lumina/sync_shared_modules_test.exs)
+
+Tests that one sync fetches a module once, however many TALs' trees
+reach it (#102, D-012).
+
+`Lumina.Sync.run/3` walks each TAL's tree in turn and passes the
+modules each walk fetched (or failed to fetch) to the next, so a module
+shared by several trees, such as a hosted repository serving CAs under
+several RIRs, costs one rsync run per sync, and a module that failed
+isn't retried. Each tree is still walked whole.
+
+The two "trees" here are one Barry fixture, m0-minimal-valid, served by
+a local rsync daemon, under two TAL names: everything below the TA is
+in the shared module `rsync://localhost:8873/rpki`.
+
+- a module two TALs' trees share is fetched once, and both trees are walked
+- a shared module that failed isn't fetched again for the next TAL
+  After a first sync, the shared module's host is remapped to a closed
+  port: the first walk's fetch fails and its copy goes stale; the
+  second walk doesn't try again and reads the same stale copy.
+- the summary says which modules an earlier TAL's walk fetched
 
 ### `Lumina.TATest`
 

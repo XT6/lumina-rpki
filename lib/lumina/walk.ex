@@ -28,7 +28,11 @@ defmodule Lumina.Walk do
   keeps the last good copy (RFC 8897 §7); the walk then continues from that
   copy, marked stale, and the failure is reported. A failed fetch also
   covers the rest of its module for the rest of the run, so it isn't
-  retried for each publication point.
+  retried for each publication point. A sync walks each TAL's tree in
+  turn, and passes what one walk fetched to the next (`:fetched`,
+  `:refetched`, #102): a module several trees share, such as a hosted
+  repository serving CAs under several RIRs, is fetched once per sync,
+  and a module that failed isn't retried.
 
   **In parallel (D-011, #88):** the walk is planned and reported one
   level at a time, in walk order, as a sequential walk would give it.
@@ -61,6 +65,10 @@ defmodule Lumina.Walk do
       valid copy stands in, RFC 9286 §6, D-023);
     * `:fetches`: each rsync run, by module URI, with its outcome (their number is the
       number of rsync runs);
+    * `:fetched` and `:refetched`: every module fetched (or attempted) so
+      far, with its outcome, and those fetched again after a mid-update
+      failure, including the ones given as options, for the next walk of
+      the same sync;
     * `:issues`: everything reported, as `%{kind, uri, detail}`, `kind` one
       of `:fetch_failed`, `:loop`, `:duplicate`, `:depth_exceeded`,
       `:decode_failed`, `:point_failed` (a publication point RFC 9286 §6
@@ -91,7 +99,13 @@ defmodule Lumina.Walk do
           status: :accepted | :failed | :fallback
         }
   @type fetch :: %{uri: String.t(), outcome: :ok | :error, detail: term()}
-  @type result :: %{points: [point()], fetches: [fetch()], issues: [issue()]}
+  @type result :: %{
+          points: [point()],
+          fetches: [fetch()],
+          issues: [issue()],
+          fetched: %{URI.t() => :ok | :error},
+          refetched: MapSet.t(String.t())
+        }
 
   @doc """
   Walks from `ta` (an accepted TA certificate) into the cache at `root`.
@@ -102,6 +116,8 @@ defmodule Lumina.Walk do
   `:progress` (a `Lumina.Progress` listener, sent level and fetch events),
   `:before_refetch` (tests only: called with the module URI just before a
   mid-update retry, so a test can finish the "update"),
+  `:fetched` and `:refetched` (the result's, from an earlier walk of the
+  same sync: modules not to fetch again, #102),
   `:rsync` (options for `Lumina.Rsync.fetch_dir/3`), and `:remap`,
   for tests: a map from `"host:port"` in repository URIs to the
   `"host:port"` actually connected to. Remapping changes only where rsync
@@ -116,12 +132,13 @@ defmodule Lumina.Walk do
       per_host: Keyword.get(opts, :per_host, @default_per_host),
       now: Keyword.get_lazy(opts, :now, &DateTime.utc_now/0),
       # Directories fetched (or attempted) this run: URI => :ok | :error
-      # (:planned while a level is being planned).
-      fetched: %{},
+      # (:planned while a level is being planned), starting with those of
+      # earlier walks in the same sync (#102).
+      fetched: Keyword.get(opts, :fetched, %{}),
       visited: MapSet.new(),
       # Modules fetched again this run because a point in them was caught
       # mid-update (RFC 6481 §5): at most once each.
-      refetched: MapSet.new(),
+      refetched: Keyword.get(opts, :refetched, MapSet.new()),
       # Those of the current level: results validated before them are stale.
       refetched_in_level: MapSet.new(),
       # Fetches and validations running in tasks (#88): see `settle/2`.
@@ -155,7 +172,9 @@ defmodule Lumina.Walk do
     %{
       points: Enum.reverse(state.points),
       fetches: Enum.reverse(state.fetches),
-      issues: Enum.reverse(state.issues)
+      issues: Enum.reverse(state.issues),
+      fetched: state.fetched,
+      refetched: state.refetched
     }
   end
 
