@@ -18,7 +18,7 @@ defmodule Lumina.Profile do
   the `field` it concerns (a field name, an extension name, or
   `{:extension, oid}` for one Lumina doesn't know), a `message` and a
   `severity`. A certificate passes when no problem has severity `:error`;
-  `:warning`s are reported but don't reject it (D-013, D-018).
+  `:warning`s are reported but don't reject it (D-013, D-018, D-038).
 
   The validation time is always an argument, never "now", so fixtures
   validate at a fixed time. Checks that need another certificate (the
@@ -644,11 +644,30 @@ defmodule Lumina.Profile do
       if(decoded?(ext), do: sia_methods(ext.value, kind, rfc), else: [])
   end
 
+  # An rpkiNotify only warns (D-038, TD-002): RFC 8182 §3.2 as published
+  # asks for it in every resource certificate; erratum 7239 says CA ones.
   defp sia_methods(descriptions, :ee, rfc) do
-    others = for %{method: m} <- descriptions, m != :signed_object, uniq: true, do: m
+    others =
+      for %{method: m} <- descriptions,
+          m not in [:signed_object, :rpki_notify],
+          uniq: true,
+          do: m
+
+    notify =
+      if Enum.any?(descriptions, &(&1.method == :rpki_notify)),
+        do: [
+          warning(
+            :ee_sia_rpki_notify,
+            rfc,
+            :subject_info_access,
+            "rpkiNotify must not appear in an EE certificate's SIA (RFC 8182 erratum 7239)"
+          )
+        ],
+        else: []
 
     Enum.concat([
       required_rsync(descriptions, :signed_object, rfc),
+      notify,
       for(
         m <- others,
         do:
