@@ -299,6 +299,36 @@ defmodule Lumina.ProfileExtensionsTest do
                Profile.extensions(update(ee(), :subject_info_access, value: value), :ee)
     end
 
+    @tag rfc: "6487#4.8.8.2",
+         doc: """
+         AFRINIC's EE certificates carry it, following RFC 8182 §3.2 as
+         published; erratum 7239 says only CA certificates must (D-038, TD-002).
+         """
+    test "an rpkiNotify in an EE certificate's SIA only warns" do
+      value =
+        Certificate.extension_value(ee(), :subject_info_access) ++
+          [%{method: :rpki_notify, location: {:uri, "https://a.example/notification.xml"}}]
+
+      assert [%{rule: :ee_sia_rpki_notify, severity: :warning, rfc: "6487#4.8.8.2"}] =
+               problems =
+               Profile.extensions(update(ee(), :subject_info_access, value: value), :ee)
+
+      assert Profile.passes?(problems)
+    end
+
+    @tag rfc: "6487#4.8.8.2"
+    test "an EE certificate's SIA with rpkiNotify and another extra method is rejected" do
+      value =
+        Certificate.extension_value(ee(), :subject_info_access) ++
+          [
+            %{method: :rpki_notify, location: {:uri, "https://a.example/notification.xml"}},
+            %{method: :ca_repository, location: {:uri, "rsync://a.example/repo/"}}
+          ]
+
+      assert rules(update(ee(), :subject_info_access, value: value), :ee) ==
+               [:ee_sia_rpki_notify, :access_method]
+    end
+
     @tag rfc: "6487#4.8.8.1"
     test "a CA certificate's SIA without an rsync caRepository is rejected" do
       value =

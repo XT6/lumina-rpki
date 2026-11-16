@@ -45,6 +45,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-035](#d-035-vrps-compared-with-routinators-live-csv) | VRPs are compared with Routinator's live CSV, downloaded when the comparison runs | 2026-11-15 | M7 plan, #168, #170 |
 | [D-036](#d-036-every-long-running-operation-reports-progress) | Every long-running operation reports progress | 2026-11-15 | #180 |
 | [D-037](#d-037-lumina-vrps---sync-syncs-only-what-needs-it) | `lumina vrps --sync` syncs only the TALs that need it | 2026-11-16 | #185 |
+| [D-038](#d-038-rpkinotify-in-an-ee-certificates-sia-only-warns) | rpkiNotify in an EE certificate's SIA only warns | 2026-11-16 | #190 |
 
 ## D-001: CLI model
 
@@ -481,3 +482,10 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
   - **Exit code** (maintainer, 2026-11-16: "if the main module under the TA itself fetches, then exiting with 0 is fine, but obviously keep the warnings"): the sync makes the exit code 1 only if a synced TAL's TA wasn't retrieved, or the TA's own publication point wasn't fetched (`Sync.ta_synced?/1`), or the sync couldn't run. Failures further down warn only. On live LACNIC two delegated modules always fail (2026-11-16); with this rule, those runs exit 0.
   - **`lumina sync` too** (maintainer, 2026-11-16: "lumina sync should follow the same rule", #187): it exits 1 only when a TAL's trust anchor wasn't retrieved, its own publication point wasn't fetched, or the sync couldn't run. A fetch failing further down is listed in the summary as before, which ends with `warning: some fetches below the trust anchors failed (above)`, and the exit code is 0.
 
+## D-038: rpkiNotify in an EE certificate's SIA only warns
+
+- **Date:** 2026-11-16
+- **Decision:** an id-ad-rpkiNotify access description in an EE certificate's SIA gives the warning `ee_sia_rpki_notify`; the certificate isn't rejected for it. Any other access method besides id-ad-signedObject still rejects it (`access_method`, RFC 6487 §4.8.8.2).
+- **Why:** AFRINIC's manifest EE certificates carry rpkiNotify (TD-002). RFC 6487 §4.8.8.2 forbids any method but signedObject, and verified erratum 7239 confirms RFC 8182 §3.2 asks for rpkiNotify in CA certificates only; but RFC 8182 as published says "resource certificates", the method has no bearing on validation, and rejecting it drops a whole RIR's tree. The warning keeps the deviation visible.
+- **Where:** maintainer, 2026-11-16 ("Warn for rpkiNotify"), after the M7 done test's live run (#170); #190.
+- **Consequences:** `Lumina.Profile` warns; AFRINIC validates.

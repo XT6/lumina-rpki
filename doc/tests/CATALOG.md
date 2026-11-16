@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 90 Barry fixtures: 21 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 825 unit tests in 69 modules.
+- 827 unit tests in 69 modules.
 
 ## Barry fixtures
 
@@ -2789,6 +2789,10 @@ the profile checks don't verify signatures, so it needn't be re-signed.
 - *CRLDP, AIA and SIA:* a CRLDP with two DistributionPoints, a cRLIssuer or no rsync URI is rejected (RFC [6487 §4.8.6](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.6)))
 - *CRLDP, AIA and SIA:* an AIA without an rsync caIssuers URI is rejected (RFC [6487 §4.8.7](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.7)))
 - *CRLDP, AIA and SIA:* an EE certificate's SIA with an access method other than signedObject is rejected (RFC [6487 §4.8.8.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.2)))
+- *CRLDP, AIA and SIA:* an rpkiNotify in an EE certificate's SIA only warns (RFC [6487 §4.8.8.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.2)))
+  AFRINIC's EE certificates carry it, following RFC 8182 §3.2 as
+  published; erratum 7239 says only CA certificates must (D-038, TD-002).
+- *CRLDP, AIA and SIA:* an EE certificate's SIA with rpkiNotify and another extra method is rejected (RFC [6487 §4.8.8.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.2)))
 - *CRLDP, AIA and SIA:* a CA certificate's SIA without an rsync caRepository is rejected (RFC [6487 §4.8.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.1)))
 - *CRLDP, AIA and SIA:* a critical SIA is rejected (RFC [6487 §4.8.8.1](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.8.1)))
 - *certificate policies (RFC 7318):* a policy other than the RPKI CP is rejected (RFC [6487 §4.8.9](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.9)))

@@ -601,6 +601,7 @@ Where a trust anchor's repository, or the servers it publishes on, departs from 
 | ID | Trust anchor | What | Status in Lumina |
 | --- | --- | --- | --- |
 | [TD-001](#td-001-apnics-rsync-server-refuses-a-path-with-a-dot-segment) | APNIC | rsync server refuses `module/./path` | `./` only before a path starting with `-` (#189) |
+| [TD-002](#td-002-afrinics-ee-certificates-list-rpkinotify) | AFRINIC | rpkiNotify in EE certificates' SIA | Warning, not a reject (D-038, #190) |
 
 ### TD-001: APNIC's rsync server refuses a path with a dot segment
 
@@ -609,6 +610,13 @@ Where a trust anchor's repository, or the servers it publishes on, departs from 
 - **Impact:** Lumina wrote every source as `module/./path` (F-025), so it couldn't fetch APNIC's repository at all, and APNIC gave no VRPs.
 - **Resolution:** maintainer decision (2026-11-16): the `./` is written only when the path after the module starts with `-`, the only case F-025 needs it (#189). An APNIC path starting with `-` would still fail; none does today.
 - **Talk note:** a defence that is a no-op by the rsync manual still depends on every server's path handling.
+
+### TD-002: AFRINIC's EE certificates list rpkiNotify
+
+- **Where:** AFRINIC's manifest EE certificates (and so every publication point under its TA): the SIA lists `rpkiNotify` (`https://rrdp.afrinic.net/notification.xml`) beside `signedObject`. RFC 6487 §4.8.8.2: "Other AccessMethods MUST NOT be used for an EE certificates's SIA." RFC 8182 §3.2 as published asks for rpkiNotify "in resource certificates"; verified [erratum 7239](https://www.rfc-editor.org/errata/eid7239) corrects that to "CA resource certificates" (checked 2026-11-16). So the RFCs, read with the erratum, have no gap; AFRINIC followed the published text.
+- **Found:** by the M7 done test's live run (#170), 2026-11-16. Lumina rejected the TA's manifest (`access_method`), so AFRINIC gave no VRPs, while Routinator's CSV has AFRINIC's.
+- **Resolution:** maintainer decision (2026-11-16, D-038): an rpkiNotify in an EE certificate's SIA is the warning `ee_sia_rpki_notify`; any other extra method still rejects (#190). AFRINIC then validates: 1,495 CA certificates, 12,664 valid ROAs, 32,796 VRPs.
+- **Talk note:** a context sentence lost between drafts became a MUST in a published RFC, a whole RIR implemented it, and the erratum came later.
 
 ## Process notes
 
