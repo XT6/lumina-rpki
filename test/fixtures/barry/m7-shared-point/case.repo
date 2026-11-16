@@ -1,0 +1,16 @@
+ta.cer
+	ca1.cer
+		roa1.roa
+	ca2.cer
+		roa2.roa
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: ca2.cer]
+# ca2 publishes in ca1's directory, with its own manifest and CRL, as
+# APNIC members holding resources from several APNIC parents and JPNIC's
+# CA instances do (RFC 9286 section 1, RFC 6481 section 2.2, #195).
+rpp.uri = rsync://localhost:8873/rpki/ca1
+rpp.path = ca1

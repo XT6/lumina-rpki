@@ -506,24 +506,27 @@ defmodule Lumina.Validate do
 
       {:ok, pp} ->
         key = to_string(pp)
+        # Several CAs may share a directory, each with its own manifest
+        # (RFC 9286 §1, #195).
+        id = Walk.point_key(cert, pp)
         path = Cache.path(state.root, pp)
 
         cond do
           depth > state.max_depth ->
             {{:issue, :depth_exceeded, key, %{certificate: name, depth: depth}}, state}
 
-          key in ancestors ->
+          id in ancestors ->
             {{:issue, :loop, key, %{certificate: name}}, state}
 
-          MapSet.member?(state.visited, key) ->
+          MapSet.member?(state.visited, id) ->
             {{:issue, :duplicate, key, %{certificate: name}}, state}
 
           not File.dir?(path) ->
-            {{:issue, :missing, key, nil}, %{state | visited: MapSet.put(state.visited, key)}}
+            {{:issue, :missing, key, nil}, %{state | visited: MapSet.put(state.visited, id)}}
 
           true ->
-            {{:point, cert, path, key, depth, ancestors, resources},
-             %{state | visited: MapSet.put(state.visited, key)}}
+            {{:point, cert, path, key, depth, [id | ancestors], resources},
+             %{state | visited: MapSet.put(state.visited, id)}}
         end
     end
   end
@@ -531,7 +534,8 @@ defmodule Lumina.Validate do
   defp visit(:skip, state), do: {[], state}
   defp visit({:issue, kind, uri, detail}, state), do: {[], issue(state, kind, uri, detail)}
 
-  defp visit({:point, %{point: point, entries: entries}, key, depth, ancestors}, state) do
+  # `ancestors` includes the point's own id.
+  defp visit({:point, %{point: point, entries: entries}, _key, depth, ancestors}, state) do
     state = %{
       state
       | objects: Enum.reverse(entries, state.objects),
@@ -541,7 +545,7 @@ defmodule Lumina.Validate do
 
     next =
       for %{kind: :ca, valid: true} = entry <- entries,
-          do: {entry.certificate, entry.uri, depth + 1, [key | ancestors], entry.resources}
+          do: {entry.certificate, entry.uri, depth + 1, ancestors, entry.resources}
 
     {next, state}
   end
