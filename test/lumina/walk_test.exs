@@ -176,6 +176,44 @@ defmodule Lumina.WalkTest do
       assert Enum.map(result.points, & &1.uri) == [@module <> "/ta", @module <> "/ca1"]
     end
 
+    @tag rfc: ["9286#1", "6481#2.2", "6481#5"],
+         doc: """
+         m7-shared-point: ca1 and ca2 both publish in rpki/ca1, each with
+         its own manifest. Marking the directory visited after ca1 would
+         skip ca2 as a duplicate, as happened to JPNIC and many APNIC
+         members (#195).
+         """
+    test "CAs sharing a publication point directory are each walked, from one fetch", %{
+      tmp_dir: tmp
+    } do
+      result = walk!(tmp, "m7-shared-point")
+
+      assert result.issues == []
+      assert [%{uri: @module}] = result.fetches
+
+      assert Enum.map(result.points, &{&1.uri, &1.status}) == [
+               {@module <> "/ta", :accepted},
+               {@module <> "/ca1", :accepted},
+               {@module <> "/ca1", :accepted}
+             ]
+    end
+
+    @tag rfc: ["6481#5", "9286#1"],
+         doc: """
+         m7-shared-manifest: ca2's SIA names ca1's directory and manifest.
+         The point is the manifest, so ca2's is ca1's, reached again: a
+         sibling's, so a duplicate rather than a loop (#195).
+         """
+    test "a CA naming another CA's manifest is a duplicate, and isn't walked again", %{
+      tmp_dir: tmp
+    } do
+      result = walk!(tmp, "m7-shared-manifest")
+
+      assert kinds(result) == [{:duplicate, @module <> "/ca1"}]
+      assert [%{certificate: @module <> "/ta/ca2.cer"}] = Enum.map(result.issues, & &1.detail)
+      assert Enum.map(result.points, & &1.uri) == [@module <> "/ta", @module <> "/ca1"]
+    end
+
     @tag rfc: "6481#5",
          doc: """
          RFC 6481 §5's locally configured maximum chain length, set to 2

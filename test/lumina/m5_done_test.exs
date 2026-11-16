@@ -89,6 +89,13 @@ defmodule Lumina.M5DoneTest do
     Lumina.Cache.path(cache, uri)
   end
 
+  # The file names a manifest in the cache lists.
+  defp listed(cache, manifest) do
+    path = Path.join(cache_dir(cache, manifest), Path.basename(manifest))
+    {:ok, decoded} = Lumina.Manifest.decode(File.read!(path))
+    Lumina.Manifest.names(decoded)
+  end
+
   @tag :rsync
   @tag rfc: ["6488#3", "9286#4.4", "9286#6", "9286#6.6"],
        doc: """
@@ -97,9 +104,10 @@ defmodule Lumina.M5DoneTest do
        manifest (its CMS envelope, its content, or the point's files) or
        its CRL (which invalidates the manifest's EE certificate). A
        failed point has only its manifest entry, nothing validated below
-       it; an accepted point has an entry for every signed object it
-       publishes, and those found invalid are exactly the ones a ruled
-       reject names. The summary's manifest and ROA counts agree.
+       it; an accepted point has an entry for every signed object its
+       manifest lists (several CAs' manifests may share a directory, #195),
+       and those found invalid are exactly the ones a ruled reject names.
+       The summary's manifest and ROA counts agree.
        """
   # Syncs every fixture; the done tests run at the same time (async).
   @tag timeout: :timer.minutes(5)
@@ -143,18 +151,24 @@ defmodule Lumina.M5DoneTest do
                 "#{fixture.id}: objects validated below failed #{point}"
               )
 
-        for %{valid: true, uri: manifest} <- manifests do
-          published =
-            Path.join(cache_dir(cache, manifest), "*.{roa,gbr,sig,tak}")
-            |> Path.wildcard()
-            |> Enum.map(&(dir(manifest) <> Path.basename(&1)))
+        # Several CAs may share a directory, each with its own manifest
+        # (RFC 9286 §1, #195): per directory, the signed objects the
+        # accepted manifests there list.
+        for {directory, accepted} <-
+              Enum.group_by(for(%{valid: true, uri: m} <- manifests, do: m), &dir/1) do
+          listed =
+            for manifest <- accepted,
+                name <- listed(cache, manifest),
+                Path.extname(name) in [".roa", ".gbr", ".sig", ".tak"],
+                uniq: true,
+                do: directory <> name
 
-          assert Enum.sort(published) ==
+          assert Enum.sort(listed) ==
                    signed
                    |> Enum.map(& &1.uri)
-                   |> Enum.filter(&(dir(&1) == dir(manifest)))
+                   |> Enum.filter(&(dir(&1) == directory))
                    |> Enum.sort(),
-                 "#{fixture.id} #{manifest}"
+                 "#{fixture.id} #{directory}"
         end
 
         invalid = for %{valid: false} = o <- signed, do: o

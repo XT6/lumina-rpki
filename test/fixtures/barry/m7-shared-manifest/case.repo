@@ -1,0 +1,21 @@
+ta.cer
+	ca1.cer
+		roa1.roa
+	ca2.cer
+		roa2.roa
+
+[node: ta.cer]
+# Barry gives the root serial 0; RFC 6487 section 4.2 requires a positive one (F-029).
+obj.tbsCertificate.serialNumber = 1
+
+[node: ca2.cer]
+# ca2 names ca1's publication point as its own: ca1's directory and ca1's
+# manifest. ca1 is a sibling, not an ancestor, so this is a duplicate,
+# not a loop (#195).
+rpp.uri = rsync://localhost:8873/rpki/ca1
+rpp.path = ca1
+obj.tbsCertificate.extensions.sia.extnValue = [
+	{ accessMethod = 1.3.6.1.5.5.7.48.5, accessLocation = { value = rsync://localhost:8873/rpki/ca1 } },
+	{ accessMethod = 1.3.6.1.5.5.7.48.10, accessLocation = { value = rsync://localhost:8873/rpki/ca1/ca1.mft } },
+	{ accessMethod = 1.3.6.1.5.5.7.48.13, accessLocation = { value = "https://localhost:8443/rrdp/notification.xml" } }
+]
