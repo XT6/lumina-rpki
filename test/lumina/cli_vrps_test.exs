@@ -106,6 +106,32 @@ defmodule Lumina.CLIVRPsTest do
     end
   end
 
+  describe "shared publication points (#195)" do
+    @describetag :rsync
+    @describetag :tmp_dir
+
+    @tag rfc: ["9286#1", "6481#2.2", "9582#5"],
+         doc: """
+         m7-shared-point: ca1's roa1.roa (1.1.0.0/16, 101::/16) and ca2's
+         roa2.roa (2.1.0.0/16, 201::/16) are in one directory, each listed
+         on its own CA's manifest.
+         """
+    test "CAs sharing a publication point directory each give their ROAs' VRPs", %{
+      tmp_dir: tmp
+    } do
+      {tals, cache, internal} = synced!(tmp, "m7-shared-point")
+
+      assert {0, out, "case: 4 VRPs\n"} = run(vrps_args(tals, cache), internal)
+
+      assert out ==
+               @header <>
+                 "AS1234,1.1.0.0/16,16,case\n" <>
+                 "AS1234,2.1.0.0/16,16,case\n" <>
+                 "AS1234,101::/16,16,case\n" <>
+                 "AS1234,201::/16,16,case\n"
+    end
+  end
+
   describe "--wide (#166)" do
     @describetag :rsync
     @describetag :tmp_dir

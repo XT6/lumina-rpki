@@ -65,7 +65,9 @@ defmodule Lumina.Walk do
   depth 0) isn't followed, and a publication point already visited isn't
   walked again: a loop if it is the publication point of an ancestor,
   otherwise a duplicate. Both are reported, and neither stops the rest of
-  the walk.
+  the walk. A publication point is identified by its CA's manifest
+  (`point_key/2`): several CAs may share one directory, each with its own
+  manifest (RFC 9286 §1, RFC 6481 §2.2), and each is walked (#195).
 
   The result:
 
@@ -217,6 +219,21 @@ defmodule Lumina.Walk do
       end
     else
       :not_ca
+    end
+  end
+
+  @doc """
+  What identifies `cert`'s publication point `pp` in a walk (#195): the
+  rsync URI of its manifest (SIA `rpkiManifest`, RFC 6487 §4.8.8.1), or
+  `pp` itself if it names none. Several CAs may publish in one
+  `caRepository` directory, each with its own manifest (RFC 9286 §1,
+  RFC 6481 §2.2), so the directory alone doesn't identify a CA's point.
+  """
+  @spec point_key(Certificate.t(), URI.t()) :: String.t()
+  def point_key(%Certificate{} = cert, %URI{} = pp) do
+    case Enum.find(Certificate.sia_uris(cert, :rpki_manifest), &rsync?/1) do
+      nil -> to_string(pp)
+      manifest -> manifest
     end
   end
 
@@ -381,18 +398,17 @@ defmodule Lumina.Walk do
   # Schedules the valid children of a validated point, ahead of the level
   # that will plan them, unless they would be a loop, a duplicate of a
   # point already walked, or too deep: `plan/2` decides those.
-  defp ahead(state, {_cert, _resources, pp, depth, ancestors}, %{
+  defp ahead(state, {ca, _resources, pp, depth, ancestors}, %{
          point: %{status: status},
          entries: entries
        })
        when status != :failed do
-    key = to_string(pp)
-    ancestors = [key | ancestors]
+    ancestors = [point_key(ca, pp) | ancestors]
 
     Enum.reduce(entries, state, fn
       %{valid: true, certificate: cert, resources: resources}, st when depth < st.max_depth ->
         with {:ok, child} <- repository(cert),
-             child_key = to_string(child),
+             child_key = point_key(cert, child),
              false <- child_key in ancestors,
              false <- MapSet.member?(st.visited, child_key) do
           schedule(st, {cert, resources, child, depth + 1, ancestors})
@@ -577,19 +593,20 @@ defmodule Lumina.Walk do
 
       {:ok, pp} ->
         key = to_string(pp)
+        id = point_key(cert, pp)
 
         cond do
           depth > state.max_depth ->
             {{:issue, :depth_exceeded, key, %{certificate: name, depth: depth}}, state}
 
-          key in ancestors ->
+          id in ancestors ->
             {{:issue, :loop, key, %{certificate: name}}, state}
 
-          MapSet.member?(state.visited, key) ->
+          MapSet.member?(state.visited, id) ->
             {{:issue, :duplicate, key, %{certificate: name}}, state}
 
           true ->
-            state = %{state | visited: MapSet.put(state.visited, key)}
+            state = %{state | visited: MapSet.put(state.visited, id)}
 
             case {covering(pp, state.fetched), URI.module(pp)} do
               {{dir, _outcome}, _} ->
@@ -666,7 +683,8 @@ defmodule Lumina.Walk do
 
       state = %{state | points: [point | state.points]}
       source = {module, outcome, Map.get(validated, point_id(key, cert, resources))}
-      children({cert, resources}, path, key, depth, [key | ancestors], source, state)
+      ancestors = [point_key(cert, pp) | ancestors]
+      children({cert, resources}, path, key, depth, ancestors, source, state)
     else
       {[], issue(state, :missing, key, %{covered_by: covered_by})}
     end

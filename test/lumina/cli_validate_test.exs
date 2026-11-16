@@ -145,6 +145,24 @@ defmodule Lumina.CLIValidateTest do
 
       assert out =~ "1 TAL(s), 4 object(s) valid, 0 invalid, at 2026-11-13T12:00:00Z\n"
     end
+
+    @tag :rsync
+    @tag rfc: ["9286#1", "6481#2.2"],
+         doc: """
+         m7-shared-point: ca1 and ca2 publish in one directory, each with its
+         own manifest; each point is validated with its own (#195).
+         """
+    test "CAs sharing a publication point directory are each validated", %{tmp_dir: tmp} do
+      {tal, cache, _report} = synced!(tmp, "m7-shared-point")
+
+      assert {0, out, ""} = run(["validate", "--cache", cache, "--tal", tal])
+
+      assert out =~
+               "  CA certificates: 2 valid, 0 invalid\n  manifests: 3 valid, 0 invalid\n" <>
+                 "  ROAs: 2 valid, 0 invalid\n"
+
+      refute out =~ "duplicate"
+    end
   end
 
   describe "signed objects (#131, #132)" do

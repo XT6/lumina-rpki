@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 90 Barry fixtures: 21 valid, 69 invalid.
+- 92 Barry fixtures: 23 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 837 unit tests in 69 modules.
+- 841 unit tests in 69 modules.
 
 ## Barry fixtures
 
@@ -209,12 +209,14 @@ from a second daemon.
 
 #### `m3-walk-loop`: A CA that names its parent's publication point as its own
 
-ca2 is issued by ca1 and published in ca1's directory, and its
-caRepository is that same directory. Walking ca2 leads back to the
-publication point that holds ca2.cer, so a naive walk never ends. The
-walk must notice that the publication point belongs to an ancestor,
-report the loop and carry on (D-008). The objects themselves are
-well formed; the loop is a property of the walk.
+ca2 is issued by ca1 and published in ca1's directory, and its SIA
+names ca1's publication point as its own: that same directory and
+ca1's manifest. Walking ca2 leads back to the manifest that lists
+ca2.cer, so a naive walk never ends. The walk must notice that the
+publication point belongs to an ancestor, report the loop and carry on
+(D-008). A CA that only shares its parent's directory, with a manifest
+of its own, isn't a loop (m7-shared-point, #195). The objects
+themselves are well formed; the loop is a property of the walk.
 
 - **Expected:** valid
 - **RFC:** [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5))
@@ -1175,6 +1177,22 @@ ROA content validation (#171).
 - **RFC:** [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5))
 - **Files:** [descriptor](../../test/fixtures/barry/m7-roa-prefix-outside-ee/case.repo) · [metadata](../../test/fixtures/barry/m7-roa-prefix-outside-ee/case.exs) · [rsync tree](../../test/fixtures/barry/m7-roa-prefix-outside-ee/rsync)
 
+#### `m7-shared-manifest`: Two CAs naming the same manifest as their publication point
+
+The TA certifies ca1 and ca2, and ca2's SIA names ca1's directory and ca1's manifest. A publication point is identified by its CA's manifest (#195), so ca2's point is ca1's, reached a second time: the walk reports it as a duplicate and doesn't walk it again (RFC 6481 section 5). Contrast m7-shared-point, where the two CAs share the directory but each has its own manifest, and both are walked. ca2's own products, roa2.roa among them, are generated under ca1/ but listed on no manifest the walk reads, so only roa1.roa gives VRPs.
+
+- **Expected:** valid
+- **RFC:** [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [9286 §1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-1))
+- **Files:** [descriptor](../../test/fixtures/barry/m7-shared-manifest/case.repo) · [metadata](../../test/fixtures/barry/m7-shared-manifest/case.exs) · [rsync tree](../../test/fixtures/barry/m7-shared-manifest/rsync)
+
+#### `m7-shared-point`: Two CAs sharing one publication point directory, each with its own manifest
+
+The TA certifies ca1 and ca2, and both name rsync://localhost:8873/rpki/ca1 as their caRepository. The directory holds two manifests, ca1.mft and ca2.mft, each listing only its own CA's products: ca1's CRL and roa1.roa, ca2's CRL and roa2.roa (RFC 9286 section 1: "each manifest describes only the collection of published products of its associated CA instance"; RFC 6481 section 2.2 lets related CAs share a publication point). A walk that marks the directory visited after ca1 skips ca2 as a duplicate and loses roa2.roa's VRPs, as Lumina did with JPNIC and many APNIC members in the M7 done test's live run (#195). Each CA's point is its manifest, so both are walked and validated.
+
+- **Expected:** valid
+- **RFC:** [9286 §1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-1)), [6481 §2.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2.2)), [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5))
+- **Files:** [descriptor](../../test/fixtures/barry/m7-shared-point/case.repo) · [metadata](../../test/fixtures/barry/m7-shared-point/case.exs) · [rsync tree](../../test/fixtures/barry/m7-shared-point/rsync)
+
 #### `m7-vrp-duplicate`: Two ROAs stating the same VRP
 
 ca1 publishes roa1.roa and roa2.roa, both authorizing AS64496 to originate 1.1.0.0/16, each with its own EE certificate holding that prefix. Both are valid (RFC 9582 section 5). The VRP is one authorization, so the default output lists it once; collecting VRPs (#164) keeps one per ROA, each with its URI, so `lumina vrps --wide` can show both (D-033).
@@ -1733,6 +1751,9 @@ Syncs run at 2026-11-13, inside the fixtures' default validity.
   --max-invalid 0 and 24 fail, 25 and 100 pass (D-022).
 - *verdicts:* a valid tree exits 0 and counts CA certificates and signed objects by type (RFC [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)), [6487 §4](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4)))
   m0-minimal-valid: ca1, two manifests and a ROA.
+- *verdicts:* CAs sharing a publication point directory are each validated (RFC [9286 §1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-1)), [6481 §2.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2.2)))
+  m7-shared-point: ca1 and ca2 publish in one directory, each with its
+  own manifest; each point is validated with its own (#195).
 - *signed objects (#131, #132):* a signed object whose CMS envelope or manifest content is invalid is listed with its rule (RFC [6488 §3](../rfc/rfc6488.txt) ([html](https://www.rfc-editor.org/rfc/rfc6488.html#section-3)), [9589 §4](../rfc/rfc9589.txt) ([html](https://www.rfc-editor.org/rfc/rfc9589.html#section-4)), [9286 §4.4](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.4)))
   Driven by the metadata of every m5-cms-* and m5-mft-* fixture: the
   object it names is listed invalid with its (first) rule, and nothing
@@ -1792,6 +1813,10 @@ sync`, then runs `lumina vrps` at 2030-01-01 (`--now`), through
   anchor, named after its TAL file (D-032), in the VRP order.
 - *CSV output:* a VRP stated by two ROAs is written once
   m7-vrp-duplicate: roa1.roa and roa2.roa both state AS64496, 1.1.0.0/16 (D-033).
+- *shared publication points (#195):* CAs sharing a publication point directory each give their ROAs' VRPs (RFC [9286 §1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-1)), [6481 §2.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2.2)), [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)))
+  m7-shared-point: ca1's roa1.roa (1.1.0.0/16, 101::/16) and ca2's
+  roa2.roa (2.1.0.0/16, 201::/16) are in one directory, each listed
+  on its own CA's manifest.
 - *--wide (#166):* adds the ROA's URI and lists a VRP once per ROA that states it
   m7-vrp-duplicate: roa1.roa and roa2.roa both state AS64496,
   1.1.0.0/16. --wide lists it once for each, with its ROA's URI
@@ -2399,9 +2424,10 @@ together, over all the data at once.
   manifest (its CMS envelope, its content, or the point's files) or
   its CRL (which invalidates the manifest's EE certificate). A
   failed point has only its manifest entry, nothing validated below
-  it; an accepted point has an entry for every signed object it
-  publishes, and those found invalid are exactly the ones a ruled
-  reject names. The summary's manifest and ROA counts agree.
+  it; an accepted point has an entry for every signed object its
+  manifest lists (several CAs' manifests may share a directory, #195),
+  and those found invalid are exactly the ones a ruled reject names.
+  The summary's manifest and ROA counts agree.
 - a point that fails live or as a replay is served from its last valid copy by sync and validate (RFC [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)), [9286 §4.2.1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-4.2.1)), [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
   One copy of m0-minimal-valid, served by a daemon and changed between
   syncs. A ROA that no longer matches its hash, and then (restored) a
@@ -3525,6 +3551,15 @@ and reports keep the names from the certificates.
   The fetch of the TA's module already brought ca1's directory; one rsync run in all.
 - *mirroring:* each fetch's outcome is recorded in the cache status
 - *limits (D-008):* an SIA loop terminates, with the loop reported (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+- *limits (D-008):* CAs sharing a publication point directory are each walked, from one fetch (RFC [9286 §1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-1)), [6481 §2.2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2.2)), [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  m7-shared-point: ca1 and ca2 both publish in rpki/ca1, each with
+  its own manifest. Marking the directory visited after ca1 would
+  skip ca2 as a duplicate, as happened to JPNIC and many APNIC
+  members (#195).
+- *limits (D-008):* a CA naming another CA's manifest is a duplicate, and isn't walked again (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [9286 §1](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-1)))
+  m7-shared-manifest: ca2's SIA names ca1's directory and manifest.
+  The point is the manifest, so ca2's is ca1's, reached again: a
+  sibling's, so a duplicate rather than a loop (#195).
 - *limits (D-008):* a chain deeper than the limit stops there, reported (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
   RFC 6481 §5's locally configured maximum chain length, set to 2
   here: ca3 is depth 3. Its files arrive with the module, but it isn't

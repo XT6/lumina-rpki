@@ -7,7 +7,14 @@ ta.cer
 obj.tbsCertificate.serialNumber = 1
 
 [node: ca2.cer]
-# ca2 names its parent's publication point as its own. Walking it finds
-# ca2.cer again: the walk must notice the loop and stop.
+# ca2 names its parent's publication point as its own: ca1's directory
+# and ca1's manifest. Walking it finds ca2.cer again: the walk must notice
+# the loop and stop. Sharing the directory alone isn't a loop: each CA
+# has its own manifest there (RFC 9286 section 1, #195).
 rpp.uri = rsync://localhost:8873/rpki/ca1
 rpp.path = ca1
+obj.tbsCertificate.extensions.sia.extnValue = [
+	{ accessMethod = 1.3.6.1.5.5.7.48.5, accessLocation = { value = rsync://localhost:8873/rpki/ca1 } },
+	{ accessMethod = 1.3.6.1.5.5.7.48.10, accessLocation = { value = rsync://localhost:8873/rpki/ca1/ca1.mft } },
+	{ accessMethod = 1.3.6.1.5.5.7.48.13, accessLocation = { value = "https://localhost:8443/rrdp/notification.xml" } }
+]
