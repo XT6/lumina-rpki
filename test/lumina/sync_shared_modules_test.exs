@@ -7,7 +7,9 @@ defmodule Lumina.SyncSharedModulesTest do
   modules each walk fetched (or failed to fetch) to the next, so a module
   shared by several trees, such as a hosted repository serving CAs under
   several RIRs, costs one rsync run per sync, and a module that failed
-  isn't retried. Each tree is still walked whole.
+  isn't retried. Each tree is still walked whole. The same holds for a
+  retry after a transient failure (D-039, #193): at most one per module
+  per sync.
 
   The two "trees" here are one Barry fixture, m0-minimal-valid, served by
   a local rsync daemon, under two TAL names: everything below the TA is
@@ -82,6 +84,55 @@ defmodule Lumina.SyncSharedModulesTest do
     assert second.walk.fetches == []
     assert [_ | _] = second.walk.points
     assert Enum.all?(second.walk.points, & &1.stale)
+  end
+
+  # The remap of `tals!/2`, sent through a proxy that resets the
+  # connections numbered in `drop`, or `:all`.
+  defp dropping(%{"localhost:8873" => "127.0.0.1:" <> port}, drop) do
+    proxy = RsyncDaemon.dropping_proxy!(String.to_integer(port), drop)
+    %{"localhost:8873" => "127.0.0.1:#{proxy}"}
+  end
+
+  @tag doc: """
+       Every connection to the shared module is reset: the first walk
+       fetches it, retries once, and fails; the second walk neither
+       fetches nor retries it.
+       """
+  test "a shared module is retried once per sync, not again for the next TAL", %{tmp_dir: tmp} do
+    {tals, remap} = tals!(tmp, ["first", "second"])
+
+    assert {:ok, [first, second]} =
+             Sync.run(tals, Path.join(tmp, "cache"),
+               now: @now,
+               remap: dropping(remap, :all),
+               retry_delay: 0
+             )
+
+    assert [%{uri: @module, outcome: :retried}, %{uri: @module, outcome: :error}] =
+             first.walk.fetches
+
+    assert Enum.count(first.walk.issues, &(&1.kind == :retried)) == 1
+    assert second.walk.fetches == []
+    refute Enum.any?(second.walk.issues, &(&1.kind == :retried))
+  end
+
+  test "the summary counts retried fetches and names the retry with its reason", %{tmp_dir: tmp} do
+    {tals, remap} = tals!(tmp, ["first"])
+
+    {:ok, [report]} =
+      Sync.run(tals, Path.join(tmp, "cache"),
+        now: @now,
+        remap: dropping(remap, [1]),
+        retry_delay: 0
+      )
+
+    summary = Sync.summary([report])
+
+    assert summary =~ "  rsync fetches: 2, 0 failed, 1 retried\n"
+
+    assert summary =~ "    retried: #{@module} (protocol_error: "
+
+    assert summary =~ "1 TAL(s), 2 rsync fetch(es), 0 TAL(s) with failures\n"
   end
 
   test "the summary says which modules an earlier TAL's walk fetched", %{tmp_dir: tmp} do

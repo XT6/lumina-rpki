@@ -17,7 +17,9 @@ defmodule Lumina.Sync do
   modules the earlier ones fetched (#102): a module that several trees
   share is fetched once per run, and one that failed isn't retried. A
   point in it is reported by the walk that reaches it, covered by that
-  module; the fetch, and a failure, by the walk that ran it.
+  module; the fetch, and a failure, by the walk that ran it. That holds
+  for a retry after a transient failure too (D-039): a module is retried
+  at most once per run, by the walk that fetched it.
 
   When a TAL's walk has run, the time is recorded in
   `<cache>/.state/syncs/<TA SKI hex>.json`, keyed like the stored TA, and
@@ -214,6 +216,7 @@ defmodule Lumina.Sync do
 
   defp walk_lines(walk) do
     failed = Enum.count(walk.fetches, &(&1.outcome == :error))
+    retried = Enum.count(walk.fetches, &(&1.outcome == :retried))
     stale = Enum.count(walk.points, & &1.stale)
     failed_points = Enum.count(walk.points, &(&1.status == :failed))
     fallback = Enum.count(walk.points, &(&1.status == :fallback))
@@ -243,6 +246,7 @@ defmodule Lumina.Sync do
       "  publication points: #{length(walk.points)}" <>
         if(notes != [], do: " (#{Enum.join(notes, ", ")})", else: "") <> "\n",
       "  rsync fetches: #{length(walk.fetches)}, #{failed} failed" <>
+        if(retried > 0, do: ", #{retried} retried", else: "") <>
         if(shared > 0, do: "; #{shared} modules fetched for an earlier TAL", else: "") <> "\n",
       if(overclaims > 0,
         do:

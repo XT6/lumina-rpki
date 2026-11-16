@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 90 Barry fixtures: 21 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 827 unit tests in 69 modules.
+- 837 unit tests in 69 modules.
 
 ## Barry fixtures
 
@@ -2881,6 +2881,9 @@ commands as given.
 - *status text:* a walk in progress shows its level, points, rsync runs and files
 - *status text:* a fetch running for more than 5 s is shown as the slowest, with its host
   A stuck host (like krill.dacs.utwente.nl in the live LACNIC run) becomes visible.
+- *status text:* a fetch being retried leaves the running ones and is counted as retried
+  A transient failure (D-039, #193) ends the first run without
+  counting it done or failed; the retry is a fetch of its own.
 - *status text:* on a terminal, the status line is cut to the terminal width
 - *validation (#180):* Validate.run/3 reports each level and each point validated, with counts matching the result
   m0-minimal-valid, synced then validated: a level event pair per
@@ -3166,6 +3169,15 @@ read as an rsync option.
 - *failures:* a path the module doesn't have is :not_found
 - *failures:* a server that never answers times out
   A server that accepts the connection and then says nothing hits the I/O timeout (D-008).
+- *transient failures (D-039, #193):* a dropped connection is transient, and the next try fetches the module
+  The proxy resets the first connection as soon as it accepts it,
+  as a server dropping the connection would, and passes the second
+  through to the daemon.
+- *transient failures (D-039, #193):* a refused connection, an unknown host, a missing module or path aren't transient
+  Each would fail the same way again: a refused connection, a host
+  that doesn't resolve, a module or a path the server doesn't have.
+- *transient failures (D-039, #193):* the I/O timeout isn't transient
+  The I/O timeout isn't retried: a silent server would cost another one (D-039).
 - *the rsync binary:* check finds rsync 3.1.0 or later
 - *the rsync binary:* a missing binary is :rsync_not_found, for check and for a fetch
 - *the rsync binary:* an rsync older than 3.1.0 is rejected
@@ -3215,7 +3227,9 @@ reach it (#102, D-012).
 modules each walk fetched (or failed to fetch) to the next, so a module
 shared by several trees, such as a hosted repository serving CAs under
 several RIRs, costs one rsync run per sync, and a module that failed
-isn't retried. Each tree is still walked whole.
+isn't retried. Each tree is still walked whole. The same holds for a
+retry after a transient failure (D-039, #193): at most one per module
+per sync.
 
 The two "trees" here are one Barry fixture, m0-minimal-valid, served by
 a local rsync daemon, under two TAL names: everything below the TA is
@@ -3226,6 +3240,11 @@ in the shared module `rsync://localhost:8873/rpki`.
   After a first sync, the shared module's host is remapped to a closed
   port: the first walk's fetch fails and its copy goes stale; the
   second walk doesn't try again and reads the same stale copy.
+- a shared module is retried once per sync, not again for the next TAL
+  Every connection to the shared module is reset: the first walk
+  fetches it, retries once, and fails; the second walk neither
+  fetches nor retries it.
+- the summary counts retried fetches and names the retry with its reason
 - the summary says which modules an earlier TAL's walk fetched
 
 ### `Lumina.TATest`
@@ -3561,6 +3580,21 @@ and reports keep the names from the certificates.
   ca2.cer changes (its hash no longer matches): ca1's point falls
   back to the copy the first walk kept, and ca2, ca3 and ca4 are
   still walked from it.
+- *a dropped connection (D-039, #193):* a module whose connection drops is fetched once more, and the retry is reported (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  As ARIN's module was lost to one connection reset in the M7 done
+  test's first five-RIR run (#170).
+- *a dropped connection (D-039, #193):* a module that fails twice is a failed fetch, and its last good copy is kept (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [8897 §7](../rfc/rfc8897.txt) ([html](https://www.rfc-editor.org/rfc/rfc8897.html#section-7)))
+  The first walk goes straight to the daemon; in the second, every
+  connection is reset. The cache keeps the first walk's copy, and no
+  staging directory is left behind.
+- *a dropped connection (D-039, #193):* a refused connection isn't retried
+  A refused connection would be refused again: one rsync run, no
+  retry, even with a delay that would stall the test if it waited.
+- *a dropped connection (D-039, #193):* the delay before a retry doesn't hold the host's place (D-011) (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  m3-walk-siblings with one rsync run at a time on the host: s1's
+  connection (the second; the first is the TA's module) is reset.
+  While s1 waits out the delay, s2 takes the host's place; s1's retry
+  then queues first in line, ahead of s3.
 - *caught mid-update (RFC 6481 §5, #137):* a point whose files don't match its manifest is fetched once more, and accepted (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [9286 §6.5](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.5)))
   The update finishes between the two fetches: the point is accepted after the retry.
 - *caught mid-update (RFC 6481 §5, #137):* a point that stays inconsistent fails after exactly one retry (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [9286 §6.5](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.5)), [9286 §6.6](../rfc/rfc9286.txt) ([html](https://www.rfc-editor.org/rfc/rfc9286.html#section-6.6)))
