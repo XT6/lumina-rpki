@@ -8,5 +8,6 @@
   Effective resources (#153): everything validates.
   """,
   rfc: ["3779#2.2.3.5", "3779#3.2.3.3", "6487#4.8.10", "6487#4.8.11"],
-  expected: :valid
+  expected: :valid,
+  vrps: ["AS1234,1.0.0.0/8,8", "AS1234,100::/8,8"]
 }

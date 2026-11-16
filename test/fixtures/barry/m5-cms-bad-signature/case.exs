@@ -20,5 +20,6 @@
          reason: "the signature doesn't verify with the EE certificate's key",
          rule: :bad_signature
        }
-     ]}
+     ]},
+  vrps: []
 }

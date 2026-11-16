@@ -17,5 +17,6 @@
          reason: "the file hash algorithm is SHA-1, not SHA-256",
          rule: :manifest_hash_algorithm
        }
-     ]}
+     ]},
+  vrps: []
 }

@@ -17,5 +17,6 @@
          reason: "the manifest's EE certificate is revoked",
          rule: :revoked
        }
-     ]}
+     ]},
+  vrps: []
 }

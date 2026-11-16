@@ -17,5 +17,6 @@
          reason: "the SignerInfo digest algorithm is SHA-1, not SHA-256",
          rule: :digest_algorithm
        }
-     ]}
+     ]},
+  vrps: []
 }

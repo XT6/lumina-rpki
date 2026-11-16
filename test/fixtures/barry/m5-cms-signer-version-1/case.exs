@@ -17,5 +17,6 @@
          reason: "the SignerInfo version is 1; RFC 6488 requires 3",
          rule: :signer_version
        }
-     ]}
+     ]},
+  vrps: []
 }

@@ -11,5 +11,11 @@
   them, to have a last good copy, and then take the host away.
   """,
   rfc: ["6481#5", "8897#7"],
-  expected: :valid
+  expected: :valid,
+  vrps: [
+    "AS1234,1.1.0.0/16,16",
+    "AS1234,2.1.0.0/16,16",
+    "AS1234,101::/16,16",
+    "AS1234,201::/16,16"
+  ]
 }

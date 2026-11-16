@@ -32,7 +32,10 @@ defmodule Mix.Lumina.Fixtures do
   is optional and overrides the default validity period. `rsync_modules` is
   optional: rsync modules on `localhost:8873` besides `rpki` (which serves
   all of `rsync/`), each mapped to the directory under `rsync/` it serves,
-  for fixtures whose CAs publish in separate modules (D-012).
+  for fixtures whose CAs publish in separate modules (D-012). `vrps` is
+  required when `rsync/` holds a ROA: the VRPs `lumina vrps` must write
+  for the fixture, as CSV lines without the trust anchor
+  (`"AS64496,1.1.0.0/16,24"`), each once, in any order (#170).
 
   `case.exs` is read as data: anything but literal values (maps, lists,
   tuples, strings, atoms, numbers) is rejected, and nothing in it is run.
@@ -47,7 +50,8 @@ defmodule Mix.Lumina.Fixtures do
   def default_barry_opts, do: [now: "2026-01-01T00:00:00Z", later: "2036-01-01T00:00:00Z"]
 
   @required [:id, :title, :milestone, :rationale, :rfc, :expected]
-  @optional [:barry, :rsync_modules]
+  @optional [:barry, :rsync_modules, :vrps]
+  @vrp_regex ~r/\AAS\d+,[0-9a-f.:]+\/\d+,\d+\z/
   @module_regex ~r/\A[a-z0-9][a-z0-9-]*\z/
   @milestones Enum.map(0..9, &"M#{&1}")
   @id_regex ~r/\Am[0-9]-[a-z0-9]+(?:-[a-z0-9]+)*\z/
@@ -70,7 +74,8 @@ defmodule Mix.Lumina.Fixtures do
                ]},
           required(:dir) => Path.t(),
           optional(:barry) => keyword(String.t()),
-          optional(:rsync_modules) => %{String.t() => String.t()}
+          optional(:rsync_modules) => %{String.t() => String.t()},
+          optional(:vrps) => [String.t()]
         }
   @type problem :: %{file: Path.t(), message: String.t()}
 
@@ -113,7 +118,8 @@ defmodule Mix.Lumina.Fixtures do
         check_files(case_dir, :descriptor) ++
           check_metadata(meta, case_dir, library) ++
           check_files(case_dir, :output) ++
-          check_rejects(meta, case_dir)
+          check_rejects(meta, case_dir) ++
+          check_vrps_present(meta, case_dir)
 
       case problems do
         [] -> {:ok, Map.put(meta, :dir, case_dir)}
@@ -240,7 +246,8 @@ defmodule Mix.Lumina.Fixtures do
       end) ++
       check(meta, :expected, &check_expected/1) ++
       check(meta, :barry, &check_barry/1) ++
-      check(meta, :rsync_modules, &check_modules/1)
+      check(meta, :rsync_modules, &check_modules/1) ++
+      check(meta, :vrps, &check_vrps/1)
   end
 
   defp check(meta, key, fun) do
@@ -290,6 +297,28 @@ defmodule Mix.Lumina.Fixtures do
     [
       "expected must be :valid or {:invalid, [%{object: ..., reason: ...}, ...]}, got: #{inspect(other)}"
     ]
+  end
+
+  defp check_vrps(vrps) when is_list(vrps) do
+    malformed =
+      for vrp <- vrps,
+          not (is_binary(vrp) and Regex.match?(@vrp_regex, vrp)),
+          do: "vrps: #{inspect(vrp)} must look like \"AS64496,1.1.0.0/16,24\""
+
+    duplicates =
+      for {vrp, n} <- Enum.frequencies(vrps), n > 1, do: "vrps: #{inspect(vrp)} is listed twice"
+
+    malformed ++ duplicates
+  end
+
+  defp check_vrps(other), do: ["vrps must be a list of VRPs, got: #{inspect(other)}"]
+
+  defp check_vrps_present(meta, case_dir) do
+    roas = Path.wildcard(Path.join([case_dir, "rsync", "**", "*.roa"]))
+
+    if roas != [] and not Map.has_key?(meta, :vrps),
+      do: ["missing key :vrps (required: rsync/ holds a ROA; [] if none is valid)"],
+      else: []
   end
 
   defp check_barry(opts) do

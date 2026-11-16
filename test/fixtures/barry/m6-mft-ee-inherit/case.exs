@@ -8,5 +8,6 @@
   Manifest EE inherit check (#157, D-029): everything validates; only ta.mft warns.
   """,
   rfc: ["9286#5.1", "3779#2.2.3.5", "3779#3.2.3.3"],
-  expected: :valid
+  expected: :valid,
+  vrps: ["AS1234,1.3.0.0/16,16", "AS1234,103::/16,16"]
 }

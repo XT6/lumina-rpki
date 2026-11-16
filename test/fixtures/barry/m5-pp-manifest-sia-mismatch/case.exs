@@ -17,5 +17,6 @@
          reason: "the EE certificate's signedObject URI isn't the manifest's URI",
          rule: :manifest_uri_mismatch
        }
-     ]}
+     ]},
+  vrps: []
 }

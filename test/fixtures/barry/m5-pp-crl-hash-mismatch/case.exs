@@ -21,5 +21,6 @@
          reason: "the hash of ca1.crl doesn't match the manifest",
          rule: :hash_mismatch
        }
-     ]}
+     ]},
+  vrps: []
 }

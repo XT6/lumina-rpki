@@ -17,5 +17,6 @@
          reason: "thisUpdate is not before nextUpdate",
          rule: :manifest_dates
        }
-     ]}
+     ]},
+  vrps: []
 }

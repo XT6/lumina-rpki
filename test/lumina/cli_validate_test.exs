@@ -73,6 +73,9 @@ defmodule Lumina.CLIValidateTest do
          positive fixture has nothing invalid at all, signed objects
          included.
          """
+    # Syncs every fixture, while the done tests do the same (async): the
+    # default 60 s isn't enough under the full suite's load.
+    @tag timeout: :timer.minutes(5)
     test "validating a synced cache gives the walk's verdicts on every Barry fixture", %{
       tmp_dir: tmp
     } do

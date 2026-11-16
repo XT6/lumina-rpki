@@ -17,5 +17,6 @@
          reason: "roa2.roa is listed but not published",
          rule: :file_missing
        }
-     ]}
+     ]},
+  vrps: []
 }

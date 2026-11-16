@@ -17,5 +17,6 @@
          reason: "roa1.roa is listed twice",
          rule: :manifest_duplicate_name
        }
-     ]}
+     ]},
+  vrps: []
 }

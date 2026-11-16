@@ -17,5 +17,6 @@
          reason: "the signature algorithm is sha1WithRSAEncryption",
          rule: :signature_algorithm
        }
-     ]}
+     ]},
+  vrps: []
 }

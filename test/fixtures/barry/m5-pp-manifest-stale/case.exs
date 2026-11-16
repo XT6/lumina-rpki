@@ -17,5 +17,6 @@
          reason: "the manifest is stale: nextUpdate is before the validation time",
          rule: :manifest_stale
        }
-     ]}
+     ]},
+  vrps: []
 }

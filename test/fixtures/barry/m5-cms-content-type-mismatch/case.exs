@@ -17,5 +17,6 @@
          reason: "the content-type attribute is not the eContentType",
          rule: :content_type_mismatch
        }
-     ]}
+     ]},
+  vrps: []
 }

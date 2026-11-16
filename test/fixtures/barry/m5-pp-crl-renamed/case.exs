@@ -22,5 +22,6 @@
          reason: "ca2.crl is listed but not published",
          rule: :file_missing
        }
-     ]}
+     ]},
+  vrps: []
 }

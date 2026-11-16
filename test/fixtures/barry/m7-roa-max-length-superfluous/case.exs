@@ -8,5 +8,6 @@
   ROA content validation (#171).
   """,
   rfc: ["9582#4.3.2.2"],
-  expected: :valid
+  expected: :valid,
+  vrps: ["AS1234,1.1.0.0/16,16", "AS1234,101::/16,16"]
 }

@@ -17,5 +17,6 @@
          reason: "the manifest number is longer than 20 octets",
          rule: :manifest_number_range
        }
-     ]}
+     ]},
+  vrps: []
 }

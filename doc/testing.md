@@ -145,6 +145,7 @@ The generated files are committed with the descriptor, so tests are reproducible
 | `rfc` | yes | RFC sections the fixture checks, in the same format as the `:rfc` tag. |
 | `expected` | yes | `:valid`, or `{:invalid, rejects}`. Each reject gives an `object` (a path under `rsync/`, which must exist) and the `reason` a validator must reject it, and optionally the `rule` (an atom) of the certificate verdict that rejects it: a `Lumina.Chain`/`Lumina.Profile` problem rule, or for a `.crl` the CRL's rule, which makes every certificate in its directory `crl_invalid`. The M4 done test checks that the certificates found invalid are exactly those named by rejects with a rule. |
 | `barry` | no | Overrides the validity period passed to Barry: `now:` and `later:`, as UTC timestamps. |
+| `vrps` | if the fixture has ROAs | The VRPs a validator must output for the fixture at 2030-01-01, as `lumina vrps` writes them in CSV without the trust anchor column: `["AS64496,1.1.0.0/17,24", "AS64496,101::/16,48"]`, each once, in any order; `[]` when no ROA is valid. Every host the fixture's certificates name counts as reachable. The M7 done test checks that `lumina vrps` gives exactly these. |
 | `rsync_modules` | no | Extra rsync modules on `localhost:8873`, besides `rpki` (all of `rsync/`): a map of module name to the directory under `rsync/` it serves, such as `%{"s1" => "s1"}`. `fixture.modules` gives the full set for a test daemon. |
 
 The file is read as data. Function calls, variables and string interpolation are rejected, and nothing in it is run.
@@ -154,7 +155,8 @@ The file is read as data. Function calls, variables and string interpolation are
 - metadata is missing or blank,
 - an RFC reference is invalid,
 - the `id` doesn't match the folder or milestone,
-- a rejected object isn't in `rsync/`, or
+- a rejected object isn't in `rsync/`,
+- the fixture has a ROA but no `vrps`, or a `vrps` entry isn't `AS<n>,<prefix>,<maxLength>`, or
 - the generated output is missing.
 
 ### Generating

@@ -17,5 +17,6 @@
          reason: "the file name roa+1.roa has a character outside a-z A-Z 0-9 - _",
          rule: :manifest_file_name
        }
-     ]}
+     ]},
+  vrps: []
 }

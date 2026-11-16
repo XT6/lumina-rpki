@@ -17,5 +17,6 @@
          reason: "the sid is not the EE certificate's SKI",
          rule: :sid_mismatch
        }
-     ]}
+     ]},
+  vrps: []
 }

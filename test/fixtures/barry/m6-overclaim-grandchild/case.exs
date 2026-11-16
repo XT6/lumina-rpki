@@ -16,5 +16,6 @@
          reason: "1.2.0.0/24 not held by the issuer",
          rule: :resources_not_encompassed
        }
-     ]}
+     ]},
+  vrps: ["AS1234,1.1.2.1/32,32", "AS1234,101:201::/32,32"]
 }
