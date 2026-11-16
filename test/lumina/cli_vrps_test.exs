@@ -14,7 +14,7 @@ defmodule Lumina.CLIVRPsTest do
   """
   use ExUnit.Case, async: true
 
-  alias Lumina.CLI
+  alias Lumina.{CLI, TAL}
 
   doctest Lumina.VRP
   alias Lumina.Test.{Fixture, RsyncDaemon}
@@ -298,6 +298,132 @@ defmodule Lumina.CLIVRPsTest do
                json!(["--tal", tal], Path.join(tmp, "empty"), [])
 
       assert out =~ ~s("roas": []\n)
+    end
+  end
+
+  describe "--sync (#185)" do
+    @describetag :rsync
+    @describetag :tmp_dir
+
+    # The clock (`internal` :now) for the syncs and the age checks; the
+    # VRPs are validated at --now 2030-01-01 throughout.
+    @clock ~U[2030-01-01 12:00:00Z]
+
+    # m1-roa-prefixes at a local daemon, with a TAL named case.tal, not
+    # synced yet.
+    defp served!(tmp) do
+      fixture = Fixture.load!("m1-roa-prefixes")
+      daemon = RsyncDaemon.start!(Path.join(tmp, "daemon"), fixture.modules)
+      authority = "127.0.0.1:#{daemon.port}"
+      tal = Path.join(tmp, "case.tal")
+
+      File.write!(
+        tal,
+        fixture.tal_path
+        |> File.read!()
+        |> String.split("\n")
+        |> Enum.reject(&String.starts_with?(&1, "https://"))
+        |> Enum.map_join("\n", &String.replace(&1, "localhost:8873", authority))
+      )
+
+      {["--tal", tal], Path.join(tmp, "cache"), [remap: %{"localhost:8873" => authority}]}
+    end
+
+    defp at(internal, minutes), do: [now: DateTime.add(@clock, minutes * 60)] ++ internal
+
+    defp sync_at!(tals, cache, internal, minutes),
+      do: {0, _, _} = run(["sync", "--cache", cache | tals], at(internal, minutes))
+
+    @csv @header <>
+           "AS64496,1.1.0.0/17,24,case\nAS64496,1.1.128.0/24,24,case\nAS64496,101::/16,48,case\n"
+
+    test "with an empty cache, the TAL is synced and its VRPs written", %{tmp_dir: tmp} do
+      {tals, cache, internal} = served!(tmp)
+
+      assert {1, @header, _} = run(vrps_args(tals, cache), at(internal, 0))
+
+      assert {0, @csv, err} = run(vrps_args(tals, cache, ["--sync"]), at(internal, 0))
+      assert err =~ "lumina vrps: syncing #{List.last(tals)}: no trust anchor in the cache\n"
+      assert err =~ "  rsync fetches: 1, 0 failed\n"
+    end
+
+    @tag doc: """
+         Synced 10 minutes before, within the default --max-age of 1h: no
+         sync, shown by the repository host now pointing at a closed port,
+         which would fail one.
+         """
+    test "a TAL synced within --max-age isn't synced again", %{tmp_dir: tmp} do
+      {tals, cache, internal} = served!(tmp)
+      sync_at!(tals, cache, internal, -10)
+      closed = [remap: %{"localhost:8873" => "127.0.0.1:#{RsyncDaemon.closed_port()}"}]
+
+      assert {0, @csv, err} = run(vrps_args(tals, cache, ["--sync"]), at(closed, 0))
+      refute err =~ "syncing"
+    end
+
+    test "a TAL last synced longer ago than --max-age is synced", %{tmp_dir: tmp} do
+      {tals, cache, internal} = served!(tmp)
+      sync_at!(tals, cache, internal, -120)
+
+      assert {0, @csv, err} = run(vrps_args(tals, cache, ["--sync"]), at(internal, 0))
+
+      assert err =~
+               "lumina vrps: syncing #{List.last(tals)}: last synced 2030-01-01T10:00:00Z, " <>
+                 "more than 1h ago\n"
+
+      assert Lumina.Sync.last_synced(cache, elem(TAL.decode_file(List.last(tals)), 1)) == @clock
+
+      assert {0, @csv, err} =
+               run(vrps_args(tals, cache, ["--sync", "--max-age", "3h"]), at(internal, 100))
+
+      refute err =~ "syncing"
+    end
+
+    @tag doc: """
+         Two TALs: case.tal, synced a minute ago, and dead.tal, with
+         m0-minimal-valid's key (so its own trust anchor) and only a URI
+         at a closed port. Only dead.tal is synced; that sync fails, and
+         case.tal's VRPs are still written, with exit 1.
+         """
+    test "only the TALs that need it are synced, and a failed sync still writes the VRPs",
+         %{tmp_dir: tmp} do
+      {tals, cache, internal} = served!(tmp)
+      sync_at!(tals, cache, internal, -1)
+      dead = Path.join(tmp, "dead.tal")
+
+      File.write!(
+        dead,
+        Fixture.load!("m0-minimal-valid").tal_path
+        |> File.read!()
+        |> String.split("\n")
+        |> Enum.reject(&String.starts_with?(&1, ["https://", "rsync://"]))
+        |> then(&["rsync://127.0.0.1:#{RsyncDaemon.closed_port()}/rpki/ta.cer" | &1])
+        |> Enum.join("\n")
+      )
+
+      args = vrps_args(tals ++ ["--tal", dead], cache, ["--sync", "--timeout", "5"])
+      assert {1, @csv, err} = run(args, at(internal, 0))
+
+      assert err =~ "lumina vrps: syncing #{dead}: no trust anchor in the cache\n"
+      refute err =~ "syncing #{List.last(tals)}"
+
+      assert err =~
+               "lumina vrps: warning: the sync had failures (above); the VRPs are written from what the cache holds\n"
+    end
+
+    @tag :tmp_dir
+    test "sync flags without --sync, and a bad --max-age, are usage errors", %{tmp_dir: tmp} do
+      base = vrps_args(["--tal", "tals/lacnic.tal"], Path.join(tmp, "cache"))
+
+      assert {2, "", err} = run(base ++ ["--max-age", "2h"])
+      assert err =~ "lumina vrps: --max-age needs --sync\n"
+      assert {2, "", err} = run(base ++ ["--per-host", "2"])
+      assert err =~ "lumina vrps: --per-host needs --sync\n"
+
+      for bad <- ["0", "2w", "-1h", "h", "1.5h"] do
+        assert {2, "", err} = run(base ++ ["--sync", "--max-age", bad])
+        assert err =~ "--max-age must be a duration such as 90s, 30m, 2h or 1d"
+      end
     end
   end
 

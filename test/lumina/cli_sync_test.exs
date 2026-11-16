@@ -230,6 +230,28 @@ defmodule Lumina.CLISyncTest do
     end
   end
 
+  describe "sync times (#185)" do
+    @describetag :rsync
+
+    @tag doc: """
+         lumina vrps --sync measures a TAL's age from this record. A TAL
+         whose TA can't be retrieved, with none stored, gets none.
+         """
+    test "each TAL whose tree was walked gets its sync time recorded", %{tmp_dir: tmp} do
+      {tal, remap} = served_tal(tmp, "m0-minimal-valid", Path.join(tmp, "tals"))
+      dead = dead_tal("m1-roa-prefixes", Path.join(tmp, "tals"))
+      cache = Path.join(tmp, "cache")
+
+      assert {1, _, _} =
+               run(["sync", "--cache", cache, "--tal", tal, "--tal", dead, "--timeout", "5"],
+                 remap: remap
+               )
+
+      assert Lumina.Sync.last_synced(cache, elem(Lumina.TAL.decode_file(tal), 1)) == @now
+      assert Lumina.Sync.last_synced(cache, elem(Lumina.TAL.decode_file(dead), 1)) == nil
+    end
+  end
+
   describe "overclaims (#155)" do
     @tag :rsync
     @tag rfc: ["6487#7.2", "3779#2.3"],

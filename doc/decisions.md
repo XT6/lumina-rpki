@@ -44,6 +44,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-034](#d-034-vrps-are-written-even-above---max-invalid) | Above `--max-invalid`, `lumina vrps` still writes the VRPs and warns | 2026-11-15 | M7 plan, #165 |
 | [D-035](#d-035-vrps-compared-with-routinators-live-csv) | VRPs are compared with Routinator's live CSV, downloaded when the comparison runs | 2026-11-15 | M7 plan, #168, #170 |
 | [D-036](#d-036-every-long-running-operation-reports-progress) | Every long-running operation reports progress | 2026-11-15 | #180 |
+| [D-037](#d-037-lumina-vrps---sync-syncs-only-what-needs-it) | `lumina vrps --sync` syncs only the TALs that need it | 2026-11-16 | #185 |
 
 ## D-001: CLI model
 
@@ -422,7 +423,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 ## D-031: `lumina vrps` writes VRPs from the cache
 
 - **Date:** 2026-11-15
-- **Decision:** VRPs are written by a new command, `lumina vrps [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT] [--format csv|json] [--output FILE] [--wide]`. Like `lumina validate`, it validates the cache offline from each TAL's stored TA; it doesn't fetch. A one-shot command that syncs and then writes VRPs may come later.
+- **Decision:** VRPs are written by a new command, `lumina vrps [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT] [--format csv|json] [--output FILE] [--wide]`. Like `lumina validate`, it validates the cache offline from each TAL's stored TA; it doesn't fetch. A one-shot command that syncs and then writes VRPs may come later (it came as `--sync`, D-037).
 - **Why:** D-001 (commands are verbs, each with its own flags); fetching and validating stay separate, as in `sync` and `validate`.
 - **Where:** M7 plan (maintainer: "Agree"), #165.
 - **As implemented (#165):** `Lumina.CLI` `vrps_command`; `--format` takes `csv` (JSON in #167, `--wide` in #166). A short summary goes to stderr (VRPs per TAL, and why a TAL fails); stdout has only the CSV. `--output` writes a temporary file next to FILE and renames it over FILE.
@@ -465,3 +466,16 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Why:** the maintainer: "ALL long running operations need progress reports / progress bars". A validation of LACNIC alone takes about 45 s, a sync about a minute, and all five RIRs longer; without a report the user can't tell work from a hang.
 - **Where:** maintainer, 2026-11-15, while `lumina vrps` was added (#165); #180 adds it to `lumina vrps` and `lumina validate`, and makes it the default for them and for `lumina sync`, which had it since #96 (then only on a terminal or with `--progress`).
 - **Consequences:** a new long-running command or stage (RRDP in M8, for example) isn't done until it reports progress, with tests for its events and for `--progress` / `--quiet`.
+
+## D-037: `lumina vrps --sync` syncs only what needs it
+
+- **Date:** 2026-11-16
+- **Decision:** the one-shot mode D-031 left room for is a flag on `lumina vrps`, not a separate command: `lumina vrps --sync [--max-age DURATION]` first syncs, as `lumina sync` does, each TAL that has no trust anchor in the cache or whose last sync is older than `--max-age` (default 1 hour), then validates and writes as without it. The other TALs are validated from the cache as they are.
+- **Why:** the maintainer preferred a flag to a new command, and syncing only when the cache is missing, incomplete or too old, so that running `lumina vrps --sync` often (from cron, say) doesn't fetch every time.
+- **Where:** maintainer, 2026-11-16 ("i like the idea of a flag rather than a separate command. Only sync when cache empty or tal ta missing, or if cache older than a certain threshold"; "1 hour seems fine"), #185.
+- **As implemented (#185):**
+  - `Lumina.Sync.run/3` records when each TAL's walk ran, in `<cache>/.state/syncs/<TA SKI hex>.json`; `Sync.last_synced/2` reads it. A walk counts even if some fetches failed, or a delegated host that is always down would force a sync every time. A TAL with no record (synced before #185) is synced.
+  - The ages are measured on the clock, not at `--now`.
+  - The TALs to sync go to one `Sync.run/3`, so they share modules (#102). The sync takes `lumina sync`'s `--timeout`, `--max-depth`, `--per-host` and `--rsync`, which need `--sync`, as does `--max-age` (usage error, exit 2). `--max-age` takes `90s`, `30m`, `2h`, `1d` or seconds.
+  - On stderr: why each TAL is synced, the sync's progress (D-036) and summary. A sync with failures (any failed fetch, as for `lumina sync`), or one that can't run (rsync missing, the cache locked), gives a warning: the VRPs are written from what the cache holds, and the exit code is 1. On live LACNIC (2026-11-16) two delegated modules always fail, so `--sync` runs that sync exit 1 there.
+

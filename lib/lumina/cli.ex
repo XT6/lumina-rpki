@@ -143,11 +143,17 @@ defmodule Lumina.CLI do
   Usage: lumina vrps [--cache DIR] [--tal FILE]... [--now TIME]
                      [--max-invalid PERCENT] [--format csv|json]
                      [--output FILE] [--wide] [--progress | --quiet]
+                     [--sync [--max-age DURATION] [--timeout SECONDS]
+                      [--max-depth N] [--per-host N] [--rsync PATH]]
 
   Validate the cache as lumina validate does, offline, and write the
   Validated ROA Payloads (VRPs) of the valid ROAs: one per distinct AS,
   prefix, maxLength and trust anchor, however many ROAs state it. The
   trust anchor is named after its TAL file, without .tal.
+
+  With --sync, first sync, as lumina sync does, each TAL that needs it:
+  the cache has no trust anchor for it, or its last sync is older than
+  --max-age. Other TALs are validated from the cache as they are.
 
   Flags:
     --cache DIR   the cache directory (default: as for lumina sync)
@@ -173,14 +179,22 @@ defmodule Lumina.CLI do
     --progress    report progress on stderr (the default): a status
                   line on a terminal, timestamped lines otherwise
     --quiet       no progress report
+    --sync        sync the TALs that need it first (see above)
+    --max-age DURATION
+                  with --sync: how old a TAL's last sync may be, such as
+                  90s, 30m, 2h or 1d, or seconds (default: 1h)
+    --timeout SECONDS, --max-depth N, --per-host N, --rsync PATH
+                  with --sync: as for lumina sync
 
-  A short summary goes to standard error: the VRPs of each TAL, and
-  warnings; so does the progress report.
+  A short summary goes to standard error: why each TAL was synced and
+  the sync's summary, the VRPs of each TAL, and warnings; so does the
+  progress report.
 
   Exit codes: 0 written, 1 a TAL with no trust anchor in the cache, an
   invalid one, or more than PERCENT invalid objects (the VRPs of the
-  others, and of a TAL over PERCENT, are still written), or FILE can't be
-  written, 2 usage error.
+  others, and of a TAL over PERCENT, are still written), a sync that
+  failed (the VRPs are written from what the cache holds), or FILE can't
+  be written, 2 usage error.
   """
 
   @rsync_hint " (on macOS, /usr/bin/rsync is openrsync: install rsync with Homebrew and put it first in PATH, or give it with --rsync PATH)"
@@ -291,7 +305,8 @@ defmodule Lumina.CLI do
                   opts[:cache] || default_cache(),
                   limits ++ progress ++ internal,
                   out,
-                  err
+                  err,
+                  "lumina sync"
                 )
               end)
 
@@ -358,6 +373,12 @@ defmodule Lumina.CLI do
     wide: :boolean,
     progress: :boolean,
     quiet: :boolean,
+    sync: :boolean,
+    max_age: :string,
+    timeout: :integer,
+    max_depth: :integer,
+    per_host: :integer,
+    rsync: :string,
     help: :boolean
   ]
 
@@ -371,7 +392,12 @@ defmodule Lumina.CLI do
              {:ok, tals} <- read_tals(paths),
              {:ok, now} <- now_flag(opts[:now], internal),
              {:ok, max_invalid} <- max_invalid_flag(Keyword.get(opts, :max_invalid, 10)),
-             {:ok, format} <- format_flag(Keyword.get(opts, :format, "csv")) do
+             {:ok, format} <- format_flag(Keyword.get(opts, :format, "csv")),
+             {:ok, max_age} <- max_age_flag(opts),
+             {:ok, limits} <- limits(opts) do
+          synced =
+            if opts[:sync], do: sync_needed(tals, opts, max_age, limits, err, internal), else: 0
+
           reports = validate_all(tals, opts, now, err)
 
           vrps = VRP.sort(for {_path, {:ok, r}} <- reports, v <- r.vrps, do: v)
@@ -402,7 +428,7 @@ defmodule Lumina.CLI do
 
           case write_vrps(opts[:output], data, out) do
             :ok ->
-              if failed == [], do: 0, else: 1
+              if failed == [], do: synced, else: 1
 
             {:error, reason} ->
               written(
@@ -438,6 +464,97 @@ defmodule Lumina.CLI do
       end
     after
       stop.()
+    end
+  end
+
+  @sync_only [:max_age, :timeout, :max_depth, :per_host, :rsync]
+
+  # --max-age DURATION in seconds; it and the other sync flags need --sync.
+  defp max_age_flag(opts) do
+    case {opts[:sync], Enum.find(@sync_only, &Keyword.has_key?(opts, &1))} do
+      {sync, flag} when sync != true and flag != nil ->
+        {:error, "--#{String.replace(to_string(flag), "_", "-")} needs --sync"}
+
+      _ ->
+        case duration(Keyword.get(opts, :max_age, "1h")) do
+          {:ok, seconds} -> {:ok, seconds}
+          :error -> {:error, "--max-age must be a duration such as 90s, 30m, 2h or 1d"}
+        end
+    end
+  end
+
+  @units %{"" => 1, "s" => 1, "m" => 60, "h" => 3600, "d" => 86_400}
+
+  defp duration(text) do
+    case Integer.parse(text) do
+      {n, unit} when n > 0 and is_map_key(@units, unit) -> {:ok, n * @units[unit]}
+      _ -> :error
+    end
+  end
+
+  # --sync (#185, D-037): syncs the TALs that have no trust anchor in the
+  # cache or whose last sync is older than `max_age` seconds, in one
+  # Sync.run/3 so they share modules (#102). Ages are measured on the
+  # clock, not at --now. Returns the exit code the sync contributes: 1 if
+  # it failed or couldn't run; the VRPs are written from the cache anyway.
+  defp sync_needed(tals, opts, max_age, limits, err, internal) do
+    cache = opts[:cache] || default_cache()
+    clock = Keyword.get_lazy(internal, :now, &DateTime.utc_now/0)
+
+    stale =
+      Enum.filter(tals, fn {path, tal} ->
+        case sync_reason(cache, tal, clock, max_age, Keyword.get(opts, :max_age, "1h")) do
+          nil ->
+            false
+
+          reason ->
+            IO.write(err, "lumina vrps: syncing #{path}: #{reason}\n")
+            true
+        end
+      end)
+
+    internal = rsync_flag(opts[:rsync], internal)
+
+    cond do
+      stale == [] ->
+        0
+
+      (check = rsync_check(internal)) != :ok ->
+        {:error, message} = check
+        written(err, "lumina vrps: warning: can't sync: #{message}\n", 1)
+
+      true ->
+        code =
+          with_progress(opts, err, fn progress ->
+            sync(stale, cache, limits ++ progress ++ internal, err, err, "lumina vrps")
+          end)
+
+        if code != 0,
+          do:
+            IO.write(
+              err,
+              "lumina vrps: warning: the sync had failures (above); the VRPs are written from what the cache holds\n"
+            )
+
+        code
+    end
+  end
+
+  defp sync_reason(cache, tal, clock, max_age, max_age_text) do
+    last = Sync.last_synced(cache, tal)
+
+    cond do
+      Lumina.TA.stored(cache, tal) == nil ->
+        "no trust anchor in the cache"
+
+      last == nil ->
+        "no record of an earlier sync"
+
+      DateTime.diff(clock, last) > max_age ->
+        "last synced #{DateTime.to_iso8601(last)}, more than #{max_age_text} ago"
+
+      true ->
+        nil
     end
   end
 
@@ -628,17 +745,17 @@ defmodule Lumina.CLI do
 
   defp default_cache, do: :filename.basedir(:user_cache, "lumina") |> to_string()
 
-  defp sync(tals, cache, opts, out, err) do
-    case Sync.run(tals, cache, Keyword.delete(opts, :tal_dir)) do
+  defp sync(tals, cache, opts, out, err, command) do
+    case Sync.run(tals, cache, Keyword.drop(opts, [:tal_dir, :generated])) do
       {:ok, reports} ->
         IO.write(out, Sync.summary(reports))
         if Enum.any?(reports, & &1.failed?), do: 1, else: 0
 
       {:error, {:locked, pid}} ->
-        written(err, "lumina sync: #{cache} is in use by another sync (process #{pid})\n", 1)
+        written(err, "#{command}: #{cache} is in use by another sync (process #{pid})\n", 1)
 
       {:error, reason} ->
-        written(err, "lumina sync: #{cache}: #{:file.format_error(reason)}\n", 1)
+        written(err, "#{command}: #{cache}: #{:file.format_error(reason)}\n", 1)
     end
   end
 
