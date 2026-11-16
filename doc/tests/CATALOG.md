@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 90 Barry fixtures: 21 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 821 unit tests in 69 modules.
+- 823 unit tests in 69 modules.
 
 ## Barry fixtures
 
@@ -1822,6 +1822,13 @@ sync`, then runs `lumina vrps` at 2030-01-01 (`--now`), through
   m0-minimal-valid's key (so its own trust anchor) and only a URI
   at a closed port. Only dead.tal is synced; that sync fails, and
   case.tal's VRPs are still written, with exit 1.
+- *--sync (#185):* a fetch failing below the trust anchor's own publication point only warns
+  m3-walk-unreachable: the TA's publication point is fetched, the
+  delegated CA's host (unreachable.invalid) isn't. The sync's
+  failure is reported, but the trust anchor synced, so the exit
+  code is 0 (D-037).
+- *--sync (#185):* a TAL counts as synced only if its TA and the TA's own publication point were fetched
+  Reports as Lumina.Sync.run/3 gives them, reduced to what matters.
 - *--sync (#185):* sync flags without --sync, and a bad --max-age, are usage errors
 - *--output:* writes the same bytes as standard output, and nothing to standard output
 - *--output:* a file that can't be written fails with exit 1 and leaves nothing behind

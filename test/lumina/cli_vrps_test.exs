@@ -309,10 +309,10 @@ defmodule Lumina.CLIVRPsTest do
     # VRPs are validated at --now 2030-01-01 throughout.
     @clock ~U[2030-01-01 12:00:00Z]
 
-    # m1-roa-prefixes at a local daemon, with a TAL named case.tal, not
-    # synced yet.
-    defp served!(tmp) do
-      fixture = Fixture.load!("m1-roa-prefixes")
+    # A fixture (m1-roa-prefixes by default) at a local daemon, with a TAL
+    # named case.tal, not synced yet.
+    defp served!(tmp, id \\ "m1-roa-prefixes") do
+      fixture = Fixture.load!(id)
       daemon = RsyncDaemon.start!(Path.join(tmp, "daemon"), fixture.modules)
       authority = "127.0.0.1:#{daemon.port}"
       tal = Path.join(tmp, "case.tal")
@@ -409,6 +409,44 @@ defmodule Lumina.CLIVRPsTest do
 
       assert err =~
                "lumina vrps: warning: the sync had failures (above); the VRPs are written from what the cache holds\n"
+    end
+
+    @tag doc: """
+         m3-walk-unreachable: the TA's publication point is fetched, the
+         delegated CA's host (unreachable.invalid) isn't. The sync's
+         failure is reported, but the trust anchor synced, so the exit
+         code is 0 (D-037).
+         """
+    test "a fetch failing below the trust anchor's own publication point only warns", %{
+      tmp_dir: tmp
+    } do
+      {tals, cache, internal} = served!(tmp, "m3-walk-unreachable")
+
+      assert {0, out, err} = run(vrps_args(tals, cache, ["--sync"]), at(internal, 0))
+      assert out == @header <> "AS1234,2.1.0.0/16,16,case\nAS1234,201::/16,16,case\n"
+      assert err =~ "rsync fetches: 2, 1 failed\n"
+      assert err =~ "fetch_failed: rsync://unreachable.invalid/repo"
+
+      assert err =~
+               "lumina vrps: warning: the sync had failures (above); the VRPs are written from what the cache holds\n"
+    end
+
+    @tag doc: "Reports as Lumina.Sync.run/3 gives them, reduced to what matters."
+    test "a TAL counts as synced only if its TA and the TA's own publication point were fetched" do
+      point = fn depth, stale -> %{depth: depth, stale: stale} end
+
+      assert Lumina.Sync.ta_synced?(%{
+               ta: {:ok, %{}},
+               walk: %{points: [point.(0, false), point.(1, true)]}
+             })
+
+      # The TA's module failed: its point is a stale copy.
+      refute Lumina.Sync.ta_synced?(%{ta: {:ok, %{}}, walk: %{points: [point.(0, true)]}})
+      # The TA's point was never fetched and has no copy.
+      refute Lumina.Sync.ta_synced?(%{ta: {:ok, %{}}, walk: %{points: []}})
+      # The TA wasn't retrieved: walked from a stale TA, or not at all.
+      refute Lumina.Sync.ta_synced?(%{ta: {:error, %{}}, walk: %{points: [point.(0, false)]}})
+      refute Lumina.Sync.ta_synced?(%{ta: {:error, %{}}, walk: nil})
     end
 
     @tag :tmp_dir

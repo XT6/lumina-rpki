@@ -83,6 +83,16 @@ defmodule Lumina.Sync do
   end
 
   @doc """
+  Whether a report's TAL synced at its root (#185, D-037): its TA was
+  retrieved this run, not a stale copy, and the TA's own publication point
+  was fetched (its module's fetch didn't fail). Failures further down
+  don't count; `lumina vrps --sync` only warns about them.
+  """
+  @spec ta_synced?(report()) :: boolean()
+  def ta_synced?(%{ta: {:ok, _}, walk: %{points: [%{depth: 0, stale: false} | _]}}), do: true
+  def ta_synced?(_report), do: false
+
+  @doc """
   When `tal`'s tree was last synced into the cache at `root` (its walk
   ran), or `nil` if never, or if the record can't be read.
   """

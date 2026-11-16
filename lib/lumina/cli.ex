@@ -193,8 +193,9 @@ defmodule Lumina.CLI do
   Exit codes: 0 written, 1 a TAL with no trust anchor in the cache, an
   invalid one, or more than PERCENT invalid objects (the VRPs of the
   others, and of a TAL over PERCENT, are still written), a sync that
-  failed (the VRPs are written from what the cache holds), or FILE can't
-  be written, 2 usage error.
+  couldn't fetch a trust anchor or its own publication point (the VRPs
+  are written from what the cache holds; failures further down are only
+  warnings), or FILE can't be written, 2 usage error.
   """
 
   @rsync_hint " (on macOS, /usr/bin/rsync is openrsync: install rsync with Homebrew and put it first in PATH, or give it with --rsync PATH)"
@@ -306,7 +307,8 @@ defmodule Lumina.CLI do
                   limits ++ progress ++ internal,
                   out,
                   err,
-                  "lumina sync"
+                  "lumina sync",
+                  fn reports, _err -> if Enum.any?(reports, & &1.failed?), do: 1, else: 0 end
                 )
               end)
 
@@ -524,20 +526,24 @@ defmodule Lumina.CLI do
         written(err, "lumina vrps: warning: can't sync: #{message}\n", 1)
 
       true ->
-        code =
-          with_progress(opts, err, fn progress ->
-            sync(stale, cache, limits ++ progress ++ internal, err, err, "lumina vrps")
-          end)
-
-        if code != 0,
-          do:
-            IO.write(
-              err,
-              "lumina vrps: warning: the sync had failures (above); the VRPs are written from what the cache holds\n"
-            )
-
-        code
+        with_progress(opts, err, fn progress ->
+          sync(stale, cache, limits ++ progress ++ internal, err, err, "lumina vrps", &synced/2)
+        end)
     end
+  end
+
+  # The --sync exit code (D-037): 0 when each TAL's trust anchor was
+  # retrieved and its own publication point fetched (Sync.ta_synced?/1),
+  # even if fetches below failed, which only warn; else 1.
+  defp synced(reports, err) do
+    if Enum.any?(reports, & &1.failed?),
+      do:
+        IO.write(
+          err,
+          "lumina vrps: warning: the sync had failures (above); the VRPs are written from what the cache holds\n"
+        )
+
+    if Enum.all?(reports, &Sync.ta_synced?/1), do: 0, else: 1
   end
 
   defp sync_reason(cache, tal, clock, max_age, max_age_text) do
@@ -745,11 +751,13 @@ defmodule Lumina.CLI do
 
   defp default_cache, do: :filename.basedir(:user_cache, "lumina") |> to_string()
 
-  defp sync(tals, cache, opts, out, err, command) do
+  # Runs the sync and prints its summary to `out`; `code` gives the exit
+  # code from the reports.
+  defp sync(tals, cache, opts, out, err, command, code) do
     case Sync.run(tals, cache, Keyword.drop(opts, [:tal_dir, :generated])) do
       {:ok, reports} ->
         IO.write(out, Sync.summary(reports))
-        if Enum.any?(reports, & &1.failed?), do: 1, else: 0
+        code.(reports, err)
 
       {:error, {:locked, pid}} ->
         written(err, "#{command}: #{cache} is in use by another sync (process #{pid})\n", 1)
