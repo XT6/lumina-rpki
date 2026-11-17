@@ -32,7 +32,13 @@ defmodule Lumina.Cache do
   `.staging/`, `.aside/` and `.status/`, `.ta/`, where `Lumina.TA`
   keeps accepted TA certificates, and `.valid/`, where `Lumina.LastValid`
   keeps the last valid copy of each publication point (D-023). `.state/`
-  also holds `Lumina.ManifestState`'s per-CA manifest records (D-024).
+  also holds `Lumina.ManifestState`'s per-CA manifest records (D-024)
+  and `Lumina.RRDP.State`'s per-repository RRDP state (#201).
+
+  RRDP content lives in one store per repository,
+  `<root>/rrdp/<host[:port]>/<SHA-256 of the notification URI>/`
+  (`Lumina.RRDP.Store`), staged in `.staging/` and swapped in with
+  `swap/3`, so `recover/1` repairs stores too.
   """
 
   alias Lumina.URI
@@ -75,9 +81,15 @@ defmodule Lumina.Cache do
   """
   @spec commit(Path.t(), URI.t(), Path.t()) ::
           {:ok, %{removed: [Path.t()]}} | {:error, atom()}
-  def commit(root, %URI{} = uri, staging) do
-    target = path(root, uri)
+  def commit(root, %URI{} = uri, staging), do: swap(root, path(root, uri), staging)
 
+  @doc """
+  Replaces the directory `target`, inside `root`, with the staging
+  directory, as `commit/3` does for a URI's copy; `recover/1` repairs an
+  interrupted swap. `Lumina.RRDP.Store` swaps its stores in this way.
+  """
+  @spec swap(Path.t(), Path.t(), Path.t()) :: {:ok, %{removed: [Path.t()]}} | {:error, atom()}
+  def swap(root, target, staging) do
     with :ok <- if(File.dir?(staging), do: :ok, else: {:error, :enoent}),
          removed = keep_regular(staging),
          :ok <- File.mkdir_p(Path.dirname(target)),
