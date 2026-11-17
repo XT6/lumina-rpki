@@ -112,6 +112,15 @@ test/fixtures/barry/
     case.tal      # generated
     rsync/        # generated
     rrdp/         # generated
+  m8-rrdp-delta/
+    case.repo     # version 1 (RRDP serial 1)
+    case.v2.repo  # version 2 (serial 2); case.v3.repo, ... for more
+    case.exs      # metadata, with rrdp_versions
+    case.tal      # generated, last version
+    rsync/        # generated, last version
+    rrdp/         # generated: notification.xml and snapshot.xml (last serial),
+                  # notification-K.xml and snapshot-K.xml (earlier serials),
+                  # delta-K.xml (K = 2..last), ta.cer
 ```
 
 The generated files are committed with the descriptor, so tests are reproducible and plain CI runs don't need Barry.
@@ -146,6 +155,7 @@ The generated files are committed with the descriptor, so tests are reproducible
 | `expected` | yes | `:valid`, or `{:invalid, rejects}`. Each reject gives an `object` (a path under `rsync/`, which must exist) and the `reason` a validator must reject it, and optionally the `rule` (an atom) of the certificate verdict that rejects it: a `Lumina.Chain`/`Lumina.Profile` problem rule, or for a `.crl` the CRL's rule, which makes every certificate in its directory `crl_invalid`. The M4 done test checks that the certificates found invalid are exactly those named by rejects with a rule. |
 | `barry` | no | Overrides the validity period passed to Barry: `now:` and `later:`, as UTC timestamps. |
 | `vrps` | if the fixture has ROAs | The VRPs a validator must output for the fixture at 2030-01-01, as `lumina vrps` writes them in CSV without the trust anchor column: `["AS64496,1.1.0.0/17,24", "AS64496,101::/16,48"]`, each once, in any order; `[]` when no ROA is valid. Every host the fixture's certificates name counts as reachable. The M7 done test checks that `lumina vrps` gives exactly these. |
+| `rrdp_versions` | if the fixture has `case.v2.repo` | A map from each RRDP serial (1 for `case.repo`, K for `case.vK.repo`) to a description of the repository at that serial: `%{1 => "TA, ca1, roa1 and roa2", 2 => "roa2 withdrawn, roa3 added"}`. `expected` and `vrps` describe the last version, which `rsync/` holds. |
 | `rsync_modules` | no | Extra rsync modules on `localhost:8873`, besides `rpki` (all of `rsync/`): a map of module name to the directory under `rsync/` it serves, such as `%{"s1" => "s1"}`. `fixture.modules` gives the full set for a test daemon. |
 
 The file is read as data. Function calls, variables and string interpolation are rejected, and nothing in it is run.
@@ -156,8 +166,9 @@ The file is read as data. Function calls, variables and string interpolation are
 - an RFC reference is invalid,
 - the `id` doesn't match the folder or milestone,
 - a rejected object isn't in `rsync/`,
-- the fixture has a ROA but no `vrps`, or a `vrps` entry isn't `AS<n>,<prefix>,<maxLength>`, or
-- the generated output is missing.
+- the fixture has a ROA but no `vrps`, or a `vrps` entry isn't `AS<n>,<prefix>,<maxLength>`,
+- later versions are misnamed or have a gap, `rrdp_versions` is missing, extra or doesn't map each serial, or
+- the generated output is missing, RRDP files included.
 
 ### Generating
 
@@ -167,6 +178,10 @@ mix lumina.fixtures.gen m4-ca-cert-expired # regenerate one
 ```
 
 The task removes the old output, runs Barry on `case.repo`, then runs the metadata check. It needs Barry installed (`scripts/install-barry.sh`).
+
+RRDP: every fixture's repository has the notification URI `https://localhost:8443/rrdp/notification.xml` and a session_id that is a version 4 UUID made from the fixture's id (`Mix.Lumina.Fixtures.session_id/1`), so it stays the same when the fixture is regenerated. Barry's default, `"1"`, isn't a UUID (F-038); the task adds a `[notification: ...]` section with `session = ...` to the descriptor it runs, so a `case.repo` must not declare one itself. `test/lumina/rrdp/fixtures_test.exs` checks that every fixture's RRDP files decode.
+
+Versions and deltas (#202): with `case.v2.repo` (and `case.v3.repo`, ...), the task runs Barry once per version, with `--serial K`, `--now` an hour later per version (so a changed manifest's thisUpdate moves forward), the previous version's rsync tree as `--previous-path`, and a key pool shared by all versions (`--keys`), then chains the notifications with `barry-delta`. Mark the files a version keeps unchanged with Barry's shield marker (🛡️, U+1F6E1 U+FE0F) after the name; a shielded file can't take overrides. The pool is generated for the run and thrown away: one RSA key per file name in the descriptors, sized so no two names hash to the same key (Barry picks a key by the SHA-1 of the file name modulo the pool size), which avoids the shared-key problem below.
 
 Validity period: unless the metadata overrides it, every object is valid from `2026-01-01T00:00:00Z` (`--now`) to `2036-01-01T00:00:00Z` (`--later`), so committed fixtures don't expire. Fixtures that test time handling set their own dates. Tests that validate fixtures must use a fixed validation time inside that period, not the current time.
 
@@ -182,6 +197,11 @@ fixture = Lumina.Test.Fixture.load!("m0-minimal-valid")
 fixture.tal_path     # case.tal
 fixture.rsync_root   # the rsync tree, laid out by publication point
 fixture.expected     # :valid, or {:invalid, rejects}
+fixture.rrdp_root    # rrdp/, served with Lumina.Test.HTTPSServer.dir_routes(fixture.rrdp_root, "/rrdp/")
+fixture.notification_uri  # https://localhost:8443/rrdp/notification.xml; fetch with
+                          # remap: %{"localhost:8443" => "localhost:<port>"} (Lumina.HTTPS)
+fixture.session_id   # the RRDP session
+fixture.versions     # %{serial => description}: rrdp_versions, or %{1 => title}
 ```
 
 `load!/1` raises if the fixture doesn't exist or fails its metadata check. Shared test helpers live in `test/support/`, which is compiled only in the test environment.

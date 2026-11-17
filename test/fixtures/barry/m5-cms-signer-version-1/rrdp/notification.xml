@@ -1,6 +1,6 @@
 <notification xmlns="http://www.ripe.net/rpki/rrdp"
               version="1"
-              session_id="1"
+              session_id="c2a50741-f5c8-4e0f-872a-93ad03d7942d"
               serial="1">
-  <snapshot uri="https://localhost:8443/rrdp/snapshot.xml" hash="505c1c198c8b9801ec98def500f24b16a492da87e7c6c77b4bf86caa8339d643"/>
+  <snapshot uri="https://localhost:8443/rrdp/snapshot.xml" hash="2a423c2a57ada7495bcfdefc2686cdf499b88f3b2f7486fd275524f462daf5a8"/>
 </notification>

@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 92 Barry fixtures: 23 valid, 69 invalid.
+- 93 Barry fixtures: 24 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 921 unit tests in 74 modules.
+- 935 unit tests in 75 modules.
 
 ## Barry fixtures
 
@@ -1200,6 +1200,22 @@ ca1 publishes roa1.roa and roa2.roa, both authorizing AS64496 to originate 1.1.0
 - **Expected:** valid
 - **RFC:** [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5))
 - **Files:** [descriptor](../../test/fixtures/barry/m7-vrp-duplicate/case.repo) · [metadata](../../test/fixtures/barry/m7-vrp-duplicate/case.exs) · [rsync tree](../../test/fixtures/barry/m7-vrp-duplicate/rsync)
+
+### M8
+
+#### `m8-rrdp-delta`: RRDP repository with one delta: a ROA withdrawn, one added
+
+The baseline for RRDP deltas (#202). Serial 1 is a TA, one CA and two
+ROAs. Serial 2 withdraws roa2.roa, publishes the new roa3.roa and
+replaces ca1.mft, whose file list changed; every other file is kept
+byte for byte (Barry's shield marker), so the delta holds exactly those
+three changes. An RP that syncs serial 1 from its snapshot and then
+applies delta 2 must end with exactly the objects of serial 2's
+snapshot, and the same VRPs as an RP that fetched serial 2's snapshot.
+
+- **Expected:** valid
+- **RFC:** [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)), [8182 §3.5.3.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.3.3)), [6481 §2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2))
+- **Files:** [descriptor](../../test/fixtures/barry/m8-rrdp-delta/case.repo) · [metadata](../../test/fixtures/barry/m8-rrdp-delta/case.exs) · [rsync tree](../../test/fixtures/barry/m8-rrdp-delta/rsync)
 
 ## Test TALs
 
@@ -3274,8 +3290,8 @@ Each rule a server can break has a hand-written file in
 A decoder that let one through would hand the RRDP layer a file the RFC
 says MUST be rejected: a snapshot from another session, a delta out of
 sequence, a reference to another server (RFC 9674), or an object under
-a URI that escapes the cache. Barry's RRDP output is decoded too, to
-show the snapshot carries the same objects as the rsync tree.
+a URI that escapes the cache. A Barry fixture's RRDP output is decoded
+too, to show the snapshot carries the same objects as the rsync tree.
 
 - *the cases:* every case has metadata, a file and valid RFC references
 - *the cases:* every case gives the outcome its metadata states (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)), [8182 §3.5.2.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.2.3)), [8182 §3.5.3.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.3.3)), [8182 §3.5.4](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.4)), [9674 §3.2](../rfc/rfc9674.txt) ([html](https://www.rfc-editor.org/rfc/rfc9674.html#section-3.2)))
@@ -3290,11 +3306,43 @@ show the snapshot carries the same objects as the rsync tree.
 - *snapshot and delta:* an object over 20 MiB is rejected, and one of exactly 20 MiB isn't (RFC [8182 §3.5.4](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.4)))
   D-043: each published object at most 20 MiB, as for rsync.
 - *snapshot and delta:* a snapshot streams from a file as it parses from memory, and the callback can stop it
-- *Barry's RRDP output:* a fixture's notification and snapshot decode once the session is a UUID, and carry its rsync objects (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)), [8182 §3.5.2.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.2.3)), [8182 §4.1](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-4.1)))
-  Barry writes session_id="1" (F-038), which D-042 rejects. With a
-  UUID in its place, the notification and snapshot decode, and the
-  snapshot publishes exactly the fixture's rsync tree below the TA,
-  byte for byte.
+- *Barry's RRDP output:* a fixture's notification and snapshot decode, and carry its rsync objects (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)), [8182 §3.5.2.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.2.3)), [8182 §4.1](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-4.1)))
+  Barry writes session_id="1" by default (F-038); the generator gives
+  every fixture a version 4 UUID instead (#202). The notification and
+  snapshot decode, and the snapshot publishes exactly the fixture's
+  rsync tree below the TA, byte for byte.
+
+### `Lumina.RRDP.FixturesTest`
+
+[test/lumina/rrdp/fixtures_test.exs](../../test/lumina/rrdp/fixtures_test.exs)
+
+Checks the RRDP output of every Barry fixture (#202), which the RRDP
+sync tests (#203 to #209) serve over HTTPS.
+
+Barry's default session_id, "1", isn't a UUID (F-038), so the generator
+gives each fixture a version 4 UUID made from its id. Every fixture's
+notification must decode with that session and the right snapshot
+hash, and every snapshot must decode against it; otherwise an RRDP test
+would fail on the fixture rather than on Lumina. A delta fixture
+(`rrdp_versions`) must be consistent with itself: each serial's files
+decode, and applying delta K to snapshot K-1 gives exactly snapshot
+K's objects, with every withdraw and replace naming the hash of the
+object it removes (RFC 8182 §3.4.2). The test HTTPS server serves a
+fixture's `rrdp/` under the URIs its certificates name, through
+`:remap`.
+
+- every fixture's notifications and snapshots decode, with its UUID session and hashes (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)), [8182 §3.5.2.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.2.3)))
+- every session is the version 4 UUID made from the fixture's id, distinct per fixture
+- each delta applied to the previous snapshot gives exactly the next snapshot (RFC [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)), [8182 §3.5.3.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.3.3)))
+  For every delta fixture and every K > 1: delta K applied to snapshot
+  K-1 gives snapshot K's objects exactly. A withdraw or replace must
+  name the SHA-256 of the object it removes; a publish without a hash
+  must be a new object.
+- m8-rrdp-delta's delta withdraws roa2, adds roa3 and replaces ca1.mft
+  m8-rrdp-delta's delta holds exactly the three changes its rationale states.
+- the test server serves a fixture's RRDP files under the URIs it names
+  The fixture's rrdp/ served by Lumina.Test.HTTPSServer; :remap sends
+  localhost:8443, the port in the fixture's URIs, to the server's.
 
 ### `Lumina.RRDP.StoreTest`
 
@@ -4026,6 +4074,13 @@ running any code in it. Fixtures are built in temporary directories.
 - *files:* a missing case.exs fails
 - *files:* a missing descriptor fails
 - *files:* missing generated output fails and says how to fix it
+- *RRDP versions (#202):* a fixture with a second version and rrdp_versions passes
+  case.repo is serial 1, case.v2.repo serial 2; rrdp_versions describes each.
+- *RRDP versions (#202):* a second version without rrdp_versions fails
+- *RRDP versions (#202):* rrdp_versions without a second version fails
+- *RRDP versions (#202):* rrdp_versions that don't match the serials, or have a blank description, fail
+- *RRDP versions (#202):* a gap in the versions, or a badly named one, fails
+- *RRDP versions (#202):* a missing delta or earlier snapshot fails and says how to fix it
 - load_all/2 returns passing fixtures and every problem
 
 ### `Mix.Lumina.RFCTest`
@@ -4113,14 +4168,23 @@ patches stop the task.
 [test/mix/tasks/lumina.fixtures.gen_test.exs](../../test/mix/tasks/lumina.fixtures.gen_test.exs)
 
 Tests fixture generation with the real Barry binary: output layout,
-removal of stale files, the fixed validity period, and that regenerating
-gives the same file list and check result. Tagged :barry, so it is
+removal of stale files, the fixed validity period, that regenerating
+gives the same file list and check result, the RRDP session made from
+the fixture's id (Barry's default isn't a UUID, F-038), and fixtures
+with several versions and the deltas between them (#202). Tagged :barry, so it is
 excluded unless Barry is installed; CI runs it in the barry job.
 
 - generates the TAL and rsync tree, and the fixture passes its check
 - regenerating gives the same files and the same check result
 - removes output that the descriptor no longer produces
 - uses the fixed validity period, so fixtures don't expire
+- *RRDP (#202):* the notification and snapshot carry the session made from the fixture's id, run after run (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)))
+- *RRDP (#202):* a descriptor with its own notification section is refused
+- *RRDP (#202):* a fixture with case.v2.repo gets a snapshot per serial and the delta between them (RFC [8182 §3.5.3.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.3.3)))
+  case.v2.repo keeps the TA, its CA and one ROA (shield marker) and
+  replaces the other ROA. Serial 1's notification and snapshot, the
+  delta, and serial 2's chained notification are written; rsync/
+  holds version 2.
 
 ### `Mix.Tasks.Lumina.RfcCoverageTest`
 

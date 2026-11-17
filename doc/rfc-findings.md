@@ -612,7 +612,7 @@ Where a live repository departs from the RFCs, or its servers from what everyone
 - **Where:** RFC 8182 §3.5.1.3: "The session_id attribute MUST be a random version 4 UUID [RFC4122], unique to this session." Barry (pinned `478ee89`) writes `session_id="1"` in its notification and snapshot files by default (`src/rpki_tree.c`).
 - **Kind:** tooling incompatibility.
 - **Official errata:** none needed; the RFC is clear.
-- **Resolution:** RRDP fixtures set `session = <version 4 UUID>` on each `[notification: ...]`, which Barry supports (#202). Lumina rejects a session_id that isn't a UUID at all (D-042), so Barry's default can't be used. Suggestion for Barry: generate a random version 4 UUID by default.
+- **Resolution:** `mix lumina.fixtures.gen` adds a `[notification: ...]` section with `session = <version 4 UUID>` to every fixture's descriptor, the UUID made from the fixture's id so it survives regeneration (`Mix.Lumina.Fixtures.session_id/1`, #202). Lumina rejects a session_id that isn't a UUID at all (D-042), so Barry's default can't be used. Suggestion for Barry: generate a random version 4 UUID by default.
 
 ### F-039: RFC 8182 cites no XML specification
 
