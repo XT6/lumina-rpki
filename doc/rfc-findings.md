@@ -61,6 +61,7 @@ Where a live repository departs from the RFCs, or its servers from what everyone
 | [F-038](#f-038-barry-writes-session_id-1) | 8182 §3.5.1.3 | tooling | — | Fixtures set `session` to a version 4 UUID (#202) |
 | [F-039](#f-039-rfc-8182-cites-no-xml-specification) | 8182 §3.5, §7 | missing reference | none found (not reported) | XML 1.0 (Fifth Edition) for the subset RRDP needs (D-041, #198) |
 | [F-040](#f-040-rfc-8182-cites-obsoleted-http-rfcs) | 8182 §3.4.1, §3.4.4, §7 | obsolete reference | none found (not reported) | RFC 9110 §13.1.3 and RFC 9112 for the HTTP side (#200) |
+| [F-041](#f-041-rfc-8182-doesnt-say-a-snapshot-publishes-each-uri-once) | 8182 §3.5.2.3 | ambiguity | none found (not reported) | A URI published twice rejects the snapshot (`duplicate_publish`, #203) |
 
 ## Entries
 
@@ -631,6 +632,15 @@ Where a live repository departs from the RFCs, or its servers from what everyone
 - **The problem:** none in substance: the header definitions carried over unchanged. A reader following the references lands on obsoleted documents, and neither RFC 9110 nor RFC 9112 is in Lumina's RFC library.
 - **Resolution:** `Lumina.HTTPS` follows RFC 9110 §13.1.3 (send the earlier `Last-Modified` value as given) and RFC 9112 §6.3 and §7.1 (message framing, chunked coding) (#200). RFC 9110 and RFC 9112 aren't added to `doc/rfc/`; the tests cite RFC 8182 sections.
 - **Talk note:** an RFC's references age even when an update to the RFC comes along: RFC 9674 rewrote §3.4.1's rules and left §3.4.1's citations alone.
+
+### F-041: RFC 8182 doesn't say a snapshot publishes each URI once
+
+- **Where:** RFC 8182 §3.5.2.3: the snapshot "represents a complete current state of the repository", and its rules cover the namespace, encoding, version, session_id and serial. Neither the rules nor the §3.5.4 schema say a `publish` element's `uri` appears only once. §3.5.3.3 doesn't say it of a delta either.
+- **Kind:** ambiguity.
+- **Official errata:** none found for this; RFC 8182 has 7239 (verified, §3.2) and 6919 (held, §3.4.2) (checked 2026-11-17). **Not reported.**
+- **The problem:** a snapshot with two `publish` elements for one URI gives that object two contents. An RP that keeps the last one and an RP that keeps the first see different repositories from the same file, and a streaming RP can't tell which the publisher meant.
+- **Resolution:** Lumina rejects such a snapshot (`snapshot_rejected` with rule `duplicate_publish`; the store is kept) (#203). A state with two values for one object isn't "a complete current state". This is Lumina's reading, open to the maintainer's review.
+- **Talk note:** "complete current state" implies a set, but neither the rules nor the schema enforces it.
 
 ## TA deviations
 

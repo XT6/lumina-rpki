@@ -23,6 +23,16 @@ defmodule Lumina.Progress do
     * `{:level_finished, level, %{points: n, issues: n}}`: running totals
       for the walk
 
+  Events of an RRDP repository sync (`Lumina.RRDP.Sync`, #203; drawn
+  once the walk syncs over RRDP, #206):
+
+    * `{:rrdp_started, notify}` and `{:rrdp_finished, notify, outcome}`
+    * `{:rrdp_download, notify, kind, bytes}` every MiB received and
+      `{:rrdp_downloaded, notify, kind, bytes}` once the file is in
+      (`kind` is `:notification` or `:snapshot`)
+    * `{:rrdp_objects, notify, count}`: objects written to the store,
+      every 1000 and at the end
+
   Events of a validation (`Lumina.Validate.run/3`):
 
     * `{:tal_started, path, index, total}`, sent by the CLI

@@ -7,7 +7,8 @@ defmodule Lumina.RRDP do
   `Lumina.RRDP.Snapshot` and `Lumina.RRDP.Delta`, on top of the XML parser
   `Lumina.RRDP.XML` (D-041). This module holds what they share: the
   namespace, the version, and the checks on a session_id, a serial and a
-  hash (RFC 8182 §3.5.1.3, §3.5.4).
+  hash (RFC 8182 §3.5.1.3, §3.5.4). `sync/3` syncs one repository into
+  the cache (`Lumina.RRDP.Sync`).
 
   Errors and warnings are `%{rule, rfc, message}`; errors from the XML
   parser keep its `clause` and `offset`.
@@ -22,6 +23,10 @@ defmodule Lumina.RRDP do
           optional(:clause) => String.t(),
           optional(:offset) => non_neg_integer()
         }
+
+  @doc "Syncs one repository: `Lumina.RRDP.Sync.run/3`."
+  @spec sync(Lumina.URI.t(), Path.t(), keyword()) :: Lumina.RRDP.Sync.result()
+  defdelegate sync(notify, root, opts \\ []), to: Lumina.RRDP.Sync, as: :run
 
   @doc "The RRDP XML namespace (RFC 8182 §3.5.1.3)."
   @spec namespace() :: String.t()

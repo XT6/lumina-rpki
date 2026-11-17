@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 93 Barry fixtures: 24 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 935 unit tests in 75 modules.
+- 956 unit tests in 76 modules.
 
 ## Barry fixtures
 
@@ -2222,6 +2222,8 @@ following a redirect to another origin.
 - *truncated bodies:* a chunked body that ends inside a chunk fails as :truncated
 - *truncated bodies:* a chunked body without its last chunk fails as :truncated
 - *truncated bodies:* a complete chunked body is written whole
+- *truncated bodies:* :on_data is called with the bytes received so far, up to the whole body
+  For download progress (D-036, #203): a 1 MB body sent 64 KiB at a time.
 - *idle timeout (D-043):* a body that stops sending fails after :idle_timeout
   Half the body, then nothing for 3 s; :idle_timeout is 1 s.
 - *idle timeout (D-043):* a slow but steady body isn't cut off
@@ -3389,6 +3391,66 @@ live store's files. A state file that can't be trusted must read as
 - *state:* a repository with no state file reads as never synced
 - *state:* a corrupt state file reads as never synced
   Not JSON, a field of the wrong type, a bad delta hash, or another notification URI.
+
+### `Lumina.RRDP.SyncTest`
+
+[test/lumina/rrdp/sync_test.exs](../../test/lumina/rrdp/sync_test.exs)
+
+Syncing one RRDP repository from its snapshot (#203,
+`Lumina.RRDP.Sync.run/3`), against #202's fixtures served over HTTPS by
+`Lumina.Test.HTTPSServer`.
+
+A sync must leave the store holding exactly the snapshot's objects,
+byte for byte, download nothing more when the notification hasn't moved
+(RFC 8182 §3.4.1, §3.4.4), follow a new session_id whatever its serial
+but reject an older serial of the same session (§3.4.1, §3.4.3), and
+refuse cross-origin URIs and redirects (RFC 9674 §3.2). Every rejection
+must keep the last good store, so a broken or hostile server can't make
+Lumina lose the repository it already has, and record the failure in
+the state.
+
+The server's routes live in an Agent, so a test can change what is
+served between syncs and see which paths were requested.
+
+- a fresh cache syncs every fixture's repository, and the store holds its rsync tree's files (RFC [8182 §3.4.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.3)), [8182 §3.5.2.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.2.3)))
+  Every Barry fixture's repository, each into a fresh cache. The store
+  must hold exactly the snapshot's objects, and they must be the files
+  of the fixture's rsync tree (less the TA certificate, which isn't
+  published in the repository), byte for byte.
+- a second sync of the same notification downloads only the notification (RFC [8182 §3.4.1](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.1)))
+- a 304 to If-Modified-Since leaves the repository unchanged (RFC [8182 §3.4.4](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.4)))
+  The notification's Last-Modified is saved with a successful sync and
+  sent as If-Modified-Since on the next; a 304 is unchanged.
+- a missing store is synced again from the snapshot (RFC [8182 §3.4.1](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.1)))
+  The state names serial 2, but its store is gone: the repository is
+  synced from its snapshot again rather than reported unchanged.
+- a new session with a lower serial is accepted, and its session recorded (RFC [8182 §3.4.1](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.1)))
+  m0-minimal-valid's notification, at the same URI, has another
+  session_id and serial 1, below the store's 2. A new session is
+  processed from its snapshot whatever its serial.
+- the same session with a lower serial is rejected without downloading the snapshot (RFC [8182 §3.4.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.3)))
+- a snapshot whose hash isn't the notification's is rejected and the store kept (RFC [8182 §3.4.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.3)))
+- a snapshot of another session_id than the notification's is rejected and the store kept (RFC [8182 §3.5.2.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.2.3)))
+  m0-minimal-valid's snapshot, announced under m8-rrdp-delta's session_id.
+- a snapshot of another serial than the notification's is rejected and the store kept (RFC [8182 §3.5.2.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.2.3)))
+  m8-rrdp-delta's serial 2 snapshot, announced as serial 3.
+- a truncated snapshot is rejected and the store kept (RFC [8182 §3.5.2.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.2.3)))
+  The first half of a snapshot, with its hash in the notification.
+- a snapshot publishing one URI twice is rejected and the store kept (RFC [8182 §3.5.2.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.2.3)))
+  RFC 8182 doesn't say a URI appears once in a snapshot, but one
+  published twice has no single content (F-041).
+- a cross-origin snapshot URI rejects the notification and the store is kept (RFC [9674 §3.2](../rfc/rfc9674.txt) ([html](https://www.rfc-editor.org/rfc/rfc9674.html#section-3.2)))
+- a cross-origin redirect of the notification is refused and the store kept (RFC [9674 §3.2](../rfc/rfc9674.txt) ([html](https://www.rfc-editor.org/rfc/rfc9674.html#section-3.2)))
+- a cross-origin redirect of the snapshot is refused and the store kept (RFC [9674 §3.2](../rfc/rfc9674.txt) ([html](https://www.rfc-editor.org/rfc/rfc9674.html#section-3.2)))
+  The snapshot redirects to another host on the same port: another origin.
+- a same-origin redirect of the snapshot is followed (RFC [9674 §3.2](../rfc/rfc9674.txt) ([html](https://www.rfc-editor.org/rfc/rfc9674.html#section-3.2)))
+- a missing snapshot fails the sync and the store is kept
+- a missing notification fails the sync and the store is kept
+- a notification that doesn't check is rejected and the store kept (RFC [8182 §3.4.1](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.1)))
+- a first sync that fails leaves no store, and records the attempt
+- a sync reports its progress
+  D-036: the run is reported to the :progress function, from start to
+  finish, with the files downloaded and the objects written.
 
 ### `Lumina.RRDP.XMLTest`
 
