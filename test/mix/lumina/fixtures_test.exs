@@ -28,7 +28,7 @@ defmodule Mix.Lumina.FixturesTest do
   # which other files to create.
   defp make_case(tmp_dir, meta, opts \\ []) do
     id = Keyword.get(opts, :id, "m4-sample-case")
-    files = Keyword.get(opts, :files, [:repo, :tal, :rsync])
+    files = Keyword.get(opts, :files, [:repo, :tal, :rsync, :rrdp])
     case_dir = Path.join(tmp_dir, id)
     File.mkdir_p!(case_dir)
     if meta, do: File.write!(Path.join(case_dir, "case.exs"), meta)
@@ -42,8 +42,32 @@ defmodule Mix.Lumina.FixturesTest do
       File.write!(Path.join([case_dir, "rsync", "ta.cer"]), "not a real certificate")
     end
 
+    if :rrdp in files do
+      File.mkdir_p!(Path.join(case_dir, "rrdp"))
+      File.write!(Path.join([case_dir, "rrdp", "notification.xml"]), "<notification/>")
+    end
+
     case_dir
   end
+
+  # Adds case.vK.repo for each K in `versions`, and the RRDP files a
+  # generator would write for serials 1..last.
+  defp add_versions(case_dir, versions, opts \\ []) do
+    for k <- versions, do: File.write!(Path.join(case_dir, "case.v#{k}.repo"), "ta.cer\n")
+    last = Enum.max([1 | versions])
+
+    files =
+      ["snapshot.xml"] ++
+        Enum.flat_map(1..(last - 1)//1, &["notification-#{&1}.xml", "snapshot-#{&1}.xml"]) ++
+        Enum.map(2..last//1, &"delta-#{&1}.xml")
+
+    for file <- files -- Keyword.get(opts, :without, []),
+        do: File.write!(Path.join([case_dir, "rrdp", file]), "<x/>")
+
+    case_dir
+  end
+
+  @versions ~s/  rfc: ["6487#4.8.9"],\n  rrdp_versions: %{1 => "first", 2 => "second"},/
 
   defp messages(case_dir) do
     {:error, problems} = Fixtures.load(case_dir, @library)
@@ -290,7 +314,7 @@ defmodule Mix.Lumina.FixturesTest do
     end
 
     test "a missing descriptor fails", %{tmp_dir: tmp_dir} do
-      case_dir = make_case(tmp_dir, @complete, files: [:tal, :rsync])
+      case_dir = make_case(tmp_dir, @complete, files: [:tal, :rsync, :rrdp])
       assert ["missing case.repo"] = messages(case_dir)
     end
 
@@ -300,8 +324,86 @@ defmodule Mix.Lumina.FixturesTest do
       assert [
                "missing case.tal",
                "missing generated rsync/ tree",
+               "missing generated rrdp/notification.xml",
                "run `mix lumina.fixtures.gen m4-sample-case`",
                "expected reject object \"ta.cer\" is not in rsync/"
+             ] = messages(case_dir)
+    end
+  end
+
+  describe "RRDP versions (#202)" do
+    @tag doc: "case.repo is serial 1, case.v2.repo serial 2; rrdp_versions describes each."
+    test "a fixture with a second version and rrdp_versions passes", %{tmp_dir: tmp_dir} do
+      meta = edit(@complete, ~s/  rfc: ["6487#4.8.9"],/, @versions)
+      case_dir = tmp_dir |> make_case(meta) |> add_versions([2])
+
+      assert {:ok, %{rrdp_versions: %{1 => "first", 2 => "second"}}} =
+               Fixtures.load(case_dir, @library)
+
+      assert Fixtures.descriptors(case_dir) == {:ok, ["case.repo", "case.v2.repo"]}
+    end
+
+    test "a second version without rrdp_versions fails", %{tmp_dir: tmp_dir} do
+      case_dir = tmp_dir |> make_case(@complete) |> add_versions([2])
+
+      assert ["missing key :rrdp_versions (required: 2 versions of the descriptor)"] =
+               messages(case_dir)
+    end
+
+    test "rrdp_versions without a second version fails", %{tmp_dir: tmp_dir} do
+      meta = edit(@complete, ~s/  rfc: ["6487#4.8.9"],/, @versions)
+
+      assert ["rrdp_versions needs later versions of the descriptor (case.v2.repo, ...)"] =
+               messages(make_case(tmp_dir, meta))
+    end
+
+    test "rrdp_versions that don't match the serials, or have a blank description, fail",
+         %{tmp_dir: tmp_dir} do
+      wrong =
+        edit(@complete, ~s/  rfc: ["6487#4.8.9"],/, String.replace(@versions, "2 =>", "3 =>"))
+
+      blank =
+        edit(
+          @complete,
+          ~s/  rfc: ["6487#4.8.9"],/,
+          String.replace(@versions, "\"second\"", "\" \"")
+        )
+
+      assert ["rrdp_versions must map each serial 1..2 to a description"] =
+               messages(tmp_dir |> make_case(wrong) |> add_versions([2]))
+
+      assert ["rrdp_versions: each description must be a non-blank string"] =
+               messages(
+                 tmp_dir
+                 |> then(&make_case(Path.join(&1, "b"), blank))
+                 |> add_versions([2])
+               )
+    end
+
+    test "a gap in the versions, or a badly named one, fails", %{tmp_dir: tmp_dir} do
+      meta = edit(@complete, ~s/  rfc: ["6487#4.8.9"],/, @versions)
+      gap = tmp_dir |> make_case(meta) |> add_versions([3])
+
+      assert ["versions must be case.v2.repo, case.v3.repo, ... without gaps"] = messages(gap)
+
+      named = make_case(Path.join(tmp_dir, "b"), meta)
+      File.write!(Path.join(named, "case.vtwo.repo"), "ta.cer\n")
+
+      assert ["case.vtwo.repo: later versions are named case.v2.repo, case.v3.repo, ..."] =
+               messages(named)
+    end
+
+    test "a missing delta or earlier snapshot fails and says how to fix it", %{tmp_dir: tmp_dir} do
+      meta = edit(@complete, ~s/  rfc: ["6487#4.8.9"],/, @versions)
+
+      case_dir =
+        tmp_dir
+        |> make_case(meta)
+        |> add_versions([2], without: ["delta-2.xml", "snapshot-1.xml"])
+
+      assert [
+               "missing rrdp/snapshot-1.xml; run `mix lumina.fixtures.gen m4-sample-case`",
+               "missing rrdp/delta-2.xml; run `mix lumina.fixtures.gen m4-sample-case`"
              ] = messages(case_dir)
     end
   end

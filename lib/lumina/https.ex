@@ -91,7 +91,10 @@ defmodule Lumina.HTTPS do
   (bytes; default 20 MiB), `:max_redirects` (default 3), and `:cacerts`
   (DER CA certificates to trust instead of the system store) and
   `:address` (an IP address tuple to connect to instead of resolving the
-  host, which is still the name checked); the last two are for tests.
+  host, which is still the name checked) and `:remap` (a map from
+  `"host:port"` in URIs to the `"host:port"` actually connected to, as
+  `Lumina.Walk`'s for rsync: URIs, origins and the name checked stay as
+  they are); the last three are for tests.
 
   `:warnings` lists `{:wildcard_certificate, uri, name}` for each server
   on the way whose certificate matched only through a wildcard.
@@ -280,15 +283,16 @@ defmodule Lumina.HTTPS do
       mode: :binary
     ]
 
-    # With :address, :ssl checks the name given as SNI. Never pass
+    # With :address or :remap, :ssl checks the name given as SNI. Never pass
     # `server_name_indication: :disable`: :ssl then skips the host name
     # check altogether (F-026).
     options =
-      if opts[:address] && not ip_literal?(name),
+      if (opts[:address] || opts[:remap]) && not ip_literal?(name),
         do: [{:server_name_indication, name} | options],
         else: options
 
-    result = :ssl.connect(host, uri.port || 443, options, timeout)
+    {host, port} = remap(uri, host, opts[:remap])
+    result = :ssl.connect(host, port, options, timeout)
 
     receive do
       {^ref, reason} ->
@@ -297,6 +301,21 @@ defmodule Lumina.HTTPS do
         {:error, tls_reason(reason), reason}
     after
       0 -> connect_result(result)
+    end
+  end
+
+  defp remap(uri, host, nil), do: {host, uri.port || 443}
+
+  defp remap(uri, host, map) do
+    authority = "#{uri.host}:#{uri.port || 443}"
+
+    case Map.fetch(map, authority) do
+      {:ok, target} ->
+        [to_host, to_port] = String.split(target, ":")
+        {String.to_charlist(to_host), String.to_integer(to_port)}
+
+      :error ->
+        {host, uri.port || 443}
     end
   end
 

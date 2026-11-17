@@ -7,6 +7,12 @@ defmodule Lumina.Test.Fixture do
       fixture.rsync_root  # local copy of the rsync tree
       fixture.modules     # rsync modules to serve as localhost:8873: "rpki" => the
                           # whole tree, plus the fixture's :rsync_modules
+      fixture.rrdp_root   # Barry's RRDP files, served as https://localhost:8443/rrdp/
+                          # (Lumina.Test.HTTPSServer.dir_routes/2)
+      fixture.notification_uri  # the notification URI, a Lumina.URI
+      fixture.session_id  # its RRDP session (Mix.Lumina.Fixtures.session_id/1)
+      fixture.versions    # RRDP serials and their states: %{1 => "..."} or the
+                          # fixture's :rrdp_versions (#202)
 
   The result also holds the fixture's metadata (`:id`, `:title`,
   `:rationale`, `:rfc`, `:expected`, ...).
@@ -21,6 +27,9 @@ defmodule Lumina.Test.Fixture do
           required(:rsync_root) => Path.t(),
           required(:rrdp_root) => Path.t(),
           required(:modules) => %{String.t() => Path.t()},
+          required(:notification_uri) => Lumina.URI.t(),
+          required(:session_id) => String.t(),
+          required(:versions) => %{pos_integer() => String.t()},
           optional(atom()) => term()
         }
 
@@ -47,7 +56,10 @@ defmodule Lumina.Test.Fixture do
               [{"rpki", "."} | Map.to_list(Map.get(fixture, :rsync_modules, %{}))],
               fn {name, dir} -> {name, Path.join([case_dir, "rsync", dir])} end
             ),
-          rrdp_root: Path.join(case_dir, "rrdp")
+          rrdp_root: Path.join(case_dir, "rrdp"),
+          notification_uri: notification_uri(),
+          session_id: Fixtures.session_id(fixture.id),
+          versions: Map.get(fixture, :rrdp_versions, %{1 => fixture.title})
         })
 
       {:error, problems} ->
@@ -55,5 +67,10 @@ defmodule Lumina.Test.Fixture do
               "fixture #{inspect(id)} fails its metadata check:\n" <>
                 Enum.map_join(problems, "\n", &"  #{&1.message}")
     end
+  end
+
+  defp notification_uri do
+    {:ok, uri} = Lumina.URI.parse(Fixtures.notification_uri())
+    uri
   end
 end

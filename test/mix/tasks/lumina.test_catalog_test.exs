@@ -34,6 +34,8 @@ defmodule Mix.Tasks.Lumina.TestCatalogTest do
     File.write!(Path.join(case_dir, "case.repo"), "ta.cer\n")
     File.write!(Path.join(case_dir, "case.tal"), "rsync://localhost/ta.cer\n")
     File.write!(Path.join([case_dir, "rsync", "ta.cer"]), "x")
+    File.mkdir_p!(Path.join(case_dir, "rrdp"))
+    File.write!(Path.join([case_dir, "rrdp", "notification.xml"]), "<notification/>")
     File.write!(Path.join(case_dir, "case.exs"), meta)
   end
 

@@ -10,8 +10,8 @@ defmodule Lumina.RRDP.FilesTest do
   A decoder that let one through would hand the RRDP layer a file the RFC
   says MUST be rejected: a snapshot from another session, a delta out of
   sequence, a reference to another server (RFC 9674), or an object under
-  a URI that escapes the cache. Barry's RRDP output is decoded too, to
-  show the snapshot carries the same objects as the rsync tree.
+  a URI that escapes the cache. A Barry fixture's RRDP output is decoded
+  too, to show the snapshot carries the same objects as the rsync tree.
   """
   use ExUnit.Case, async: true
 
@@ -206,31 +206,23 @@ defmodule Lumina.RRDP.FilesTest do
   describe "Barry's RRDP output" do
     @tag rfc: ["8182#3.5.1.3", "8182#3.5.2.3", "8182#4.1"],
          doc: """
-         Barry writes session_id="1" (F-038), which D-042 rejects. With a
-         UUID in its place, the notification and snapshot decode, and the
-         snapshot publishes exactly the fixture's rsync tree below the TA,
-         byte for byte.
+         Barry writes session_id="1" by default (F-038); the generator gives
+         every fixture a version 4 UUID instead (#202). The notification and
+         snapshot decode, and the snapshot publishes exactly the fixture's
+         rsync tree below the TA, byte for byte.
          """
-    test "a fixture's notification and snapshot decode once the session is a UUID, and carry its rsync objects" do
+    test "a fixture's notification and snapshot decode, and carry its rsync objects" do
       fixture = Fixture.load!("m0-minimal-valid")
-      rrdp = Path.join(Path.dirname(fixture.tal_path), "rrdp")
-      notification = File.read!(Path.join(rrdp, "notification.xml"))
-      snapshot = File.read!(Path.join(rrdp, "snapshot.xml"))
-      notify = uri!("https://localhost:8443/rrdp/notification.xml")
+      notification = File.read!(Path.join(fixture.rrdp_root, "notification.xml"))
+      snapshot = File.read!(Path.join(fixture.rrdp_root, "snapshot.xml"))
 
-      assert {:error, %{rule: :session_id}} = Notification.decode(notification, notify)
-
-      uuid = ~s(session_id="#{@session}")
-
-      assert {:ok, n} =
-               Notification.decode(String.replace(notification, ~s(session_id="1"), uuid), notify)
-
+      assert {:ok, n} = Notification.decode(notification, fixture.notification_uri)
+      assert %{session_id: session, warnings: []} = n
+      assert session == fixture.session_id
       assert n.snapshot.hash == :crypto.hash(:sha256, snapshot)
 
       assert {:ok, objects} =
-               snapshot
-               |> String.replace(~s(session_id="1"), uuid)
-               |> Snapshot.parse(%{session_id: @session, serial: n.serial}, &collect/2, [])
+               Snapshot.parse(snapshot, %{session_id: session, serial: n.serial}, &collect/2, [])
 
       published =
         Map.new(objects, fn {:publish, uri, bytes} -> {Enum.join(tl(uri.path), "/"), bytes} end)

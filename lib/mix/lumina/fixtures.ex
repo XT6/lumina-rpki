@@ -36,6 +36,10 @@ defmodule Mix.Lumina.Fixtures do
   required when `rsync/` holds a ROA: the VRPs `lumina vrps` must write
   for the fixture, as CSV lines without the trust anchor
   (`"AS64496,1.1.0.0/16,24"`), each once, in any order (#170).
+  `rrdp_versions` is required exactly when the fixture has later versions
+  (`case.v2.repo`, `case.v3.repo`, ..., #202): a map from each RRDP serial
+  (1 for `case.repo`, K for `case.vK.repo`) to a description of the
+  repository's state at that serial. `rsync/` then holds the last version.
 
   `case.exs` is read as data: anything but literal values (maps, lists,
   tuples, strings, atoms, numbers) is rejected, and nothing in it is run.
@@ -50,7 +54,8 @@ defmodule Mix.Lumina.Fixtures do
   def default_barry_opts, do: [now: "2026-01-01T00:00:00Z", later: "2036-01-01T00:00:00Z"]
 
   @required [:id, :title, :milestone, :rationale, :rfc, :expected]
-  @optional [:barry, :rsync_modules, :vrps]
+  @optional [:barry, :rsync_modules, :vrps, :rrdp_versions]
+  @notification_uri "https://localhost:8443/rrdp/notification.xml"
   @vrp_regex ~r/\AAS\d+,[0-9a-f.:]+\/\d+,\d+\z/
   @module_regex ~r/\A[a-z0-9][a-z0-9-]*\z/
   @milestones Enum.map(0..9, &"M#{&1}")
@@ -75,7 +80,8 @@ defmodule Mix.Lumina.Fixtures do
           required(:dir) => Path.t(),
           optional(:barry) => keyword(String.t()),
           optional(:rsync_modules) => %{String.t() => String.t()},
-          optional(:vrps) => [String.t()]
+          optional(:vrps) => [String.t()],
+          optional(:rrdp_versions) => %{pos_integer() => String.t()}
         }
   @type problem :: %{file: Path.t(), message: String.t()}
 
@@ -119,7 +125,8 @@ defmodule Mix.Lumina.Fixtures do
           check_metadata(meta, case_dir, library) ++
           check_files(case_dir, :output) ++
           check_rejects(meta, case_dir) ++
-          check_vrps_present(meta, case_dir)
+          check_vrps_present(meta, case_dir) ++
+          check_versions(meta, case_dir)
 
       case problems do
         [] -> {:ok, Map.put(meta, :dir, case_dir)}
@@ -147,6 +154,55 @@ defmodule Mix.Lumina.Fixtures do
   @doc "Path of a fixture's metadata file."
   @spec meta_path(Path.t()) :: Path.t()
   def meta_path(case_dir), do: Path.join(case_dir, "case.exs")
+
+  @doc "The notification URI of every fixture's RRDP repository (Barry's default)."
+  @spec notification_uri() :: String.t()
+  def notification_uri, do: @notification_uri
+
+  @doc """
+  The RRDP session_id of the fixture `id`: a version 4 UUID (RFC 8182
+  §3.5.1.3) made from the SHA-256 of the id, so regenerating a fixture
+  keeps it (#202).
+
+      iex> Mix.Lumina.Fixtures.session_id("m0-minimal-valid") =~
+      ...>   ~r/\\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\z/
+      true
+
+  """
+  @spec session_id(String.t()) :: String.t()
+  def session_id(id) do
+    <<a::48, _::4, b::12, _::2, c::62, _::binary>> = :crypto.hash(:sha256, id)
+    hex = Base.encode16(<<a::48, 4::4, b::12, 2::2, c::62>>, case: :lower)
+
+    <<p1::binary-8, p2::binary-4, p3::binary-4, p4::binary-4, p5::binary-12>> = hex
+    Enum.join([p1, p2, p3, p4, p5], "-")
+  end
+
+  @doc """
+  A fixture's descriptors in version order: `case.repo`, then
+  `case.v2.repo`, `case.v3.repo`, ... without gaps.
+  """
+  @spec descriptors(Path.t()) :: {:ok, [String.t()]} | {:error, String.t()}
+  def descriptors(case_dir) do
+    later =
+      for file <- File.ls!(case_dir), String.match?(file, ~r/\Acase\.v.*\.repo\z/) do
+        case Regex.run(~r/\Acase\.v([2-9]|[1-9][0-9]+)\.repo\z/, file) do
+          [_, n] -> {String.to_integer(n), file}
+          nil -> {:bad, file}
+        end
+      end
+
+    cond do
+      bad = Enum.find(later, &match?({:bad, _}, &1)) ->
+        {:error, "#{elem(bad, 1)}: later versions are named case.v2.repo, case.v3.repo, ..."}
+
+      Enum.sort(Enum.map(later, &elem(&1, 0))) != Enum.to_list(2..(length(later) + 1)//1) ->
+        {:error, "versions must be case.v2.repo, case.v3.repo, ... without gaps"}
+
+      true ->
+        {:ok, ["case.repo" | later |> Enum.sort() |> Enum.map(&elem(&1, 1))]}
+    end
+  end
 
   @doc "Barry options for a fixture: the defaults merged with its `:barry` overrides."
   @spec barry_opts(map()) :: keyword(String.t())
@@ -321,6 +377,47 @@ defmodule Mix.Lumina.Fixtures do
       else: []
   end
 
+  # rrdp_versions: required with later descriptors, one entry per serial,
+  # and the RRDP files generated for each.
+  defp check_versions(meta, case_dir) do
+    case {descriptors(case_dir), Map.fetch(meta, :rrdp_versions)} do
+      {{:error, message}, _} ->
+        [message]
+
+      {{:ok, [_]}, :error} ->
+        []
+
+      {{:ok, [_]}, {:ok, _}} ->
+        ["rrdp_versions needs later versions of the descriptor (case.v2.repo, ...)"]
+
+      {{:ok, files}, :error} ->
+        ["missing key :rrdp_versions (required: #{length(files)} versions of the descriptor)"]
+
+      {{:ok, files}, {:ok, versions}} ->
+        n = length(files)
+
+        cond do
+          not is_map(versions) or Enum.sort(Map.keys(versions)) != Enum.to_list(1..n) ->
+            ["rrdp_versions must map each serial 1..#{n} to a description"]
+
+          Enum.any?(Map.values(versions), &(not is_binary(&1) or String.trim(&1) == "")) ->
+            ["rrdp_versions: each description must be a non-blank string"]
+
+          true ->
+            for file <- version_files(n),
+                not File.regular?(Path.join([case_dir, "rrdp", file])),
+                do:
+                  "missing rrdp/#{file}; run `mix lumina.fixtures.gen #{Path.basename(case_dir)}`"
+        end
+    end
+  end
+
+  defp version_files(n) do
+    ["notification.xml", "snapshot.xml"] ++
+      Enum.flat_map(1..(n - 1)//1, &["notification-#{&1}.xml", "snapshot-#{&1}.xml"]) ++
+      Enum.map(2..n//1, &"delta-#{&1}.xml")
+  end
+
   defp check_barry(opts) do
     if Keyword.keyword?(opts) do
       Enum.flat_map(opts, fn
@@ -380,7 +477,12 @@ defmodule Mix.Lumina.Fixtures do
         do: [],
         else: ["missing generated rsync/ tree"]
 
-    case tal ++ rsync do
+    rrdp =
+      if File.regular?(Path.join([case_dir, "rrdp", "notification.xml"])),
+        do: [],
+        else: ["missing generated rrdp/notification.xml"]
+
+    case tal ++ rsync ++ rrdp do
       [] -> []
       found -> found ++ ["run `mix lumina.fixtures.gen #{Path.basename(case_dir)}`"]
     end

@@ -61,6 +61,19 @@ defmodule Lumina.Test.HTTPSServer do
     %{cert: config[:cert], key: config[:key], cacerts: config[:cacerts]}
   end
 
+  @doc """
+  Routes serving every file under `dir` at `prefix` plus its relative
+  path, such as a fixture's `rrdp/` at `"/rrdp/"` (#202). Fixture URIs
+  name `localhost:8443`; fetch them with
+  `remap: %{"localhost:8443" => "localhost:<port>"}`.
+  """
+  @spec dir_routes(Path.t(), String.t()) :: %{String.t() => {:file, Path.t()}}
+  def dir_routes(dir, prefix) do
+    for path <- Path.wildcard(Path.join(dir, "**/*")), File.regular?(path), into: %{} do
+      {prefix <> Path.relative_to(path, dir), {:file, path}}
+    end
+  end
+
   @doc "Starts the server; returns its port."
   @spec start!(pki(), %{String.t() => response() | (map() -> response())}) ::
           :inet.port_number()
