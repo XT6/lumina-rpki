@@ -79,4 +79,5 @@ Record every RFC erratum, ambiguity, missing or obsolete reference, and tooling 
 - One PR per issue.
 - Unit-test everything that can be unit tested. Each issue defines the tests it must pass.
 - Every long-running operation reports progress, on by default (D-036): a status line on stderr on a terminal, timestamped lines elsewhere, nothing only with `--quiet`, through `Lumina.Progress` events (a `:progress` option); stdout stays the command's output. A new long-running command or stage isn't done without it, and its tests.
+- Releases (D-044): version `0.<last milestone completed>.<patch>` in `mix.exs`, an annotated tag `v<version>` on `main`, and a GitHub release with notes and the `lumina` escript; steps in `doc/releasing.md`.
 - An issue can't be closed unless its tests pass, unless the maintainer (Carlos) explicitly acknowledges otherwise. A milestone can't be closed unless all tests pass.

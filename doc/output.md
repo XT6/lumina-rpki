@@ -40,7 +40,7 @@ A JSON text (RFC 8259) in UTF-8: one object with two members, `metadata` and `ro
   "metadata": {
     "generated": "2026-11-15T12:00:00Z",
     "validationTime": "2026-11-15T12:00:00Z",
-    "lumina": "0.1.0",
+    "lumina": "0.7.0",
     "trustAnchors": [
       {"name":"apnic","tal":"tals/apnic.tal","status":"ok","vrps":1},
       {"name":"lacnic","tal":"tals/lacnic.tal","status":"ok","vrps":1}
