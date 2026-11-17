@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 92 Barry fixtures: 23 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 907 unit tests in 73 modules.
+- 921 unit tests in 74 modules.
 
 ## Barry fixtures
 
@@ -3295,6 +3295,52 @@ show the snapshot carries the same objects as the rsync tree.
   UUID in its place, the notification and snapshot decode, and the
   snapshot publishes exactly the fixture's rsync tree below the TA,
   byte for byte.
+
+### `Lumina.RRDP.StoreTest`
+
+[test/lumina/rrdp/store_test.exs](../../test/lumina/rrdp/store_test.exs)
+
+Tests where RRDP content and state live in the cache (#201):
+`Lumina.RRDP.Store`, one store per repository, and `Lumina.RRDP.State`.
+
+RFC 8182 §3.4.2 lets a withdraw or a replace touch only objects that
+came from the same server; a store per notification URI makes that
+structural, so the tests check that two repositories publishing the
+same rsync URI keep separate copies. Applying a snapshot or deltas must
+never damage the last good store (RFC 8897 §7, as for rsync in
+`Lumina.Cache`): a failure midway leaves it byte-identical, a crash
+leaves nothing `Lumina.Cache.recover/1` can't clean up, and deltas,
+applied to a hard-linked copy, never write through a link into the
+live store's files. A state file that can't be trusted must read as
+"never synced", so the repository is fetched from its snapshot.
+
+- *applying a snapshot:* a snapshot's objects land at their rsync URI paths inside the store, and nowhere else (RFC [8182 §3.4.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.3)))
+- *applying a snapshot:* a new snapshot replaces the whole store
+- *applying a snapshot:* a notification URI with a port gets its own store
+  The notification URI's port is part of the store's directory and of its id.
+- *failures:* an error raised midway leaves the previous store byte-identical
+- *failures:* a function returning an error discards its changes
+- *failures:* no staging directory survives Cache.recover/1
+  A transaction left open, as by a crash, is a staging directory recover/1 removes.
+- *failures:* an interrupted swap of a store is repaired by Cache.recover/1
+  A crash between the swap's two renames leaves the live store
+  aside with a note; recover/1 puts it back (Lumina.Cache.swap/3).
+- *applying deltas:* deltas on the hard-linked copy never change the previous store's files (RFC [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)))
+  The staged copy's files are hard links to the store's (same
+  inode). A replace renames a new file over the link and a
+  withdraw unlinks it; the store's files keep their inode and
+  contents until the commit.
+- *applying deltas:* withdrawing an object that isn't there is an error
+- *applying deltas:* withdrawing the last object of a directory removes the directory
+  A withdraw removes directories it leaves empty, up to the store's root.
+- *separate stores:* two repositories publishing the same rsync URI keep separate copies (RFC [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)))
+  RFC 8182 §3.4.2: a withdraw or replace may touch only objects
+  retrieved from the same server. A second repository publishing
+  and then withdrawing the same rsync URI leaves the first's copy.
+- *state:* a saved state loads back as it was (RFC [8182 §3.4.1](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.1)), [8182 §3.4.4](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.4)))
+- *state:* a repository with no state file reads as never synced
+- *state:* a corrupt state file reads as never synced
+  Not JSON, a field of the wrong type, a bad delta hash, or another notification URI.
 
 ### `Lumina.RRDP.XMLTest`
 
