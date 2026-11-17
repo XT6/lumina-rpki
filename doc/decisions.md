@@ -51,6 +51,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-041](#d-041-rrdp-xml-is-parsed-by-luminas-own-strict-streaming-parser) | RRDP XML is parsed by Lumina's own strict streaming parser; comments allowed | 2026-11-17 | M8 plan, #198 |
 | [D-042](#d-042-a-session_id-that-isnt-a-version-4-uuid-only-warns) | A session_id that isn't a version 4 UUID only warns | 2026-11-17 | M8 plan, #199 |
 | [D-043](#d-043-rrdp-limits-2-gib-files-300-s-idle) | RRDP limits: 2 GiB files, 300 s idle | 2026-11-17 | M8 plan, #200 |
+| [D-044](#d-044-releases-are-0milestonepatch-tagged-and-published-on-github) | Releases are 0.<milestone>.<patch>, tagged and published on GitHub | 2026-11-17 | #211 |
 
 ## D-001: CLI model
 
@@ -544,3 +545,15 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 
 - **Why:** ARIN's snapshot was 760 MB on 2026-11-16 and RIPE's 284 MB; 2 GiB leaves room to grow. A total time limit would cut off a large snapshot on a slow link; an idle limit still stops a server that stalls. Objects keep the rsync limit, so the transport doesn't change what is accepted.
 - **Where:** M8 plan (maintainer, 2026-11-17: "2 GiB files, 300 s idle"); #200.
+
+## D-044: Releases are 0.<milestone>.<patch>, tagged and published on GitHub
+
+- **Date:** 2026-11-17
+- **Decision:**
+  - **Version:** `0.<last milestone completed>.<patch>`. The minor number is the last milestone closed; the patch number counts releases between milestones, from 0. `mix.exs` holds the same version (Mix requires three parts).
+  - **Tag:** annotated, `v` plus the version (`v0.7.0`), on the merge commit on `main` that carries the version bump.
+  - **Release:** a GitHub release per tag, with notes and the `lumina` escript attached; GitHub adds the source archives. The escript needs Erlang/OTP (the version in `.tool-versions`) on the host.
+  - **When:** a milestone's release follows its closing; patch releases when the maintainer asks.
+- **Why:** the maintainer wants tagged commits and source releases, numbered after the milestones ("convention, 0.<last milestone completed>"). `v0.7.0` rather than `v0.7`, so the tag matches `mix.exs`.
+- **Where:** maintainer, 2026-11-17, before starting M8; #211. The procedure is in [releasing.md](releasing.md).
+- **First release:** v0.7.0, for M7.
