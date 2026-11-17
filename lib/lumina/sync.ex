@@ -45,7 +45,8 @@ defmodule Lumina.Sync do
 
   Options are passed on: `:timeout` (seconds, rsync I/O and the whole
   HTTPS fetch), `:max_depth`, `:per_host`, `:now`, `:progress` (a `Lumina.Progress`
-  listener), and for tests `:https`, `:rsync` and `:remap`.
+  listener), `:rrdp` (`false` turns RRDP off, D-040), and for tests
+  `:https`, `:rsync`, `:rrdp_opts` and `:remap`.
   """
   @spec run([{Path.t(), TAL.t()}], Path.t(), keyword()) ::
           {:ok, [report()]} | {:error, {:locked, String.t()} | File.posix()}
@@ -160,10 +161,15 @@ defmodule Lumina.Sync do
   def summary(reports) do
     blocks = Enum.map(reports, &tal_block/1)
     fetches = reports |> Enum.flat_map(&if(&1.walk, do: &1.walk.fetches, else: [])) |> length()
+    rrdp = reports |> Enum.flat_map(&if(&1.walk, do: &1.walk.rrdp, else: [])) |> length()
     failed = Enum.count(reports, & &1.failed?)
 
+    rrdp =
+      if rrdp > 0, do: ", #{rrdp} RRDP repositor#{if rrdp == 1, do: "y", else: "ies"}", else: ""
+
     Enum.join(blocks, "\n") <>
-      "\n#{length(reports)} TAL(s), #{fetches} rsync fetch(es), #{failed} TAL(s) with failures\n"
+      "\n#{length(reports)} TAL(s), #{fetches} rsync fetch(es)#{rrdp}, " <>
+      "#{failed} TAL(s) with failures\n"
   end
 
   defp tal_block(report) do
@@ -221,8 +227,11 @@ defmodule Lumina.Sync do
     failed_points = Enum.count(walk.points, &(&1.status == :failed))
     fallback = Enum.count(walk.points, &(&1.status == :fallback))
 
-    # Modules an earlier TAL's walk fetched in this run (#102).
-    ours = MapSet.new(walk.fetches, & &1.uri)
+    # Modules and RRDP repositories an earlier TAL's walk fetched in this
+    # run (#102).
+    ours =
+      MapSet.new(walk.fetches, & &1.uri)
+      |> MapSet.union(MapSet.new(walk.rrdp, &to_string(&1.notify)))
 
     shared =
       walk.points |> Enum.map(& &1.covered_by) |> Enum.uniq() |> Enum.count(&(&1 not in ours))
@@ -248,6 +257,7 @@ defmodule Lumina.Sync do
       "  rsync fetches: #{length(walk.fetches)}, #{failed} failed" <>
         if(retried > 0, do: ", #{retried} retried", else: "") <>
         if(shared > 0, do: "; #{shared} modules fetched for an earlier TAL", else: "") <> "\n",
+      rrdp_line(walk.rrdp),
       if(overclaims > 0,
         do:
           "  overclaims: #{overclaims} (resources outside the issuer's, RFC 6487 section 7.2)\n",
@@ -258,6 +268,24 @@ defmodule Lumina.Sync do
           if(issue.detail, do: " (#{reason(issue.detail)})", else: "") <> "\n"
       end
     ]
+  end
+
+  # The RRDP repositories a walk synced (#206), by outcome.
+  defp rrdp_line([]), do: []
+
+  defp rrdp_line(syncs) do
+    counts =
+      syncs
+      |> Enum.map(fn
+        %{outcome: {:failed, _}} -> "failed"
+        %{outcome: {:deltas, _}} -> "deltas"
+        %{outcome: outcome} -> to_string(outcome)
+      end)
+      |> Enum.frequencies()
+      |> Enum.sort()
+      |> Enum.map_join(", ", fn {outcome, n} -> "#{n} #{outcome}" end)
+
+    "  rrdp repositories: #{length(syncs)} (#{counts})\n"
   end
 
   # A short reason for a failure's detail. For rsync failures Lumina can't
@@ -274,6 +302,14 @@ defmodule Lumina.Sync do
 
   defp reason(%{manifest: manifest, reasons: reasons}),
     do: "#{manifest}: #{Enum.map_join(reasons, ", ", &to_string(&1.rule))}; fetched again"
+
+  defp reason(%{notify: notify}), do: "RRDP #{notify} failed; fetched over rsync (D-040)"
+
+  defp reason(%{warnings: warnings, fallback: fallback}) do
+    Enum.map(warnings, &to_string(&1[:rule] || inspect(&1)))
+    |> Enum.concat(if fallback, do: ["delta #{fallback.reason}; snapshot used"], else: [])
+    |> Enum.join(", ")
+  end
 
   defp reason(%{certificate: name}), do: "from #{name}"
   defp reason(%{covered_by: uri}), do: "no copy; fetched with #{uri}"

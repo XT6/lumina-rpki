@@ -33,4 +33,10 @@ exclude = [:network | exclude]
 # by hand: mix test --only large.
 exclude = [:large | exclude]
 
+# The walk syncs a CA's RRDP repository when its certificate names one
+# (D-040, #206). Every Barry fixture names https://localhost:8443/..., so
+# tests that serve only rsync would reach for a server that isn't there:
+# RRDP is off by default in tests, and those that test it pass rrdp: true.
+Application.put_env(:lumina, :rrdp, false)
+
 ExUnit.start(exclude: exclude)

@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 94 Barry fixtures: 25 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 978 unit tests in 78 modules.
+- 991 unit tests in 80 modules.
 
 ## Barry fixtures
 
@@ -3053,6 +3053,9 @@ commands as given.
 - *status text:* a fetch being retried leaves the running ones and is counted as retried
   A transient failure (D-039, #193) ends the first run without
   counting it done or failed; the retry is a fetch of its own.
+- *status text:* RRDP syncs are counted apart from rsync runs
+  An RRDP repository (#206) is a fetch with an https:// URI: counted
+  under rrdp, not rsync, while it runs and once done.
 - *status text:* on a terminal, the status line is cut to the terminal width
 - *validation (#180):* Validate.run/3 reports each level and each point validated, with counts matching the result
   m0-minimal-valid, synced then validated: a level event pair per
@@ -3708,6 +3711,19 @@ Profile violations decode; only non-DER or unparseable input fails.
   attributes, and the signature covers these exact bytes.
 - *structural decoding:* non-DER, truncated and unrelated input are errors naming the layer
 
+### `Lumina.SourceTest`
+
+[test/lumina/source_test.exs](../../test/lumina/source_test.exs)
+
+`Lumina.Source` (#206): where each CA's publication point was last read
+from while accepted, its RRDP store or the rsync tree. A sync can read a
+point over RRDP one run and from rsync the next (D-040), so offline
+validation (#207) needs the record; one that can't be trusted must read
+as no record at all.
+
+- a saved source loads back, for RRDP and for rsync
+- a point never recorded, or a file that can't be trusted, loads as nil
+
 ### `Lumina.SyncSharedModulesTest`
 
 [test/lumina/sync_shared_modules_test.exs](../../test/lumina/sync_shared_modules_test.exs)
@@ -3982,6 +3998,56 @@ the cases; the `:network` test downloads the live file.
 - *mix lumina.compare_vrps:* compares two files and reports both sides' malformed lines
 - the live reference CSV downloads and parses, with every RIR's trust anchor
   Downloads Routinator's CSV; about 34 MB and over a million VRPs (2026-11-15).
+
+### `Lumina.WalkRRDPTest`
+
+[test/lumina/walk_rrdp_test.exs](../../test/lumina/walk_rrdp_test.exs)
+
+RRDP in the repository walk (#206, D-040): a CA whose certificate names
+an HTTPS rpkiNotify is synced over RRDP (`Lumina.RRDP.Sync`) and its
+publication point read from the repository's store; when RRDP fails,
+the CA's rsync module is fetched in the same run and the point read
+from rsync (RFC 8182 §3.4.5).
+
+Every Barry fixture names `https://localhost:8443/rrdp/notification.xml`
+in its certificates; `Lumina.Test.RRDPServer` serves the fixture's
+`rrdp/` there (through `:remap`), and `Lumina.Test.RsyncDaemon` its
+rsync modules as `localhost:8873` where a test needs rsync. The unit of
+fetching over RRDP is the notification URI: synced once per run (and,
+through `:fetched`, once per sync) however many CAs name it. RRDP and
+rsync must give the same walk: the same points, verdicts and objects.
+
+- a fixture served only over HTTPS is walked completely over RRDP (RFC [8182 §3.4.1](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.1)), [8182 §3.4.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.3)))
+  m3-walk-nested (a CA's point nested in the TA's) over HTTPS only:
+  every rsync connection would fail (closed port). Every point is read from the RRDP store, the one
+  repository is synced from its snapshot, and no rsync runs.
+- an unreachable notification falls back to rsync in the same run (RFC [8182 §3.4.5](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.5)))
+  D-040: the notification is a 404; the module is fetched instead.
+- a rejected snapshot falls back to rsync in the same run (RFC [8182 §3.4.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.3)), [8182 §3.4.5](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.5)))
+- a cross-origin redirect falls back to rsync in the same run (RFC [9674 §3.2](../rfc/rfc9674.txt) ([html](https://www.rfc-editor.org/rfc/rfc9674.html#section-3.2)), [8182 §3.4.5](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.5)))
+- a failed sync keeps the last good store (RFC [8182 §3.4.5](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.5)))
+  The store from a first run's RRDP sync is kept when the next run's
+  RRDP fails; that run reads from rsync.
+- a repository many CAs name is synced once
+  m3-walk-siblings: eight CAs under the TA, each in its own rsync
+  module, all naming one notification URI. It is synced once, and its
+  notification and snapshot are each requested once.
+- two TALs sharing a repository sync it once per sync
+  Two TALs for the same TA in one `Lumina.Sync.run/3`: the second
+  walk is passed the first's `:fetched` (#102), so the repository is
+  synced once per sync.
+- with RRDP off nothing is fetched over HTTPS
+- an RRDP sync whose connection dropped is retried once (RFC [8182 §3.4.1](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.1)))
+  D-039: the first notification response is cut short (:truncated),
+  the sync is tried once more and succeeds; the walk reports the
+  retry and reads from RRDP.
+- for every positive fixture, an RRDP walk equals an rsync walk (RFC [8182 §3.4.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.3)), [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  Every positive fixture walked twice, over RRDP only and over rsync
+  only: the same points (URI, depth, status), the same issues, and
+  each point's files byte for byte. m3-walk-delegation,
+  m3-walk-silent-branch and m3-walk-unreachable are left out: they
+  name rsync hosts other than localhost:8873, which this test doesn't
+  serve, while their RRDP repository holds every object.
 
 ### `Lumina.WalkTest`
 

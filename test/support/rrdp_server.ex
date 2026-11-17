@@ -24,7 +24,11 @@ defmodule Lumina.Test.RRDPServer do
 
   @doc "Starts a server with `routes`; returns `%{agent, port, opts}`."
   def start!(routes, now \\ ~U[2030-01-01 00:00:00Z]) do
-    agent = ExUnit.Callbacks.start_supervised!({Agent, fn -> %{routes: routes, log: []} end})
+    agent =
+      ExUnit.Callbacks.start_supervised!(
+        Supervisor.child_spec({Agent, fn -> %{routes: routes, log: []} end}, id: make_ref())
+      )
+
     pki = Lumina.Test.HTTPSServer.pki()
 
     port =

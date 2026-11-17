@@ -161,6 +161,28 @@ defmodule Lumina.ProgressTest do
                  "rsync 2 done, 0 running, 1 failed, 1 retried  files 120"
     end
 
+    @tag doc: """
+         An RRDP repository (#206) is a fetch with an https:// URI: counted
+         under rrdp, not rsync, while it runs and once done.
+         """
+    test "RRDP syncs are counted apart from rsync runs" do
+      notify = "https://rrdp.example/notification.xml"
+
+      running =
+        scripted()
+        |> Progress.update({:fetch_started, notify, "rrdp.example"}, 3_600)
+
+      assert Progress.render(running, 4_000) ==
+               "4s  lacnic.tal (1/2)  level 1 (3 points)  points 4  " <>
+                 "rsync 2 done, 1 running, 1 failed  rrdp 0 done, 1 running  files 120"
+
+      done = Progress.update(running, {:fetch_finished, notify, "rrdp.example", :error, 0}, 3_900)
+
+      assert Progress.render(done, 4_000) ==
+               "4s  lacnic.tal (1/2)  level 1 (3 points)  points 4  " <>
+                 "rsync 2 done, 1 running, 1 failed  rrdp 1 done, 0 running, 1 failed  files 120"
+    end
+
     test "on a terminal, the status line is cut to the terminal width" do
       assert Progress.render(scripted(), 4_000, columns: 30) == "4s  lacnic.tal (1/2)  level 1"
     end
