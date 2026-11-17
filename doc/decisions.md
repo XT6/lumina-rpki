@@ -53,6 +53,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-043](#d-043-rrdp-limits-2-gib-files-300-s-idle) | RRDP limits: 2 GiB files, 300 s idle | 2026-11-17 | M8 plan, #200 |
 | [D-044](#d-044-releases-are-0milestonepatch-tagged-and-published-on-github) | Releases are 0.<milestone>.<patch>, tagged and published on GitHub | 2026-11-17 | #211 |
 | [D-045](#d-045-lumina-version-and-a-startup-banner-on-stderr) | `lumina version`, and a startup banner on stderr | 2026-11-17 | #213 |
+| [D-046](#d-046-a-snapshot-that-publishes-a-uri-twice-is-rejected) | A snapshot that publishes a URI twice is rejected | 2026-11-17 | #203, F-041 |
 
 ## D-001: CLI model
 
@@ -569,3 +570,11 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Why:** the maintainer asked for "a command to print the version, but also … a generic banner that among other things, displays the version whenever lumina runs". The banner goes to stderr because stdout is the command's output (D-036); `lumina vrps` writes CSV there. `--quiet` keeps scripts and cron jobs clean, and with the version, the runtimes and the start time, a log or a bug report says what ran and when.
 - **Where:** maintainer, 2026-11-17; the details were proposed in #213.
 - **As implemented (#213):** `Lumina.banner/1`; `Lumina.CLI.main/1` passes `banner: true` to `run/4`, so tests calling `run/4` see it only when they ask.
+
+## D-046: A snapshot that publishes a URI twice is rejected
+
+- **Date:** 2026-11-17
+- **Decision:** an RRDP snapshot with two `publish` elements for the same URI is rejected (`snapshot_rejected`, rule `duplicate_publish`), and the repository's last good store is kept. This is the strict reading of an ambiguity in RFC 8182 §3.5.2.3 (F-041).
+- **Why:** a snapshot "represents a complete current state of the repository", and a state can't give one object two contents. Keeping the first or the last copy would be a guess about what the publisher meant.
+- **Revisit:** during live testing (the M8 done test's `:network` run, #209), check whether any live repository's snapshot publishes a URI twice. If one does, bring it back to the maintainer.
+- **Where:** maintainer, 2026-11-17 ("keep the strict reading of F-041, but keep in mind when we do live testing"); #203.

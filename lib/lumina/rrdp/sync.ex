@@ -1,7 +1,7 @@
 defmodule Lumina.RRDP.Sync do
   @moduledoc """
-  Syncs one RRDP repository from its snapshot (#203; RFC 8182 §3.4.1,
-  §3.4.3; RFC 9674 §3.2).
+  Syncs one RRDP repository, from its deltas or its snapshot (#203, #204;
+  RFC 8182 §3.4.1 to §3.4.3; RFC 9674 §3.2).
 
   `run/3` takes the repository's notification URI (the `rpkiNotify` URI
   in a CA certificate) and the cache root:
@@ -15,14 +15,24 @@ defmodule Lumina.RRDP.Sync do
        below the store's rejects it (`:serial_not_greater`, §3.4.3). A new
        session_id is processed from its snapshot, whatever its serial
        (§3.4.1).
-    3. The snapshot is fetched to a temporary file (at most 2 GiB, D-043;
+    3. With the same session_id and every delta from the store's serial
+       plus one listed, the deltas are used (§3.4.2): each is fetched, its
+       SHA-256 checked, its root checked against the session_id and its
+       serial, and its elements applied in order to one hard-linked copy
+       of the store, swapped in once all of them are in. A withdraw, or a
+       publish with a hash, must name an object the store holds with that
+       SHA-256; a publish without a hash must be for a URI it doesn't
+       hold (erratum 6919, F-037). A rejected delta drops the copy and the
+       snapshot is processed instead (§3.4.2): the result's `fallback`
+       says why.
+    4. Otherwise the snapshot is fetched to a temporary file (at most 2 GiB, D-043;
        redirects only to the notification's origin), its SHA-256 compared
        with the notification's (§3.4.3), then streamed
        (`Lumina.RRDP.Snapshot`, root checked against the notification's
        session_id and serial, §3.5.2.3) into a new tree for the
        repository's `Lumina.RRDP.Store`, swapped in only when the whole
        snapshot is in.
-    4. The state (`Lumina.RRDP.State`) records the session_id, serial,
+    5. The state (`Lumina.RRDP.State`) records the session_id, serial,
        delta hashes and `Last-Modified`, or, on failure, only the attempt
        and its outcome.
 
@@ -41,19 +51,30 @@ defmodule Lumina.RRDP.Sync do
       publishes one URI twice (`duplicate_publish`, F-041);
     * `:store_failed`: the cache couldn't be written.
 
+  A cross-origin redirect while fetching a delta fails the sync too,
+  without the snapshot (RFC 9674 §3.2). The other delta failures lead to
+  the snapshot, and show in `fallback`: `:delta_failed` (not fetched),
+  `:delta_hash_mismatch`, `:delta_rejected` (didn't decode or check, or
+  an element failed the rules above: `publish_without_hash`,
+  `replace_not_held`, `replace_hash_mismatch`, `withdraw_not_held`,
+  `withdraw_hash_mismatch`) or `:store_failed`.
+
   What happens to a repository whose sync failed is the walk's (D-040,
-  #206). Deltas are #204.
+  #206).
 
   Progress (D-036) goes to the `:progress` function: `{:rrdp_started,
-  notify}`, `{:rrdp_download, notify, :notification | :snapshot, bytes}`
-  every MiB received, `{:rrdp_downloaded, notify, kind, bytes}` once a
-  file is in, `{:rrdp_objects, notify, count}` every 1000 objects written
-  and at the end, and `{:rrdp_finished, notify, outcome}`.
+  notify}`, `{:rrdp_download, notify, kind, bytes}` (`kind`
+  `:notification`, `:snapshot` or `:delta`) every MiB received,
+  `{:rrdp_downloaded, notify, kind, bytes}` once a file is in,
+  `{:rrdp_objects, notify, count}` every 1000 snapshot objects written
+  and at the end of a snapshot or a run of deltas (elements applied),
+  `{:rrdp_fallback, notify, reason}` when a delta is rejected, and
+  `{:rrdp_finished, notify, outcome}`.
   """
 
   alias Lumina.{Cache, HTTPS, Progress, URI}
   alias Lumina.RRDP
-  alias Lumina.RRDP.{Notification, Snapshot, State, Store}
+  alias Lumina.RRDP.{Delta, Notification, Snapshot, State, Store}
 
   # D-043.
   @max_notification 20 * 1024 * 1024
@@ -71,27 +92,32 @@ defmodule Lumina.RRDP.Sync do
           | :snapshot_rejected
           | :store_failed
 
+  @type delta_reason :: :delta_failed | :delta_hash_mismatch | :delta_rejected | :store_failed
+
   @type result :: %{
           notify: URI.t(),
-          outcome: :snapshot | :unchanged | {:failed, reason()},
+          outcome: :snapshot | {:deltas, pos_integer()} | :unchanged | {:failed, reason()},
           session_id: String.t() | nil,
           serial: pos_integer() | nil,
           objects: non_neg_integer() | nil,
           error: HTTPS.error() | RRDP.problem() | term() | nil,
+          fallback: %{reason: delta_reason(), error: term()} | nil,
           warnings: [RRDP.problem() | tuple()]
         }
 
   @doc """
   Syncs the repository whose notification URI is `notify` into the cache
   at `root`. Returns the outcome; `session_id` and `serial` are the
-  store's after the run (`nil` if it has never been synced), `objects`
-  the objects written from a snapshot, `error` the failure's detail (a
-  `Lumina.HTTPS` error, an RRDP problem or a file error) and `warnings`
-  the notification's (D-042) and the HTTPS fetches'.
+  store's after the run (`nil` if it has never been synced); the outcome
+  `{:deltas, n}` gives the deltas applied. `objects` counts the objects
+  written from a snapshot or the delta elements applied, `error` is the
+  failure's detail (a `Lumina.HTTPS` error, an RRDP problem or a file
+  error), `fallback` why deltas gave way to the snapshot (or `nil`), and
+  `warnings` the notification's (D-042) and the HTTPS fetches'.
 
   Options: `:now` (a `DateTime` for the state's times; default now),
   `:progress`, `:max_notification` (bytes; default 20 MiB), `:max_file`
-  (snapshot bytes; default 2 GiB), `:max_object` (default 20 MiB), and
+  (snapshot or delta bytes; default 2 GiB), `:max_object` (default 20 MiB), and
   `:cacerts`, `:address`, `:remap`, `:connect_timeout`, `:idle_timeout`
   and `:max_redirects` for `Lumina.HTTPS.fetch_to_file/3`.
   """
@@ -149,6 +175,22 @@ defmodule Lumina.RRDP.Sync do
                  "session #{n.session_id} is at serial #{n.serial}, " <>
                    "below the #{known.serial} last processed"
              }, warnings}
+
+          known && known.session_id == n.session_id && covered?(n, known.serial) ->
+            case deltas(notify, root, work, n, known.serial, opts) do
+              {:ok, applied, count, more} ->
+                {:deltas, n, last_modified, warnings ++ more, applied, count}
+
+              # RFC 9674 §3.2: RRDP can't be used, so no snapshot either.
+              {:failed, :cross_origin, detail, more} ->
+                {:failed, :cross_origin, detail, warnings ++ more}
+
+              {:failed, reason, detail, more} ->
+                Progress.emit(opts, {:rrdp_fallback, notify, reason})
+
+                {:fallback, %{reason: reason, error: detail},
+                 snapshot(notify, root, work, n, last_modified, warnings ++ more, opts)}
+            end
 
           true ->
             snapshot(notify, root, work, n, last_modified, warnings, opts)
@@ -208,44 +250,169 @@ defmodule Lumina.RRDP.Sync do
   defp snapshot(notify, root, work, n, last_modified, warnings, opts) do
     path = Path.join(work, "snapshot.xml")
 
+    with {:ok, fetched} <- fetch(notify, n.snapshot, path, :snapshot, opts) do
+      case apply_snapshot(notify, root, path, n, opts) do
+        {:ok, count} ->
+          {:snapshot, n, last_modified, warnings ++ fetched.warnings, count}
+
+        {:failed, reason, detail} ->
+          {:failed, reason, detail, warnings ++ fetched.warnings}
+
+        {:error, reason} ->
+          {:failed, :store_failed, reason, warnings ++ fetched.warnings}
+      end
+    else
+      {:failed, reason, detail, more} -> {:failed, reason, detail, warnings ++ more}
+    end
+  end
+
+  # Fetches a snapshot or delta file (`ref`: its URI and hash in the
+  # notification) to `path`, with redirects only to the notification's
+  # origin, and checks its SHA-256 (RFC 8182 §3.4.2, §3.4.3).
+  defp fetch(notify, ref, path, kind, opts) do
     fetch_opts =
       https(opts) ++
-        [same_origin: notify, on_data: on_data(opts, notify, :snapshot)] ++
+        [same_origin: notify, on_data: on_data(opts, notify, kind)] ++
         if(opts[:max_file], do: [max_size: opts[:max_file]], else: [])
 
-    case HTTPS.fetch_to_file(n.snapshot.uri, path, fetch_opts) do
-      {:ok, %{sha256: hash} = fetched} when hash == n.snapshot.hash ->
-        Progress.emit(opts, {:rrdp_downloaded, notify, :snapshot, fetched.size})
+    {failed, mismatch, rfc} =
+      case kind do
+        :snapshot -> {:snapshot_failed, :snapshot_hash_mismatch, "8182#3.4.3"}
+        :delta -> {:delta_failed, :delta_hash_mismatch, "8182#3.4.2"}
+      end
 
-        case apply_snapshot(notify, root, path, n, opts) do
-          {:ok, count} ->
-            {:snapshot, n, last_modified, warnings ++ fetched.warnings, count}
-
-          {:failed, reason, detail} ->
-            {:failed, reason, detail, warnings ++ fetched.warnings}
-
-          {:error, reason} ->
-            {:failed, :store_failed, reason, warnings ++ fetched.warnings}
-        end
+    case HTTPS.fetch_to_file(ref.uri, path, fetch_opts) do
+      {:ok, %{sha256: hash} = fetched} when hash == ref.hash ->
+        Progress.emit(opts, {:rrdp_downloaded, notify, kind, fetched.size})
+        {:ok, fetched}
 
       {:ok, fetched} ->
-        {:failed, :snapshot_hash_mismatch,
+        {:failed, mismatch,
          %{
-           rule: :snapshot_hash_mismatch,
-           rfc: "8182#3.4.3",
+           rule: mismatch,
+           rfc: rfc,
            message:
-             "#{n.snapshot.uri} has SHA-256 #{Base.encode16(fetched.sha256, case: :lower)}, " <>
-               "the notification says #{Base.encode16(n.snapshot.hash, case: :lower)}"
-         }, warnings ++ fetched.warnings}
+             "#{ref.uri} has SHA-256 #{Base.encode16(fetched.sha256, case: :lower)}, " <>
+               "the notification says #{Base.encode16(ref.hash, case: :lower)}"
+         }, fetched.warnings}
 
       # No If-Modified-Since is sent, so there is no :not_modified here.
       {:error, %{reason: :cross_origin_redirect} = error} ->
-        {:failed, :cross_origin, error, warnings}
+        {:failed, :cross_origin, error, []}
 
       {:error, error} ->
-        {:failed, :snapshot_failed, error, warnings}
+        {:failed, failed, error, []}
     end
   end
+
+  # Deltas can bring the store from `serial` to the notification's when
+  # the notification lists the one right after it; the list is contiguous
+  # up to the notification's serial (`Notification.decode/2`), so the rest
+  # follow (RFC 8182 §3.4.1, §3.4.2).
+  defp covered?(n, serial),
+    do: n.serial > serial and Enum.any?(n.deltas, &(&1.serial == serial + 1))
+
+  # Applies the deltas after `from`, in serial order, to one staged copy
+  # of the store, swapped in only when all of them are in (#204).
+  defp deltas(notify, root, work, n, from, opts) do
+    run = Enum.filter(n.deltas, &(&1.serial > from))
+
+    result =
+      Store.update(root, notify, :deltas, fn tx ->
+        result =
+          Enum.reduce_while(run, {:ok, 0, []}, fn delta, {:ok, count, warnings} ->
+            case apply_delta(tx, notify, work, n.session_id, delta, opts) do
+              {:ok, applied, more} -> {:cont, {:ok, count + applied, warnings ++ more}}
+              failed -> {:halt, failed}
+            end
+          end)
+
+        case result do
+          {:ok, count, warnings} ->
+            Progress.emit(opts, {:rrdp_objects, notify, count})
+            {:ok, {count, warnings}}
+
+          failed ->
+            failed
+        end
+      end)
+
+    case result do
+      {:ok, {count, warnings}} -> {:ok, length(run), count, warnings}
+      {:failed, _reason, _detail, _warnings} = failed -> failed
+      {:error, reason} -> {:failed, :store_failed, reason, []}
+    end
+  end
+
+  # One delta: fetched, its hash checked, its root checked against the
+  # session_id and its serial (one more than the last applied, since the
+  # run is in order, RFC 8182 §3.4.2), and its elements applied.
+  defp apply_delta(tx, notify, work, session_id, delta, opts) do
+    path = Path.join(work, "delta-#{delta.serial}.xml")
+    expected = %{session_id: session_id, serial: delta.serial}
+
+    with {:ok, fetched} <- fetch(notify, delta, path, :delta, opts) do
+      apply = fn element, count ->
+        case change(tx, element) do
+          :ok -> {:cont, count + 1}
+          {:rejected, problem} -> {:halt, {:failed, :delta_rejected, problem, fetched.warnings}}
+          {:error, reason} -> {:halt, {:failed, :store_failed, reason, fetched.warnings}}
+        end
+      end
+
+      case Delta.stream(path, expected, apply, 0, xml_opts(opts)) do
+        {:ok, count} -> {:ok, count, fetched.warnings}
+        {:halted, failed} -> failed
+        {:error, problem} -> {:failed, :delta_rejected, problem, fetched.warnings}
+      end
+    end
+  end
+
+  # RFC 8182 §3.4.2 with erratum 6919 (F-037): a withdraw, or a publish
+  # with a hash, must name an object this repository's store holds, with
+  # that SHA-256; a publish without a hash must be for a URI it doesn't
+  # hold. The store is the repository's own (`Lumina.RRDP.Store`), so
+  # another repository's objects can't be touched.
+  defp change(tx, {:publish, uri, bytes}) do
+    if Store.lookup(tx, uri) do
+      rejected(
+        :publish_without_hash,
+        "#{uri} is already held; a publish replacing it must give its hash (erratum 6919)"
+      )
+    else
+      Store.put(tx, uri, bytes)
+    end
+  end
+
+  defp change(tx, {:publish, uri, bytes, hash}) do
+    with :ok <- held(tx, uri, hash, :replace_not_held, :replace_hash_mismatch),
+         do: Store.put(tx, uri, bytes)
+  end
+
+  defp change(tx, {:withdraw, uri, hash}) do
+    with :ok <- held(tx, uri, hash, :withdraw_not_held, :withdraw_hash_mismatch),
+         do: Store.withdraw(tx, uri)
+  end
+
+  defp held(tx, uri, hash, not_held, mismatch) do
+    case Store.lookup(tx, uri) do
+      %{sha256: ^hash} ->
+        :ok
+
+      nil ->
+        rejected(not_held, "#{uri} isn't held from this repository")
+
+      %{sha256: other} ->
+        rejected(
+          mismatch,
+          "#{uri} has SHA-256 #{Base.encode16(other, case: :lower)}, " <>
+            "the delta names #{Base.encode16(hash, case: :lower)}"
+        )
+    end
+  end
+
+  defp rejected(rule, message),
+    do: {:rejected, %{rule: rule, rfc: "8182#3.4.2", message: message}}
 
   # Streams the snapshot into a new tree for the store, swapped in only if
   # every object was written.
@@ -298,6 +465,9 @@ defmodule Lumina.RRDP.Sync do
     end
   end
 
+  defp finish({:fallback, fallback, step}, notify, root, state, now),
+    do: %{finish(step, notify, root, state, now) | fallback: fallback}
+
   defp finish(step, notify, root, state, now) do
     old = state || %{}
 
@@ -308,6 +478,9 @@ defmodule Lumina.RRDP.Sync do
 
         {:snapshot, n, last_modified, warnings, count} ->
           {:snapshot, n, last_modified, warnings, count, nil}
+
+        {:deltas, n, last_modified, warnings, applied, count} ->
+          {{:deltas, applied}, n, last_modified, warnings, count, nil}
 
         {:failed, reason, detail, warnings} ->
           {{:failed, reason}, nil, nil, warnings, nil, detail}
@@ -334,6 +507,7 @@ defmodule Lumina.RRDP.Sync do
       serial: saved[:serial],
       objects: objects,
       error: error,
+      fallback: nil,
       warnings: warnings
     }
   end
