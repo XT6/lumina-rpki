@@ -11,7 +11,12 @@ defmodule Lumina.CLI do
                       [--progress | --quiet]
       lumina vrps [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT]
                   [--format csv|json] [--output FILE] [--wide] [--progress | --quiet]
+      lumina version
       lumina help [command]
+
+  Every run but `lumina version` starts with a banner on stderr (the
+  version, the runtimes and the start time), left out with `--quiet`
+  (D-045).
 
   Exit codes, shared by all commands: 0 success, 1 a file failed to
   decode, a fetch failed or too much is invalid, 2 a usage error
@@ -28,6 +33,7 @@ defmodule Lumina.CLI do
     sync      fetch the trust anchors and repositories into the local cache
     validate  validate the certificates and signed objects in the local cache, offline
     vrps      validate the local cache, offline, and write the VRPs
+    version   print lumina's version
     help      show help for lumina or a command
 
   Run "lumina help <command>" for a command's flags.
@@ -202,13 +208,27 @@ defmodule Lumina.CLI do
   warnings), or FILE can't be written, 2 usage error.
   """
 
+  @version_usage """
+  Usage: lumina version
+
+  Print lumina's version, such as "lumina 0.7.0", on standard output.
+  lumina --version does the same.
+
+  Every other run starts with a banner on standard error: the version,
+  the Erlang/OTP and Elixir versions and the start time (UTC). --quiet
+  leaves it out.
+
+  Exit codes: 0 printed, 2 usage error.
+  """
+
   @rsync_hint " (on macOS, /usr/bin/rsync is openrsync: install rsync with Homebrew and put it first in PATH, or give it with --rsync PATH)"
 
   @help %{
     "print" => @print_usage,
     "sync" => @sync_usage,
     "validate" => @validate_usage,
-    "vrps" => @vrps_usage
+    "vrps" => @vrps_usage,
+    "version" => @version_usage
   }
 
   @doc "Escript entry point."
@@ -225,30 +245,62 @@ defmodule Lumina.CLI do
         _ = :logger.add_handler(:default, :logger_std_h, config)
       end
 
-    System.halt(run(args))
+    System.halt(run(args, :stdio, :stderr, banner: true))
   end
 
   @doc """
   Runs the command line `args`, writing to `out` and `err`, and returns the
   exit code. Separate from `main/1` so it can be tested without halting.
 
-  `internal` is for tests only: options passed to `Lumina.Sync.run/3`
+  `internal` is for `main/1` and tests: `:banner` (write the banner
+  first, D-045; `main/1` sets it), options passed to `Lumina.Sync.run/3`
   (`:remap`, `:https`, `:rsync`, `:now`), `:tal_dir`, the folder that
   stands in for `./tals/`, and `:generated`, the time `lumina vrps
-  --format json` gives as made.
+  --format json` gives as made. `:started` is the time the banner gives
+  (default: now).
   """
   @spec run([String.t()], IO.device(), IO.device(), keyword()) :: 0 | 1 | 2
   def run(args, out \\ :stdio, err \\ :stderr, internal \\ []) do
+    if internal[:banner] == true and banner?(args) do
+      started = Keyword.get_lazy(internal, :started, &DateTime.utc_now/0)
+      IO.write(err, Lumina.banner(started) <> "\n")
+    end
+
     case args do
-      [help] when help in ["help", "-h", "--help"] -> written(out, @usage, 0)
-      ["help", command] -> help(command, out, err)
-      ["print" | rest] -> print_command(rest, out, err)
-      ["sync" | rest] -> sync_command(rest, out, err, internal)
-      ["validate" | rest] -> validate_command(rest, out, err, internal)
-      ["vrps" | rest] -> vrps_command(rest, out, err, internal)
-      _ -> written(err, @usage, 2)
+      [version] when version in ["version", "--version"] ->
+        written(out, "lumina #{Lumina.version()}\n", 0)
+
+      ["version" | _] ->
+        written(err, @version_usage, 2)
+
+      [help] when help in ["help", "-h", "--help"] ->
+        written(out, @usage, 0)
+
+      ["help", command] ->
+        help(command, out, err)
+
+      ["print" | rest] ->
+        print_command(rest, out, err)
+
+      ["sync" | rest] ->
+        sync_command(rest, out, err, internal)
+
+      ["validate" | rest] ->
+        validate_command(rest, out, err, internal)
+
+      ["vrps" | rest] ->
+        vrps_command(rest, out, err, internal)
+
+      _ ->
+        written(err, @usage, 2)
     end
   end
+
+  # The banner is left out for lumina version, which says it already, and
+  # with --quiet (D-045).
+  defp banner?(["version" | _]), do: false
+  defp banner?(["--version" | _]), do: false
+  defp banner?(args), do: "--quiet" not in args
 
   defp help(command, out, err) do
     case Map.fetch(@help, command) do

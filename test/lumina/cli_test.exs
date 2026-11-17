@@ -15,12 +15,15 @@ defmodule Lumina.CLITest do
   @roa "test/fixtures/barry/m0-minimal-valid/rsync/ca1/roa1.roa"
   @cer "test/fixtures/barry/m0-minimal-valid/rsync/ta.cer"
 
-  defp run(args) do
+  defp run(args, internal \\ []) do
     {:ok, out} = StringIO.open("")
     {:ok, err} = StringIO.open("")
-    code = CLI.run(args, out, err)
+    code = CLI.run(args, out, err, internal)
     {code, StringIO.flush(out), StringIO.flush(err)}
   end
+
+  @started ~U[2026-11-17 12:00:00Z]
+  @banner "lumina #{Mix.Project.config()[:version]} · RPKI relying party · Erlang/OTP "
 
   describe "print" do
     test "prints one file in full and exits 0" do
@@ -122,6 +125,67 @@ defmodule Lumina.CLITest do
         assert {code, out} == {2, ""}, inspect(args)
         assert err =~ "Usage: lumina <command>"
       end
+    end
+  end
+
+  describe "version and banner (D-045, #213)" do
+    test "version and --version print the mix.exs version on stdout, and nothing else" do
+      expected = "lumina #{Mix.Project.config()[:version]}\n"
+
+      for args <- [["version"], ["--version"]] do
+        assert run(args) == {0, expected, ""}, inspect(args)
+      end
+
+      assert {0, out, ""} = run(["help", "version"])
+      assert out =~ "Usage: lumina version"
+      assert {0, usage, ""} = run(["help"])
+      assert usage =~ "version   print lumina's version"
+    end
+
+    test "version with an argument is a usage error" do
+      assert {2, "", err} = run(["version", "extra"])
+      assert err =~ "Usage: lumina version"
+    end
+
+    @tag doc: """
+         main/1 passes banner: true. The banner is the first stderr line
+         and stdout is unchanged, so lumina vrps' CSV stays clean.
+         """
+    test "with the banner on, every command starts stderr with it, and stdout is unchanged" do
+      line = Lumina.banner(@started) <> "\n"
+      on = [banner: true, started: @started]
+
+      {0, out, err} = run(["print", "--brief", @roa], on)
+      assert err == line
+      assert {0, ^out, ""} = run(["print", "--brief", @roa])
+
+      {0, help, ^line} = run(["help"], on)
+      assert help =~ "Usage: lumina <command>"
+
+      {2, "", usage} = run(["frobnicate"], on)
+      assert String.starts_with?(usage, line <> "Usage: lumina <command>")
+    end
+
+    test "the banner names the version, the runtimes and the start time" do
+      banner = Lumina.banner(@started)
+
+      assert String.starts_with?(banner, @banner)
+      assert banner =~ " · Elixir #{System.version()} · "
+      assert banner =~ "Erlang/OTP #{:erlang.system_info(:otp_release)}"
+      assert String.ends_with?(banner, " · 2026-11-17T12:00:00Z")
+    end
+
+    test "--quiet and lumina version leave the banner out", %{tmp_dir: tmp} do
+      on = [banner: true, started: @started]
+      cache = Path.join(tmp, "cache")
+
+      for command <- ["validate", "vrps"] do
+        {_code, _out, err} = run([command, "--cache", cache, "--quiet"], on)
+        refute err =~ "RPKI relying party", command
+      end
+
+      assert {0, _, ""} = run(["version"], on)
+      assert {0, _, ""} = run(["--version"], on)
     end
   end
 end

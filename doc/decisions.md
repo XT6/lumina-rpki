@@ -52,6 +52,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-042](#d-042-a-session_id-that-isnt-a-version-4-uuid-only-warns) | A session_id that isn't a version 4 UUID only warns | 2026-11-17 | M8 plan, #199 |
 | [D-043](#d-043-rrdp-limits-2-gib-files-300-s-idle) | RRDP limits: 2 GiB files, 300 s idle | 2026-11-17 | M8 plan, #200 |
 | [D-044](#d-044-releases-are-0milestonepatch-tagged-and-published-on-github) | Releases are 0.<milestone>.<patch>, tagged and published on GitHub | 2026-11-17 | #211 |
+| [D-045](#d-045-lumina-version-and-a-startup-banner-on-stderr) | `lumina version`, and a startup banner on stderr | 2026-11-17 | #213 |
 
 ## D-001: CLI model
 
@@ -557,3 +558,14 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Why:** the maintainer wants tagged commits and source releases, numbered after the milestones ("convention, 0.<last milestone completed>"). `v0.7.0` rather than `v0.7`, so the tag matches `mix.exs`.
 - **Where:** maintainer, 2026-11-17, before starting M8; #211. The procedure is in [releasing.md](releasing.md).
 - **First release:** v0.7.0, for M7.
+
+## D-045: `lumina version`, and a startup banner on stderr
+
+- **Date:** 2026-11-17
+- **Decision:**
+  - **`lumina version`** (and `lumina --version`) prints `lumina <version>` on stdout, and nothing else.
+  - **Banner:** every other run starts with one line on stderr: `lumina 0.7.0 · RPKI relying party · Erlang/OTP 29.1.2 · Elixir 1.20.5 · <start time, UTC>`.
+  - **Left out:** with `--quiet`, and for `lumina version`, which already says it.
+- **Why:** the maintainer asked for "a command to print the version, but also … a generic banner that among other things, displays the version whenever lumina runs". The banner goes to stderr because stdout is the command's output (D-036); `lumina vrps` writes CSV there. `--quiet` keeps scripts and cron jobs clean, and with the version, the runtimes and the start time, a log or a bug report says what ran and when.
+- **Where:** maintainer, 2026-11-17; the details were proposed in #213.
+- **As implemented (#213):** `Lumina.banner/1`; `Lumina.CLI.main/1` passes `banner: true` to `run/4`, so tests calling `run/4` see it only when they ask.
