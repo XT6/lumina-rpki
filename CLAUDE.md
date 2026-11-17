@@ -23,6 +23,7 @@ mix lumina.rfc_coverage [--rfc N]  # which RFC sections the tests and fixtures c
 mix lumina.fixtures.gen [ID...]    # regenerate Barry fixtures (needs scripts/install-barry.sh)
 mix test --only barry              # tests that run the real Barry binary (excluded when it isn't installed)
 mix test --only rsync              # tests against a real rsync daemon (Lumina.Test.RsyncDaemon); excluded without rsync >= 3.1.0
+mix test --only large              # tests that stream gigabytes through a parser to check its memory stays bounded (the RRDP XML parser's 1 GB test); never run by default
 mix test --only network            # tests against the live RPKI (the M3, M4, M5 and M6 done tests sync LACNIC; the M7 done test syncs all five RIRs and compares the VRPs with Routinator's live CSV: at most 1% of either side differs per trust anchor, D-035); never run by default, takes minutes
 mix test --only realrepo           # tests against the local, git-ignored LACNIC repository copy in test/realrepos/ (excluded without it)
 mix lumina.test_catalog            # regenerate doc/tests/CATALOG.md after adding or changing a test or fixture
@@ -79,6 +80,7 @@ Record every RFC erratum, ambiguity, missing or obsolete reference, and tooling 
 - One PR per issue.
 - Unit-test everything that can be unit tested. Each issue defines the tests it must pass.
 - Every long-running operation reports progress, on by default (D-036): a status line on stderr on a terminal, timestamped lines elsewhere, nothing only with `--quiet`, through `Lumina.Progress` events (a `:progress` option); stdout stays the command's output. A new long-running command or stage isn't done without it, and its tests.
+- RRDP (M8): `Lumina.RRDP.XML` is the strict streaming XML parser (D-041, #198): `parse/4`, `parse_file/4`, or `new/1` + `feed/4` + `finish/3`; events `{:start, name, attrs}`, `{:text, text}` (a whole text node, decoded, comments skipped), `{:end, name}` to a `{:cont, acc} | {:halt, acc}` callback; errors `%{rule, clause ("XML 1.0 §…"), offset, message}`; DOCTYPE, PIs, CDATA, other entities, non-ASCII and namespace prefixes rejected; limits `:max_text`, `:max_tag`, `:max_depth`, `:max_attributes`. RFC 8182 cites no XML specification (F-039). Live notification shapes are in `test/fixtures/rrdp/xml/live/` (byte-exact, with a README).
 - `lumina version` prints the version; every other run starts with a banner on stderr (version, runtimes, start time), left out with `--quiet` (D-045, `Lumina.banner/1`; `CLI.main/1` passes `banner: true` to `run/4`).
 - Releases (D-044): version `0.<last milestone completed>.<patch>` in `mix.exs`, an annotated tag `v<version>` on `main`, and a GitHub release with notes and the `lumina` escript; steps in `doc/releasing.md`.
 - An issue can't be closed unless its tests pass, unless the maintainer (Carlos) explicitly acknowledges otherwise. A milestone can't be closed unless all tests pass.

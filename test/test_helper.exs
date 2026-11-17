@@ -28,4 +28,9 @@ exclude =
 # by default: mix test --only network.
 exclude = [:network | exclude]
 
+# Tests tagged :large stream gigabytes through a parser to check its memory
+# stays bounded (the RRDP XML parser, #198). They take minutes, so they run
+# by hand: mix test --only large.
+exclude = [:large | exclude]
+
 ExUnit.start(exclude: exclude)

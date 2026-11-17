@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 92 Barry fixtures: 23 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 852 unit tests in 70 modules.
+- 879 unit tests in 71 modules.
 
 ## Barry fixtures
 
@@ -3204,6 +3204,65 @@ IPv4-mapped prefix). The `m7-roa-*` fixtures cover the rest end to end.
   certificate; roa2.roa, in the same publication point, is fine.
 - *lumina validate:* a ROA breaking only a SHOULD is valid, with a warning (RFC [9582 §4.3.2.2](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.2)))
   m7-roa-max-length-superfluous: a SHOULD, so a warning on a valid ROA (D-030).
+
+### `Lumina.RRDP.XMLTest`
+
+[test/lumina/rrdp/xml_test.exs](../../test/lumina/rrdp/xml_test.exs)
+
+Tests the strict streaming XML parser for RRDP files
+(`Lumina.RRDP.XML`, D-041, #198).
+
+RFC 8182 §3.5 requires every RRDP file to be well-formed XML, and
+snapshots reach hundreds of megabytes, so the parser reads chunks and
+must give the same events wherever a chunk ends. It accepts exactly
+what RRDP needs, comments included (D-041 as changed), and rejects the
+rest with a rule: a parser that accepted a DOCTYPE could be made to
+expand entities without bound, and one that misread a tag or reference
+would hand the RRDP layer a different object than the server sent.
+The shapes live servers send are covered by copies of their
+notification files (`test/fixtures/rrdp/xml/live/`).
+
+- *accepted documents:* the live notification files parse, whatever their attribute order and layout (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)))
+- *accepted documents:* a document with every accepted construct gives the expected events
+  Comments are skipped (D-041, changed before any code): text on both
+  sides of one is a single text node, and comments may stand before
+  and after the root.
+- *accepted documents:* comments are skipped before and after the root, between elements and inside text
+- *accepted documents:* the five predefined entities and character references decode in text and attribute values
+- *accepted documents:* line ends become LF, and whitespace in attribute values becomes spaces
+- *accepted documents:* an empty element gives a start and an end, and may be the root
+- *rejected documents:* a DOCTYPE is rejected (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)))
+  Entity declarations live in a DOCTYPE; rejecting it shuts out entity expansion.
+- *rejected documents:* an entity other than the five predefined ones is rejected (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)))
+- *rejected documents:* a malformed reference is rejected (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)))
+- *rejected documents:* processing instructions, and a declaration not at the very start, are rejected (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)))
+- *rejected documents:* a declaration with another encoding, another version or malformed is rejected (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)))
+- *rejected documents:* a CDATA section is rejected (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)))
+- *rejected documents:* a comment containing -- or ending in - is rejected (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)))
+- *rejected documents:* a byte outside US-ASCII, or a control character, is rejected with its offset (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)))
+  RRDP files are US-ASCII (RFC 8182 §3.5.1.3); XML allows no control characters but tab, LF and CR.
+- *rejected documents:* mismatched tags, a duplicate attribute and an unquoted value are rejected (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)))
+- *rejected documents:* two roots, text outside the root and a missing root are rejected (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)))
+- *rejected documents:* a truncated document is rejected (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)))
+- *rejected documents:* ]]> in text is rejected (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)))
+- *rejected documents:* namespace prefixes are rejected (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)))
+- *rejected documents:* names that don't start with a letter or _ are rejected (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)))
+- *limits:* a text node, a tag, the nesting depth and the attribute count are bounded
+- *limits:* the text limit holds across chunks
+  Text split across many chunks counts as one node toward :max_text.
+- *streaming:* chunk boundaries anywhere give the same events
+  Splits the sample document (declaration, comments, references, CRLF,
+  attributes in both quote styles) at every byte offset, and feeds it
+  one byte at a time: the events never change.
+- *streaming:* errors found in a later chunk carry the offset in the whole document
+- *streaming:* parse_file reads a file in chunks and gives the same events as parse
+- *streaming:* the callback can stop the parse
+- *a large document:* a 1 GB document parses in constant memory
+  Run by hand: mix test --only large. Streams a generated 1 GB snapshot
+  of 2 KB publish elements through feed/4, about 66 KB at a time,
+  without writing it to disk, and checks that the VM's memory stays
+  within 100 MB of where it started. Prints the peak and the
+  throughput.
 
 ### `Lumina.RsyncTest`
 
