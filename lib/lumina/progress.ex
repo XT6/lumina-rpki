@@ -15,7 +15,10 @@ defmodule Lumina.Progress do
     * `{:level_started, level, %{points: n, fetches: n}}`: a walk level,
       with its publication points and the rsync runs it needs
     * `{:fetch_started, uri, host}` and
-      `{:fetch_finished, uri, host, outcome, files}` (`files`: regular files
+      `{:fetch_finished, uri, host, outcome, files}` for an rsync module or,
+      with an `https://` URI, an RRDP repository (#206; `files` is then
+      the objects written or applied, and the status line counts it under
+      `rrdp`) (`files`: regular files
       in the publication point after the fetch)
     * `{:fetch_retrying, uri, host, error}`: a fetch that failed
       transiently ends this way instead, and starts again after a delay
@@ -86,6 +89,8 @@ defmodule Lumina.Progress do
       fetches_done: 0,
       fetches_failed: 0,
       fetches_retried: 0,
+      rrdp_done: 0,
+      rrdp_failed: 0,
       level_fetches: 0,
       running: %{},
       files: 0,
@@ -118,6 +123,15 @@ defmodule Lumina.Progress do
 
   def update(state, {:fetch_started, uri, host}, now),
     do: %{state | running: Map.put(state.running, uri, {host, now})}
+
+  def update(state, {:fetch_finished, "https://" <> _ = uri, _host, outcome, _objects}, _now) do
+    %{
+      state
+      | running: Map.delete(state.running, uri),
+        rrdp_done: state.rrdp_done + 1,
+        rrdp_failed: state.rrdp_failed + if(outcome == :ok, do: 0, else: 1)
+    }
+  end
 
   def update(state, {:fetch_finished, uri, _host, outcome, files}, _now) do
     %{
@@ -182,6 +196,7 @@ defmodule Lumina.Progress do
     [
       state.level != nil && "points #{state.points}",
       state.level != nil && rsync(state),
+      state.level != nil && rrdp(state),
       state.level != nil && "files #{state.files}",
       slowest(state, now)
     ]
@@ -204,7 +219,17 @@ defmodule Lumina.Progress do
   defp rsync(state) do
     failed = if state.fetches_failed > 0, do: ", #{state.fetches_failed} failed", else: ""
     retried = if state.fetches_retried > 0, do: ", #{state.fetches_retried} retried", else: ""
-    "rsync #{state.fetches_done} done, #{map_size(state.running)} running#{failed}#{retried}"
+    running = Enum.count(Map.keys(state.running), &(not String.starts_with?(&1, "https://")))
+    "rsync #{state.fetches_done} done, #{running} running#{failed}#{retried}"
+  end
+
+  defp rrdp(state) do
+    running = Enum.count(Map.keys(state.running), &String.starts_with?(&1, "https://"))
+
+    if state.rrdp_done + running > 0 do
+      failed = if state.rrdp_failed > 0, do: ", #{state.rrdp_failed} failed", else: ""
+      "rrdp #{state.rrdp_done} done, #{running} running#{failed}"
+    end
   end
 
   # The fetch running longest, once it has taken more than 5 s: a slow or

@@ -21,6 +21,20 @@ defmodule Lumina.Walk do
   kept as its last valid copy (`Lumina.LastValid`, D-023), which stands
   in when the point later fails, as long as its manifest is current.
 
+  **RRDP first (D-040, #206):** a CA whose certificate names an HTTPS
+  `rpkiNotify` (the first one, `notify_uri/1`) is synced over RRDP
+  (`Lumina.RRDP.Sync`), and its publication point read from the
+  repository's store (`Lumina.RRDP.Store`). The notification URI is then
+  the unit of fetching, as the module is for rsync: synced once per run
+  (and once per sync, through `:fetched`) for every CA that names it,
+  at most `:per_host` at once per host (HTTPS and rsync counted apart),
+  retried once after a dropped connection (D-039). When the sync fails
+  (`rrdp_failed`), the CA's rsync module is fetched in the same run
+  (`rrdp_fallback`) and the point read from rsync; the last good store
+  stays for the next run. `rrdp: false` (`lumina sync --no-rrdp`, #208)
+  turns RRDP off. Each accepted point's source is recorded
+  (`Lumina.Source`).
+
   **Fetching once:** a publication point in a module already fetched in
   this run (same host and port, same module) isn't fetched again; it's
   read from the copy that fetch brought (D-012). Each
@@ -45,7 +59,7 @@ defmodule Lumina.Walk do
   scheduler.
 
   **Caught mid-update (RFC 6481 §5, D-007):** a publication point
-  fetched this run that fails only because files its manifest lists are
+  fetched over rsync this run (an RRDP repository is applied atomically) that fails only because files its manifest lists are
   missing or don't match their hashes (RFC 9286 §6.4, §6.5) may have been
   read while its repository was being updated. Its module is fetched once
   more and the point validated again; a module is fetched again at most
@@ -71,12 +85,16 @@ defmodule Lumina.Walk do
 
   The result:
 
-    * `:points`: each publication point walked, with its depth, its cache
-      path, the fetch that covered it, whether the copy is `stale` and
+    * `:points`: each publication point walked, with its depth, the path
+      it was read from, the fetch that covered it (`covered_by`: the
+      module or notification URI), its `source` (`{:rrdp, notify}` or
+      `{:rsync, module}`), whether the copy is `stale` and
       its `status` (`:accepted`, `:failed`, or `:fallback` when its last
       valid copy stands in, RFC 9286 §6, D-023);
     * `:fetches`: each rsync run, by module URI, with its outcome (their number is the
       number of rsync runs; a first run that was retried is `:retried`);
+    * `:rrdp`: each RRDP repository this walk synced, the
+      `Lumina.RRDP.Sync` result (outcome, session, serial, warnings);
     * `:fetched` and `:refetched`: every module fetched (or attempted) so
       far, with its outcome, and those fetched again after a mid-update
       failure, including the ones given as options, for the next walk of
@@ -87,8 +105,13 @@ defmodule Lumina.Walk do
       rejects, by its manifest URI; the detail lists the reasons),
       `:refetched` (a module fetched again because a point in it was caught
       mid-update; the detail names the manifest and the reasons),
-      `:retried` (a module fetched once more after a transient failure;
-      the detail is the first run's error),
+      `:retried` (a module fetched or an RRDP repository synced once more
+      after a transient failure; the detail is the first run's error),
+      `:rrdp_failed` (an RRDP sync that failed, by notification URI; the
+      detail has its `reason` and `error`), `:rrdp_fallback` (the rsync
+      module fetched instead, D-040; the detail names the notification),
+      `:rrdp_warning` (a sync's warnings, D-042, RFC 9697, and a rejected
+      delta that gave way to the snapshot),
       `:point_fallback` (one that failed but whose last valid copy, D-023,
       is used instead; the detail lists why the live copy failed),
       `:invalid` (a CA that doesn't validate; the detail lists its errors), `:warning` (a valid CA's warnings), `:no_repository`,
@@ -98,7 +121,9 @@ defmodule Lumina.Walk do
       no copy).
   """
 
-  alias Lumina.{Cache, Certificate, Progress, Rsync, URI, Validate}
+  alias Lumina.{Cache, Certificate, Progress, Rsync, Source, URI, Validate}
+  alias Lumina.RRDP.Store
+  alias Lumina.RRDP.Sync, as: RRDPSync
 
   @default_max_depth 32
   @default_per_host 8
@@ -109,6 +134,7 @@ defmodule Lumina.Walk do
           depth: non_neg_integer(),
           path: Path.t(),
           covered_by: String.t(),
+          source: Source.source(),
           stale: boolean(),
           status: :accepted | :failed | :fallback
         }
@@ -118,7 +144,8 @@ defmodule Lumina.Walk do
           fetches: [fetch()],
           issues: [issue()],
           fetched: %{URI.t() => :ok | :error},
-          refetched: MapSet.t(String.t())
+          refetched: MapSet.t(String.t()),
+          rrdp: [RRDPSync.result()]
         }
 
   @doc """
@@ -132,12 +159,16 @@ defmodule Lumina.Walk do
   mid-update retry, so a test can finish the "update"),
   `:fetched` and `:refetched` (the result's, from an earlier walk of the
   same sync: modules not to fetch again, #102),
+  `:rrdp` (default `true`, or the `:lumina` application's `:rrdp`
+  setting, which the test suite sets to `false`), `:rrdp_opts` (options
+  for `Lumina.RRDP.Sync.run/3`, such as `:cacerts` in tests),
   `:rsync` (options for `Lumina.Rsync.fetch_dir/3`), `:retry_delay`
   (milliseconds before retrying a transient failure, D-039; default
   random between 10 and 30 s; tests set it low), and `:remap`,
   for tests: a map from `"host:port"` in repository URIs to the
-  `"host:port"` actually connected to. Remapping changes only where rsync
-  connects; cache paths and reports keep the URIs from the certificates.
+  `"host:port"` actually connected to, for rsync and RRDP alike.
+  Remapping changes only where connections go; cache paths and reports
+  keep the URIs from the certificates.
   """
   @spec run(Certificate.t(), Path.t(), keyword()) :: result()
   def run(%Certificate{} = ta, root, opts \\ []) do
@@ -147,7 +178,14 @@ defmodule Lumina.Walk do
       max_depth: Keyword.get(opts, :max_depth, @default_max_depth),
       per_host: Keyword.get(opts, :per_host, @default_per_host),
       now: Keyword.get_lazy(opts, :now, &DateTime.utc_now/0),
-      # Directories fetched (or attempted) this run: URI => :ok | :error
+      # RRDP for CAs that name a notification URI (D-040); off with
+      # `rrdp: false` (the test suite's default, test_helper.exs).
+      rrdp: Keyword.get_lazy(opts, :rrdp, fn -> Application.get_env(:lumina, :rrdp, true) end),
+      # Units of fetching (rsync modules, RRDP notification URIs) whose
+      # fetch this walk has reported, and the RRDP syncs reported.
+      reported: MapSet.new(),
+      rrdp_results: [],
+      # Units fetched (or attempted) this run: URI => :ok | :error
       # (:planned while a level is being planned), starting with those of
       # earlier walks in the same sync (#102).
       fetched: Keyword.get(opts, :fetched, %{}),
@@ -195,7 +233,8 @@ defmodule Lumina.Walk do
       fetches: Enum.reverse(state.fetches),
       issues: Enum.reverse(state.issues),
       fetched: state.fetched,
-      refetched: state.refetched
+      refetched: state.refetched,
+      rrdp: Enum.reverse(state.rrdp_results)
     }
   end
 
@@ -257,28 +296,30 @@ defmodule Lumina.Walk do
 
   defp walk(level, state) do
     {plans, state} = Enum.map_reduce(level, state, &plan/2)
-    to_fetch = for {:point, _entry, _pp, {:fetch, module}} <- plans, do: module
     depth = level |> hd() |> elem(2)
-    points = Enum.count(plans, &match?({:point, _, _, _}, &1))
+    points = for {:point, {cert, _, _, _, _}, pp} <- plans, do: {cert, pp}
+
+    # The fetches this level still needs (some may run ahead already).
+    to_fetch =
+      for({cert, pp} <- points, {:ok, unit} <- [unit(state, cert, pp)], do: unit)
+      |> Enum.uniq()
+      |> Enum.reject(&unit_done?(state, &1))
 
     Progress.emit(
       state.opts,
-      {:level_started, depth, %{points: points, fetches: length(to_fetch)}}
+      {:level_started, depth, %{points: length(points), fetches: length(to_fetch)}}
     )
 
     {ids, state} = settle(plans, state)
-    results = Map.take(state.pool.done, to_fetch)
     validated = Map.take(state.pool.validated, ids)
 
     state = %{
       state
-      | fetched:
-          Enum.reduce(results, state.fetched, fn {pp, r}, acc -> Map.put(acc, pp, r.outcome) end),
-        pool: %{state.pool | validated: Map.drop(state.pool.validated, ids)},
+      | pool: %{state.pool | validated: Map.drop(state.pool.validated, ids)},
         refetched_in_level: MapSet.new()
     }
 
-    {next, state} = Enum.flat_map_reduce(plans, state, &report(&1, &2, {results, validated}))
+    {next, state} = Enum.flat_map_reduce(plans, state, &report(&1, &2, validated))
 
     Progress.emit(
       state.opts,
@@ -299,7 +340,7 @@ defmodule Lumina.Walk do
   # `pool.validated` and the fetch results in `pool.done`.
   defp settle(plans, state) do
     points =
-      for {:point, {cert, _name, depth, ancestors, resources}, pp, _covered} <- plans,
+      for {:point, {cert, _name, depth, ancestors, resources}, pp} <- plans,
           do: {cert, resources, pp, depth, ancestors}
 
     state = Enum.reduce(points, state, &schedule(&2, &1))
@@ -315,41 +356,97 @@ defmodule Lumina.Walk do
       else: wait(ids, await(state))
   end
 
-  # Validates a point once its module is in: now if it is (fetched earlier
-  # this run, or covered by a module fetched or failed), else when its
-  # fetch, requested here, finishes. A point already scheduled for the same
-  # certificate and resources isn't scheduled again.
+  # Validates a point once its unit of fetching is in: now if it is
+  # (fetched earlier this run), else when its fetch, requested here,
+  # finishes. A point already scheduled for the same certificate and
+  # resources isn't scheduled again.
   defp schedule(state, {cert, resources, pp, _depth, _ancestors} = point) do
     id = point_id(to_string(pp), cert, resources)
 
-    with false <- MapSet.member?(state.pool.claimed, id),
-         {:ok, module} <- URI.module(pp) do
-      state = update_in(state.pool.claimed, &MapSet.put(&1, id))
+    if MapSet.member?(state.pool.claimed, id),
+      do: state,
+      else: state |> update_in([:pool, :claimed], &MapSet.put(&1, id)) |> wait_for(id, point)
+  end
 
-      if module_done?(state, module) do
-        enqueue(state, id, point)
-      else
+  # Requests the point's unit of fetching, or queues the point for
+  # validation if it is done. Called again when an RRDP sync fails: the
+  # unit is then the point's rsync module (D-040).
+  defp wait_for(state, id, {cert, _resources, pp, _depth, _ancestors} = point) do
+    case unit(state, cert, pp) do
+      {:ok, unit} ->
+        if unit_done?(state, unit) do
+          enqueue(state, id, point)
+        else
+          state
+          |> request(unit)
+          |> update_in(
+            [:pool, :waiting],
+            &Map.update(&1, unit, [{id, point}], fn l -> [{id, point} | l] end)
+          )
+        end
+
+      {:error, _} ->
         state
-        |> request(module)
-        |> update_in(
-          [:pool, :waiting],
-          &Map.update(&1, module, [{id, point}], fn l -> [{id, point} | l] end)
-        )
-      end
-    else
-      _ -> state
     end
   end
 
-  defp module_done?(state, module),
-    do:
-      Map.has_key?(state.pool.done, module) or
-        Map.get(state.fetched, module, :planned) != :planned
+  # What a point is fetched with (D-040, #206): its CA's RRDP repository,
+  # the first HTTPS rpkiNotify in its SIA (RFC 8182 §3.2), unless RRDP is
+  # off or that repository failed this run; otherwise its rsync module
+  # (D-012). Either way a `Lumina.URI`, the key of the fetch.
+  defp unit(state, cert, pp) do
+    with true <- state.rrdp,
+         {:ok, notify} <- notify_uri(cert),
+         false <- unit_outcome(state, notify) == :error do
+      {:ok, notify}
+    else
+      _ -> URI.module(pp)
+    end
+  end
+
+  @doc """
+  The RRDP repository of `cert`: the first HTTPS `rpkiNotify` URI in its
+  SIA (RFC 8182 §3.2) that `Lumina.URI.parse/1` accepts, or `:none`.
+  """
+  @spec notify_uri(Certificate.t()) :: {:ok, URI.t()} | :none
+  def notify_uri(%Certificate{} = cert) do
+    cert
+    |> Certificate.sia_uris(:rpki_notify)
+    |> Enum.find_value(:none, fn uri ->
+      with true <- String.starts_with?(String.downcase(uri), "https://"),
+           {:ok, notify} <- URI.parse(uri),
+           do: {:ok, notify},
+           else: (_ -> nil)
+    end)
+  end
+
+  # The outcome of a unit's fetch this run or in an earlier walk of the
+  # same sync (#102): :ok, :error, or nil if not fetched yet.
+  defp unit_outcome(state, unit) do
+    case state.pool.done do
+      %{^unit => %{outcome: outcome}} -> outcome
+      _ -> Map.get(state.fetched, unit)
+    end
+  end
+
+  defp unit_done?(state, unit), do: unit_outcome(state, unit) in [:ok, :error]
+
+  # Where a point is read: its repository's RRDP store (#201) when RRDP
+  # serves it, else the rsync tree.
+  defp point_path(state, cert, pp) do
+    case unit(state, cert, pp) do
+      {:ok, %URI{scheme: "https"} = notify} ->
+        Store.object_path(Store.path(state.root, notify), pp)
+
+      _ ->
+        Cache.path(state.root, pp)
+    end
+  end
 
   # Queues a point for validation if it is in the cache; otherwise
   # `report/3` finds it missing.
-  defp enqueue(state, id, {_cert, _resources, pp, _depth, _ancestors} = point) do
-    if File.dir?(Cache.path(state.root, pp)),
+  defp enqueue(state, id, {cert, _resources, pp, _depth, _ancestors} = point) do
+    if File.dir?(point_path(state, cert, pp)),
       do: next_validation(update_in(state.pool.validations, &(&1 ++ [{id, point}]))),
       else: update_in(state.pool.dismissed, &MapSet.put(&1, id))
   end
@@ -376,8 +473,10 @@ defmodule Lumina.Walk do
             {points, waiting} = Map.pop(state.pool.waiting, module, [])
             state = put_in(state.pool.waiting, waiting)
 
+            # Validated now, or, after a failed RRDP sync, waiting for
+            # their rsync modules (D-040).
             Enum.reduce(Enum.reverse(points), state, fn {id, point}, st ->
-              enqueue(st, id, point)
+              wait_for(st, id, point)
             end)
 
           {:validate, id, point} ->
@@ -435,7 +534,7 @@ defmodule Lumina.Walk do
     # Only these go to the task: `state` holds every report so far.
     %{root: root, now: now} = state
     key = to_string(pp)
-    path = Cache.path(root, pp)
+    path = point_path(state, cert, pp)
     task = Task.async(fn -> validate_point(cert, resources, path, key, now, root) end)
     pool = state.pool
 
@@ -457,7 +556,7 @@ defmodule Lumina.Walk do
     if MapSet.member?(state.pool.requested, module) do
       state
     else
-      host = {module.host, module.port}
+      host = host(module)
       state = update_in(state.pool.requested, &MapSet.put(&1, module))
 
       state =
@@ -475,7 +574,13 @@ defmodule Lumina.Walk do
         # Only these go to the task: `state` holds every report so far.
         context = Map.take(state, [:root, :opts, :now])
         {retry, retries} = Map.pop(state.pool.retries, module, :allowed)
-        task = Task.async(fn -> fetch(module, context, retry) end)
+
+        task =
+          case module do
+            %URI{scheme: "https"} -> Task.async(fn -> rrdp_fetch(module, context, retry) end)
+            _ -> Task.async(fn -> fetch(module, context, retry) end)
+          end
+
         pool = %{state.pool | retries: retries}
 
         start_fetches(
@@ -504,7 +609,7 @@ defmodule Lumina.Walk do
 
   # The fetch of `module` no longer holds its host's place (D-011).
   defp release(state, module) do
-    host = {module.host, module.port}
+    host = host(module)
     state |> update_in([:pool, :running, host], &(&1 - 1)) |> start_fetches(host)
   end
 
@@ -527,7 +632,7 @@ defmodule Lumina.Walk do
     if state.pool.draining do
       abandon(state, module, staging, error)
     else
-      host = {module.host, module.port}
+      host = host(module)
 
       state
       |> update_in([:pool, :retries], &Map.put(&1, module, retry))
@@ -537,11 +642,18 @@ defmodule Lumina.Walk do
   end
 
   # A retry the walk no longer needs: the first run's failure stands.
+  # (An RRDP sync has no staging directory and records its own state.)
+  defp abandon(state, %URI{scheme: "https"}, _staging, _error), do: state
+
   defp abandon(state, module, staging, error) do
     Cache.discard(staging)
     Cache.record(state.root, module, {:error, error}, state.now)
     state
   end
+
+  # Fetches run at most `:per_host` at once per host (D-011); rsync and
+  # HTTPS on one host count separately.
+  defp host(%URI{} = unit), do: {unit.scheme, unit.host, unit.port}
 
   # After a refetch of `module`, results computed ahead for points in it
   # are stale: they are dropped, and validated again if a level plans
@@ -608,18 +720,11 @@ defmodule Lumina.Walk do
           true ->
             state = %{state | visited: MapSet.put(state.visited, id)}
 
-            case {covering(pp, state.fetched), URI.module(pp)} do
-              {{dir, _outcome}, _} ->
-                {{:point, entry, pp, dir}, state}
-
-              {nil, {:ok, module}} ->
-                # The whole module is fetched (D-012). Planned fetches of
-                # this level cover later points too.
-                {{:point, entry, pp, {:fetch, module}},
-                 %{state | fetched: Map.put(state.fetched, module, :planned)}}
-
-              {nil, {:error, error}} ->
-                {{:issue, :bad_uri, key, error}, state}
+            # The whole module is fetched (D-012), or the CA's RRDP
+            # repository synced (D-040): `unit/3`, once a point is reported.
+            case URI.module(pp) do
+              {:ok, _module} -> {{:point, entry, pp}, state}
+              {:error, error} -> {{:issue, :bad_uri, key, error}, state}
             end
         end
     end
@@ -630,64 +735,148 @@ defmodule Lumina.Walk do
   defp report({:issue, kind, uri, detail}, state, _results),
     do: {[], issue(state, kind, uri, detail)}
 
-  defp report(
-         {:point, {cert, _name, depth, ancestors, resources}, pp, covered},
-         state,
-         {results, validated}
-       ) do
+  defp report({:point, {cert, _name, depth, ancestors, resources}, pp}, state, validated) do
     key = to_string(pp)
-
-    {covered_by, module, outcome, state} =
-      case covered do
-        {:fetch, module} ->
-          result = Map.fetch!(results, module)
-          fetched = to_string(module)
-
-          state =
-            Enum.reduce(result.issues, state, fn {kind, uri}, st -> issue(st, kind, uri, nil) end)
-
-          # A first run that failed transiently and was retried (D-039).
-          state =
-            case result.retried do
-              nil ->
-                state
-
-              first ->
-                retried = %{uri: fetched, outcome: :retried, detail: first}
-                issue(%{state | fetches: [retried | state.fetches]}, :retried, fetched, first)
-            end
-
-          state =
-            if result.outcome == :error,
-              do: issue(state, :fetch_failed, fetched, result.detail),
-              else: state
-
-          fetch = %{uri: fetched, outcome: result.outcome, detail: result.detail}
-          {fetched, module, result.outcome, %{state | fetches: [fetch | state.fetches]}}
-
-        %URI{} = dir ->
-          {to_string(dir), dir, Map.fetch!(state.fetched, dir), state}
-      end
-
-    path = Cache.path(state.root, pp)
+    {unit, state} = report_units(state, cert, pp)
+    outcome = unit_outcome(state, unit)
+    covered_by = to_string(unit)
+    path = point_path(state, cert, pp)
 
     if File.dir?(path) do
+      source =
+        case unit do
+          %URI{scheme: "https"} -> {:rrdp, unit}
+          _ -> {:rsync, unit}
+        end
+
       point = %{
         uri: key,
         depth: depth,
         path: path,
         covered_by: covered_by,
+        source: source,
         stale: outcome == :error,
         status: :accepted
       }
 
       state = %{state | points: [point | state.points]}
-      source = {module, outcome, Map.get(validated, point_id(key, cert, resources))}
+      first = Map.get(validated, point_id(key, cert, resources))
       ancestors = [point_key(cert, pp) | ancestors]
-      children({cert, resources}, path, key, depth, ancestors, source, state)
+
+      {children, state} =
+        children({cert, resources}, path, key, depth, ancestors, {unit, outcome, first}, state)
+
+      # Where the point was last read from while accepted, for offline
+      # validation (#206, #207).
+      _ =
+        if hd(state.points).status == :accepted,
+          do: Source.save(state.root, point_key(cert, pp), source, state.now)
+
+      {children, state}
     else
       {[], issue(state, :missing, key, %{covered_by: covered_by})}
     end
+  end
+
+  # Reports the fetches a point was read from, the first time each comes
+  # up in walk order: its RRDP sync and, if that failed, its rsync module
+  # (D-040). Returns the unit the point is read from.
+  defp report_units(state, cert, pp) do
+    {:ok, module} = URI.module(pp)
+
+    with true <- state.rrdp,
+         {:ok, notify} <- notify_uri(cert) do
+      state = report_unit(state, notify)
+
+      if unit_outcome(state, notify) == :error do
+        # Only the walk that ran the sync reports the fallback (#102).
+        fallback? =
+          Map.has_key?(state.pool.done, notify) and
+            not MapSet.member?(state.reported, {notify, module})
+
+        state =
+          if fallback?,
+            do:
+              issue(
+                %{state | reported: MapSet.put(state.reported, {notify, module})},
+                :rrdp_fallback,
+                to_string(module),
+                %{notify: to_string(notify)}
+              ),
+            else: state
+
+        {module, report_unit(state, module)}
+      else
+        {notify, state}
+      end
+    else
+      _ -> {module, report_unit(state, module)}
+    end
+  end
+
+  # A fetch run by this walk, reported once; one an earlier walk ran
+  # (`:fetched`) was reported there.
+  defp report_unit(state, unit) do
+    with %{^unit => result} <- state.pool.done,
+         false <- MapSet.member?(state.reported, unit) do
+      state = %{
+        state
+        | reported: MapSet.put(state.reported, unit),
+          fetched: Map.put(state.fetched, unit, result.outcome)
+      }
+
+      report_fetch(state, unit, result)
+    else
+      _ -> state
+    end
+  end
+
+  defp report_fetch(state, %URI{scheme: "https"} = notify, result) do
+    uri = to_string(notify)
+    sync = result.rrdp
+    state = %{state | rrdp_results: [sync | state.rrdp_results]}
+
+    state =
+      case result.retried do
+        nil -> state
+        first -> issue(state, :retried, uri, first.error)
+      end
+
+    state =
+      if sync.warnings != [] or sync.fallback,
+        do: issue(state, :rrdp_warning, uri, %{warnings: sync.warnings, fallback: sync.fallback}),
+        else: state
+
+    case sync.outcome do
+      {:failed, reason} -> issue(state, :rrdp_failed, uri, %{reason: reason, error: sync.error})
+      _ -> state
+    end
+  end
+
+  defp report_fetch(state, module, result) do
+    fetched = to_string(module)
+
+    state =
+      Enum.reduce(result.issues, state, fn {kind, uri}, st -> issue(st, kind, uri, nil) end)
+
+    # A first run that failed transiently and was retried (D-039).
+    state =
+      case result.retried do
+        nil ->
+          state
+
+        first ->
+          retried = %{uri: fetched, outcome: :retried, detail: first}
+          issue(%{state | fetches: [retried | state.fetches]}, :retried, fetched, first)
+      end
+
+    state =
+      if result.outcome == :error,
+        do: issue(state, :fetch_failed, fetched, result.detail),
+        else: state
+
+    fetch = %{uri: fetched, outcome: result.outcome, detail: result.detail}
+    %{state | fetches: [fetch | state.fetches]}
   end
 
   # The CA certificates the manifest of `ca`'s publication point lists, at
@@ -742,7 +931,8 @@ defmodule Lumina.Walk do
         do: first,
         else: validate.()
 
-    if outcome == :ok and mid_update?(result.point) and
+    # Only rsync: an RRDP repository is applied atomically.
+    if module.scheme == "rsync" and outcome == :ok and mid_update?(result.point) and
          not MapSet.member?(state.refetched, module_key) do
       if hook = state.opts[:before_refetch], do: hook.(module_key)
       fetched = fetch(module, state, :no)
@@ -796,14 +986,6 @@ defmodule Lumina.Walk do
   defp point_status(%{points: [point | rest]} = state, status),
     do: %{state | points: [%{point | status: status} | rest]}
 
-  defp covering(pp, fetched) do
-    Enum.find_value(fetched, fn {%URI{} = dir, outcome} ->
-      if dir.host == pp.host and dir.port == pp.port and
-           List.starts_with?(pp.path, dir.path),
-         do: {dir, outcome}
-    end)
-  end
-
   # One rsync run into a staging directory, committed on success. Returns
   # the outcome, its detail and the issues it raised, as {kind, uri}, and
   # the first run's error if this is a retry (`retried`). `retry` is
@@ -854,6 +1036,53 @@ defmodule Lumina.Walk do
 
     finished(Map.put(result, :retried, first), pp, live, state)
   end
+
+  # One RRDP repository synced (`Lumina.RRDP.Sync`, #203 to #205): its
+  # outcome is :ok when its store can be read this run (snapshot, deltas,
+  # unchanged or recent), :error otherwise (D-040). A failure that may not
+  # happen again (the connection dropped, a socket error, a connect
+  # timeout) is :retry when allowed (D-039).
+  defp rrdp_fetch(notify, context, retry) do
+    %{root: root, opts: opts, now: now} = context
+    key = to_string(notify)
+    Progress.emit(opts, {:fetch_started, key, notify.host})
+
+    sync_opts =
+      [now: now, progress: opts[:progress], remap: opts[:remap]]
+      |> Enum.reject(&is_nil(elem(&1, 1)))
+      |> Keyword.merge(Keyword.get(opts, :rrdp_opts, []))
+
+    sync = RRDPSync.run(notify, root, sync_opts)
+    first = with {_staging, first} <- retry, do: first, else: (_ -> nil)
+
+    result =
+      case sync.outcome do
+        {:failed, _} ->
+          if retry == :allowed and transient_https?(sync.error),
+            do: %{outcome: :retry, detail: sync, issues: [], staging: nil},
+            else: %{outcome: :error, detail: sync, issues: []}
+
+        _ ->
+          %{outcome: :ok, detail: nil, issues: []}
+      end
+      |> Map.merge(%{rrdp: sync, retried: first})
+
+    if result.outcome == :retry do
+      Progress.emit(opts, {:fetch_retrying, key, notify.host, sync.error})
+    else
+      Progress.emit(
+        opts,
+        {:fetch_finished, key, notify.host, result.outcome, sync.objects || 0}
+      )
+    end
+
+    result
+  end
+
+  defp transient_https?(%{reason: reason}),
+    do: reason in [:socket_error, :connect_timeout, :truncated]
+
+  defp transient_https?(_error), do: false
 
   defp finished(%{outcome: :retry} = result, pp, _live, state) do
     Progress.emit(state.opts, {:fetch_retrying, to_string(pp), pp.host, result.detail})
