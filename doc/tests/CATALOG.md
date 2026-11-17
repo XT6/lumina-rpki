@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 92 Barry fixtures: 23 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 889 unit tests in 72 modules.
+- 907 unit tests in 73 modules.
 
 ## Barry fixtures
 
@@ -2175,6 +2175,61 @@ before any object is decoded. Decoding and validation start in M1.
 - the TAL's rsync URI points to the trust anchor certificate in the tree
 - the TAL's public key is base64 that decodes to a DER SEQUENCE
 - the RRDP files are present
+
+### `Lumina.HTTPSFileTest`
+
+[test/lumina/https_file_test.exs](../../test/lumina/https_file_test.exs)
+
+Tests `Lumina.HTTPS.fetch_to_file/3` (#200), the download RRDP uses for
+notification, snapshot and delta files, against the local TLS server
+(`Lumina.Test.HTTPSServer`).
+
+Snapshots run to hundreds of megabytes (ARIN's was 760 MB on
+2026-11-16), so the body must go to disk as it arrives, with its
+SHA-256 computed on the way, and a failed download must never replace
+the file a previous run left (D-043). The limits are D-043's: a size
+cap that holds mid-stream, and an idle timeout instead of a total one,
+so a slow server isn't cut off but a stalled one is. RFC 8182 §3.4.4
+requires `If-Modified-Since` when polling, RFC 8182 §3.4.1 recommends a
+`User-Agent` naming the RP and its version, and RFC 9674 §3.2 forbids
+following a redirect to another origin.
+
+- *streaming to a file:* a 50 MB body streams to disk with the right hash, and memory stays flat
+  The body is a 50 MB file served with a Content-Length. The fetch
+  runs in its own process, sampled every 5 ms: its heap plus the
+  binaries it holds must stay under 8 MB, so the body never sits in
+  memory whole.
+- *streaming to a file:* a body over :max_size fails mid-stream and leaves no file
+  Close-delimited, so the limit is only found as the bytes arrive.
+- *streaming to a file:* a failed download leaves the file a previous one wrote
+- *truncated bodies:* a body that ends before its Content-Length fails as :truncated
+- *truncated bodies:* a chunked body that ends inside a chunk fails as :truncated
+- *truncated bodies:* a chunked body without its last chunk fails as :truncated
+- *truncated bodies:* a complete chunked body is written whole
+- *idle timeout (D-043):* a body that stops sending fails after :idle_timeout
+  Half the body, then nothing for 3 s; :idle_timeout is 1 s.
+- *idle timeout (D-043):* a slow but steady body isn't cut off
+  One byte every 400 ms for 2.4 s with a 1 s :idle_timeout: longer
+  than the timeout in total, never idle that long. D-043 sets no
+  total limit.
+- *request headers and conditional requests:* Last-Modified is returned, sent back as If-Modified-Since, and a 304 is :not_modified (RFC [8182 §3.4.1](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.1)), [8182 §3.4.4](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.4)))
+  The server answers 304 only to the Last-Modified value it gave.
+  The first fetch returns that value; the second sends it as
+  If-Modified-Since and leaves the file alone.
+- *request headers and conditional requests:* requests name lumina and its version, and ask for no content coding (RFC [8182 §3.4.1](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.1)))
+  RFC 8182 §3.4.1 RECOMMENDS a User-Agent naming the RP and its version.
+- *request headers and conditional requests:* a 304 to an unconditional request is :http_status
+  Without If-Modified-Since a 304 is just an unexpected status.
+- *same-origin redirects (RFC 9674):* a redirect to the same origin is followed (RFC [9674 §3.2](../rfc/rfc9674.txt) ([html](https://www.rfc-editor.org/rfc/rfc9674.html#section-3.2)))
+- *same-origin redirects (RFC 9674):* a redirect to another host fails as :cross_origin_redirect and is logged (RFC [9674 §3.2](../rfc/rfc9674.txt) ([html](https://www.rfc-editor.org/rfc/rfc9674.html#section-3.2)))
+  RFC 9674 §3.2: implementations SHOULD log a message when cross-origin redirects are detected.
+- *same-origin redirects (RFC 9674):* a redirect to another port fails as :cross_origin_redirect (RFC [9674 §3.2](../rfc/rfc9674.txt) ([html](https://www.rfc-editor.org/rfc/rfc9674.html#section-3.2)))
+- *same-origin redirects (RFC 9674):* a redirect to http on the same host fails as :cross_origin_redirect (RFC [9674 §3.2](../rfc/rfc9674.txt) ([html](https://www.rfc-editor.org/rfc/rfc9674.html#section-3.2)))
+- *same-origin redirects (RFC 9674):* the origin can be given as the notification URI (RFC [9674 §3.2](../rfc/rfc9674.txt) ([html](https://www.rfc-editor.org/rfc/rfc9674.html#section-3.2)))
+  For a snapshot or delta the origin is the notification's, passed
+  as :same_origin. Here the snapshot URI is on the same server, and
+  the notification URI on another port.
+- *same-origin redirects (RFC 9674):* without :same_origin a redirect to another host is followed
 
 ### `Lumina.HTTPSTest`
 

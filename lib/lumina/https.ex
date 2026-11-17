@@ -22,8 +22,18 @@ defmodule Lumina.HTTPS do
   `:httpc` isn't used: it can't bound a response body that has no
   Content-Length and ends when the server closes, so a hostile server
   could make it hold any amount of memory (F-026). Here every body is
-  bounded by `:max_size`, every read by the overall `:timeout`, and the
-  response head by 64 KiB.
+  bounded by `:max_size`, every read by a timeout, and the response head
+  by 64 KiB. Bodies come with a Content-Length, chunked (RFC 9112 §7.1)
+  or until the server closes; a body that ends before its Content-Length
+  or its last chunk is `:truncated`. Requests send
+  `User-Agent: lumina/<version>` (RFC 8182 §3.4.1) and
+  `Accept-Encoding: identity`, so no content coding is ever applied.
+
+  `fetch/2` returns the body in memory (TA certificates, D-008: 20 MiB
+  and 300 s for the whole fetch). `fetch_to_file/3` streams it to a file
+  for RRDP (#200, D-043: 2 GiB, no total time limit but 300 s without
+  data), with conditional requests (RFC 8182 §3.4.4) and optionally
+  same-origin redirects only (RFC 9674 §3.2).
 
   Redirects (301, 302, 303, 307, 308) are followed up to `:max_redirects`
   times, and only to `https://` URIs that `Lumina.URI.parse/1` accepts
@@ -36,11 +46,14 @@ defmodule Lumina.HTTPS do
     * `:tls_untrusted`, `:tls_expired` (expired or not yet valid),
       `:tls_hostname`, `:tls_error` (any other TLS failure)
     * `:connection_refused`, `:unknown_host`, `:socket_error`
-    * `:connect_timeout`, `:timeout`
+    * `:connect_timeout`, `:timeout` (`detail` is `:deadline` for the
+      total time, `:idle` for the time without data)
     * `:http_status` (`detail` is the status code), `:bad_response`,
-      `:truncated` (the body ended before its Content-Length)
+      `:truncated` (the body ended before its Content-Length or last chunk)
     * `:too_large` (`detail` is the limit)
-    * `:redirect_not_https`, `:bad_redirect`, `:too_many_redirects`
+    * `:redirect_not_https`, `:bad_redirect`, `:too_many_redirects`,
+      `:cross_origin_redirect` (with `:same_origin`)
+    * `:file_error` (`fetch_to_file/3` couldn't write the file)
   """
 
   require Logger
@@ -48,10 +61,27 @@ defmodule Lumina.HTTPS do
   alias Lumina.URI
 
   @defaults [connect_timeout: 30, timeout: 300, max_size: 20 * 1024 * 1024, max_redirects: 3]
+  # D-043: snapshots and deltas up to 2 GiB, no total time limit.
+  @file_defaults [
+    connect_timeout: 30,
+    idle_timeout: 300,
+    max_size: 2 * 1024 * 1024 * 1024,
+    max_redirects: 3,
+    same_origin: false
+  ]
   @max_head 65_536
   @redirects [301, 302, 303, 307, 308]
 
   @type error :: %{reason: atom(), uri: String.t(), detail: term()}
+
+  @type file_result :: %{
+          uri: URI.t(),
+          sha256: <<_::256>>,
+          size: non_neg_integer(),
+          headers: [{String.t(), String.t()}],
+          last_modified: String.t() | nil,
+          warnings: [tuple()]
+        }
 
   @doc """
   Fetches `uri` and returns its body, and the URI it finally came from.
@@ -70,19 +100,70 @@ defmodule Lumina.HTTPS do
           {:ok, %{body: binary(), uri: URI.t(), warnings: [tuple()]}} | {:error, error()}
   def fetch(%URI{scheme: "https"} = uri, opts \\ []) do
     opts = Keyword.merge(@defaults, opts)
-    deadline = System.monotonic_time(:millisecond) + opts[:timeout] * 1000
-    follow(uri, opts, deadline, opts[:max_redirects], [])
+    timer = {:deadline, System.monotonic_time(:millisecond) + opts[:timeout] * 1000}
+
+    with {:ok, result} <- follow(uri, uri, :memory, opts, timer, opts[:max_redirects], []),
+         do: {:ok, Map.take(result, [:body, :uri, :warnings])}
   end
 
-  defp follow(uri, opts, deadline, redirects_left, warnings) do
-    case get(uri, opts, deadline) do
-      {:ok, 200, _headers, body, new} ->
-        {:ok, %{body: body, uri: uri, warnings: warnings ++ new}}
+  @doc """
+  Fetches `uri` into the file `path` (#200): the body is streamed to a
+  temporary file next to `path`, its SHA-256 computed on the way, and the
+  file renamed to `path` only when the whole body has arrived. On any
+  failure `path` is left as it was and the temporary file removed.
+
+  Returns the URI the body finally came from, its `sha256` (32 raw bytes)
+  and `size`, the response `headers` (names in lower case), its
+  `last_modified` header (or `nil`) and `warnings` as for `fetch/2`. With
+  `:if_modified_since` (a `Last-Modified` value from an earlier fetch,
+  sent as given, RFC 9110 §13.1.3), a `304` returns `{:ok, :not_modified}`
+  and leaves `path` alone (RFC 8182 §3.4.4).
+
+  Options (D-043): `:max_size` (bytes; default 2 GiB), `:idle_timeout`
+  (seconds without data; default 300; there is no total limit),
+  `:connect_timeout` (default 30), `:max_redirects` (default 3),
+  `:same_origin` (`true` follows only redirects to the scheme, host and
+  port of `uri`; a `Lumina.URI`, typically the notification URI when
+  fetching a snapshot or delta, to that URI's; RFC 9674 §3.2: others fail
+  as `:cross_origin_redirect` and are logged), and `:cacerts` and
+  `:address` as for `fetch/2`.
+  """
+  @spec fetch_to_file(URI.t(), Path.t(), keyword()) ::
+          {:ok, file_result()} | {:ok, :not_modified} | {:error, error()}
+  def fetch_to_file(%URI{scheme: "https"} = uri, path, opts \\ []) do
+    opts = Keyword.merge(@file_defaults, opts)
+    timer = {:idle, opts[:idle_timeout] * 1000}
+    origin = with(%URI{} = notify <- opts[:same_origin], do: notify, else: (_ -> uri))
+
+    case follow(uri, origin, {:file, path}, opts, timer, opts[:max_redirects], []) do
+      {:ok, %{body: body} = result} ->
+        last_modified = result.headers |> List.keyfind("last-modified", 0) |> header_value()
+
+        {:ok,
+         result
+         |> Map.delete(:body)
+         |> Map.merge(body)
+         |> Map.put(:last_modified, if(printable?(last_modified), do: last_modified))}
+
+      other ->
+        other
+    end
+  end
+
+  defp follow(uri, origin, target, opts, timer, redirects_left, warnings) do
+    conditional = printable?(opts[:if_modified_since])
+
+    case get(uri, target, opts, timer) do
+      {:ok, 200, headers, body, new} ->
+        {:ok, %{body: body, headers: headers, uri: uri, warnings: warnings ++ new}}
+
+      {:ok, 304, _headers, _, _} when conditional ->
+        {:ok, :not_modified}
 
       {:ok, status, headers, _, new} when status in @redirects ->
-        with {:ok, next} <- location(uri, headers) do
+        with {:ok, next} <- location(uri, origin, headers, opts) do
           if redirects_left > 0,
-            do: follow(next, opts, deadline, redirects_left - 1, warnings ++ new),
+            do: follow(next, origin, target, opts, timer, redirects_left - 1, warnings ++ new),
             else: error(:too_many_redirects, uri, opts[:max_redirects])
         end
 
@@ -95,16 +176,29 @@ defmodule Lumina.HTTPS do
   end
 
   # The redirect target, resolved against `uri` (RFC 9110 §10.2.2 allows a
-  # relative reference). Only https:// targets are followed.
-  defp location(uri, headers) do
+  # relative reference). Only https:// targets are followed, and with
+  # :same_origin only those of the first URI's origin (RFC 9674 §3.2).
+  defp location(uri, origin, headers, opts) do
     case List.keyfind(headers, "location", 0) do
       {_, target} ->
         merged = Elixir.URI.merge(to_string(uri), target)
 
-        case {merged.scheme, URI.parse(Elixir.URI.to_string(merged))} do
-          {"https", {:ok, next}} -> {:ok, next}
-          {"https", {:error, _}} -> error(:bad_redirect, uri, target)
-          _ -> error(:redirect_not_https, uri, target)
+        cond do
+          opts[:same_origin] && not same_origin?(merged, origin) ->
+            Logger.warning(
+              "#{uri} redirects to #{target}, of another origin than #{origin} (RFC 9674)"
+            )
+
+            error(:cross_origin_redirect, uri, target)
+
+          merged.scheme != "https" ->
+            error(:redirect_not_https, uri, target)
+
+          true ->
+            case URI.parse(Elixir.URI.to_string(merged)) do
+              {:ok, next} -> {:ok, next}
+              {:error, _} -> error(:bad_redirect, uri, target)
+            end
         end
 
       nil ->
@@ -113,6 +207,19 @@ defmodule Lumina.HTTPS do
   rescue
     _ -> error(:bad_redirect, uri, "unparseable Location header")
   end
+
+  # Elixir's URI fills in the scheme's default port and drops the brackets
+  # of an IPv6 literal; Lumina.URI drops a default port and keeps them.
+  defp same_origin?(%Elixir.URI{} = merged, %URI{} = origin) do
+    host = fn h ->
+      h |> String.trim_leading("[") |> String.trim_trailing("]") |> String.downcase()
+    end
+
+    merged.scheme == origin.scheme and is_binary(merged.host) and
+      host.(merged.host) == host.(origin.host) and merged.port == (origin.port || 443)
+  end
+
+  defp printable?(value), do: is_binary(value) and value =~ ~r/\A[\x20-\x7e]+\z/
 
   defp error(reason, uri, detail) do
     if reason in [:tls_untrusted, :tls_expired, :tls_hostname, :tls_error] do
@@ -124,13 +231,13 @@ defmodule Lumina.HTTPS do
 
   # One request.
 
-  defp get(uri, opts, deadline) do
-    case connect(uri, opts, deadline) do
+  defp get(uri, target, opts, timer) do
+    case connect(uri, opts, timer) do
       {:ok, socket} ->
         try do
           warnings = wildcard_warnings(socket, uri)
 
-          with {:ok, status, headers, body} <- request(socket, uri, opts, deadline),
+          with {:ok, status, headers, body} <- request(socket, uri, target, opts, timer),
                do: {:ok, status, headers, body, warnings}
         after
           _ = :ssl.close(socket)
@@ -141,10 +248,10 @@ defmodule Lumina.HTTPS do
     end
   end
 
-  defp connect(uri, opts, deadline) do
+  defp connect(uri, opts, timer) do
     name = connect_host(uri.host)
     host = Keyword.get(opts, :address, name)
-    timeout = min(opts[:connect_timeout] * 1000, remaining(deadline))
+    timeout = min(opts[:connect_timeout] * 1000, remaining(timer))
     caller = self()
     ref = make_ref()
 
@@ -245,22 +352,26 @@ defmodule Lumina.HTTPS do
   defp connect_result({:error, {:tls_alert, alert}}), do: {:error, :tls_error, alert}
   defp connect_result({:error, reason}), do: {:error, :socket_error, reason}
 
-  defp request(socket, uri, opts, deadline) do
+  defp request(socket, uri, target, opts, timer) do
     path = "/" <> Enum.join(uri.path, "/")
     host = if uri.port, do: "#{uri.host}:#{uri.port}", else: uri.host
+    since = opts[:if_modified_since]
 
     head = [
       "GET #{path} HTTP/1.1\r\n",
       "Host: #{host}\r\n",
-      "User-Agent: lumina\r\n",
+      "User-Agent: lumina/#{Lumina.version()}\r\n",
       "Accept: */*\r\n",
+      "Accept-Encoding: identity\r\n",
+      # Sent as given, but only as one printable line.
+      if(printable?(since), do: "If-Modified-Since: #{since}\r\n", else: []),
       "Connection: close\r\n\r\n"
     ]
 
     with :ok <- send_request(socket, head),
-         {:ok, status, headers, rest} <- read_head(socket, "", deadline) do
+         {:ok, status, headers, rest} <- read_head(socket, "", timer) do
       if status == 200 do
-        with {:ok, body} <- read_body(socket, headers, rest, opts[:max_size], deadline),
+        with {:ok, body} <- body(socket, headers, rest, target, opts[:max_size], timer),
              do: {:ok, status, headers, body}
       else
         # Only the status and headers matter; the body isn't read.
@@ -276,7 +387,7 @@ defmodule Lumina.HTTPS do
     end
   end
 
-  defp read_head(socket, acc, deadline) do
+  defp read_head(socket, acc, timer) do
     case :binary.split(acc, "\r\n\r\n") do
       [head, rest] ->
         parse_head(head, rest)
@@ -285,7 +396,7 @@ defmodule Lumina.HTTPS do
         {:error, :bad_response, "response head too long"}
 
       [_] ->
-        with {:ok, data} <- recv(socket, deadline), do: read_head(socket, acc <> data, deadline)
+        with {:ok, data} <- recv(socket, timer), do: read_head(socket, acc <> data, timer)
     end
   end
 
@@ -312,52 +423,137 @@ defmodule Lumina.HTTPS do
     end
   end
 
+  # The body goes to a sink: memory for fetch/2, a temporary file for
+  # fetch_to_file/3, renamed into place only once the body is complete.
+  defp body(socket, headers, rest, target, max, timer) do
+    with {:ok, sink} <- open_sink(target, max) do
+      result =
+        try do
+          read_body(socket, headers, rest, sink, timer)
+        catch
+          kind, reason ->
+            discard(sink)
+            :erlang.raise(kind, reason, __STACKTRACE__)
+        end
+
+      case result do
+        {:ok, sink} ->
+          close_sink(sink)
+
+        error ->
+          discard(sink)
+          error
+      end
+    end
+  end
+
+  defp open_sink(:memory, max), do: {:ok, %{out: :memory, acc: [], size: 0, max: max}}
+
+  defp open_sink({:file, path}, max) do
+    temp = "#{path}.#{System.unique_integer([:positive])}.part"
+
+    with :ok <- File.mkdir_p(Path.dirname(path)),
+         {:ok, io} <- :file.open(temp, [:write, :raw, :binary, :exclusive]) do
+      {:ok,
+       %{out: io, path: path, temp: temp, hash: :crypto.hash_init(:sha256), size: 0, max: max}}
+    else
+      {:error, reason} -> {:error, :file_error, reason}
+    end
+  end
+
+  defp write(%{size: size, max: max}, data) when size + byte_size(data) > max,
+    do: {:error, :too_large, max}
+
+  defp write(%{out: :memory} = sink, data),
+    do: {:ok, %{sink | acc: [sink.acc, data], size: sink.size + byte_size(data)}}
+
+  defp write(sink, data) do
+    case :file.write(sink.out, data) do
+      :ok ->
+        {:ok,
+         %{sink | hash: :crypto.hash_update(sink.hash, data), size: sink.size + byte_size(data)}}
+
+      {:error, reason} ->
+        {:error, :file_error, reason}
+    end
+  end
+
+  defp close_sink(%{out: :memory} = sink), do: {:ok, IO.iodata_to_binary(sink.acc)}
+
+  defp close_sink(sink) do
+    with :ok <- :file.close(sink.out),
+         :ok <- :file.rename(sink.temp, sink.path) do
+      {:ok, %{sha256: :crypto.hash_final(sink.hash), size: sink.size}}
+    else
+      {:error, reason} ->
+        _ = :file.delete(sink.temp)
+        {:error, :file_error, reason}
+    end
+  end
+
+  defp discard(%{out: :memory}), do: :ok
+
+  defp discard(sink) do
+    _ = :file.close(sink.out)
+    _ = :file.delete(sink.temp)
+    :ok
+  end
+
   # RFC 9112 §6.3: chunked if Transfer-Encoding says so, else
   # Content-Length, else everything until the server closes.
-  defp read_body(socket, headers, rest, max, deadline) do
+  defp read_body(socket, headers, rest, sink, timer) do
     encoding = headers |> List.keyfind("transfer-encoding", 0) |> header_value()
     length = headers |> List.keyfind("content-length", 0) |> header_value()
 
     cond do
       encoding != nil and String.ends_with?(String.downcase(encoding), "chunked") ->
-        read_chunked(socket, rest, [], 0, max, deadline)
+        read_chunked(socket, rest, sink, timer)
 
       encoding != nil ->
         {:error, :bad_response, "unsupported transfer-encoding #{encoding}"}
 
       length != nil ->
         case Integer.parse(length) do
-          {n, ""} when n > max -> {:error, :too_large, max}
-          {n, ""} when n >= 0 -> read_length(socket, rest, n, deadline)
-          _ -> {:error, :bad_response, "bad content-length #{length}"}
+          {n, ""} when n > sink.max ->
+            {:error, :too_large, sink.max}
+
+          {n, ""} when n >= 0 ->
+            with {:ok, sink, _rest} <- copy(socket, rest, n, sink, timer), do: {:ok, sink}
+
+          _ ->
+            {:error, :bad_response, "bad content-length #{length}"}
         end
 
       true ->
-        read_until_close(socket, rest, max, deadline)
+        read_until_close(socket, rest, sink, timer)
     end
   end
 
   defp header_value({_, value}), do: value
   defp header_value(nil), do: nil
 
-  defp read_length(_socket, acc, n, _deadline) when byte_size(acc) >= n,
-    do: {:ok, binary_part(acc, 0, n)}
+  # Copies the next `n` body bytes, `buffer` first, to the sink as they
+  # come; returns what follows them in the last read.
+  defp copy(_socket, buffer, n, sink, _timer) when byte_size(buffer) >= n do
+    <<data::binary-size(^n), rest::binary>> = buffer
+    with {:ok, sink} <- write(sink, data), do: {:ok, sink, rest}
+  end
 
-  defp read_length(socket, acc, n, deadline) do
-    case recv(socket, deadline) do
-      {:ok, data} -> read_length(socket, acc <> data, n, deadline)
-      {:error, :closed, _} -> {:error, :truncated, byte_size(acc)}
-      error -> error
+  defp copy(socket, buffer, n, sink, timer) do
+    with {:ok, sink} <- write(sink, buffer) do
+      case recv(socket, timer) do
+        {:ok, data} -> copy(socket, data, n - byte_size(buffer), sink, timer)
+        {:error, :closed, _} -> {:error, :truncated, sink.size}
+        error -> error
+      end
     end
   end
 
-  defp read_until_close(socket, acc, max, deadline) do
-    if byte_size(acc) > max do
-      {:error, :too_large, max}
-    else
-      case recv(socket, deadline) do
-        {:ok, data} -> read_until_close(socket, acc <> data, max, deadline)
-        {:error, :closed, _} -> {:ok, acc}
+  defp read_until_close(socket, buffer, sink, timer) do
+    with {:ok, sink} <- write(sink, buffer) do
+      case recv(socket, timer) do
+        {:ok, data} -> read_until_close(socket, data, sink, timer)
+        {:error, :closed, _} -> {:ok, sink}
         error -> error
       end
     end
@@ -365,23 +561,23 @@ defmodule Lumina.HTTPS do
 
   # RFC 9112 §7.1: chunk-size [ext] CRLF data CRLF ... 0 CRLF trailers CRLF.
   # A chunk that would pass the size limit is refused before it's read.
-  defp read_chunked(socket, buffer, acc, size, max, deadline) do
-    with {:ok, line, buffer} <- line(socket, buffer, deadline),
+  defp read_chunked(socket, buffer, sink, timer) do
+    with {:ok, line, buffer} <- line(socket, buffer, timer),
          {:ok, n} <- chunk_size(line) do
       cond do
         n == 0 ->
-          {:ok, IO.iodata_to_binary(acc)}
+          {:ok, sink}
 
-        size + n > max ->
-          {:error, :too_large, max}
+        sink.size + n > sink.max ->
+          {:error, :too_large, sink.max}
 
         true ->
-          with {:ok, data, buffer} <- take(socket, buffer, n + 2, deadline),
-               <<chunk::binary-size(^n), "\r\n">> <- data do
-            read_chunked(socket, buffer, [acc, chunk], size + n, max, deadline)
+          with {:ok, sink, buffer} <- copy(socket, buffer, n, sink, timer),
+               {:ok, "", buffer} <- line(socket, buffer, timer) do
+            read_chunked(socket, buffer, sink, timer)
           else
-            {:error, _, _} = error -> error
-            _ -> {:error, :bad_response, "malformed chunk"}
+            {:ok, _, _} -> {:error, :bad_response, "malformed chunk"}
+            error -> error
           end
       end
     end
@@ -396,7 +592,7 @@ defmodule Lumina.HTTPS do
     end
   end
 
-  defp line(socket, buffer, deadline) do
+  defp line(socket, buffer, timer) do
     case :binary.split(buffer, "\r\n") do
       [line, rest] ->
         {:ok, line, rest}
@@ -405,35 +601,27 @@ defmodule Lumina.HTTPS do
         {:error, :bad_response, "chunk line too long"}
 
       [_] ->
-        case recv(socket, deadline) do
-          {:ok, data} -> line(socket, buffer <> data, deadline)
+        case recv(socket, timer) do
+          {:ok, data} -> line(socket, buffer <> data, timer)
           {:error, :closed, _} -> {:error, :truncated, :chunked}
           error -> error
         end
     end
   end
 
-  defp take(_socket, buffer, n, _deadline) when byte_size(buffer) >= n do
-    <<data::binary-size(^n), rest::binary>> = buffer
-    {:ok, data, rest}
-  end
-
-  defp take(socket, buffer, n, deadline) do
-    case recv(socket, deadline) do
-      {:ok, data} -> take(socket, buffer <> data, n, deadline)
-      {:error, :closed, _} -> {:error, :truncated, :chunked}
-      error -> error
-    end
-  end
-
-  defp recv(socket, deadline) do
-    case :ssl.recv(socket, 0, remaining(deadline)) do
+  # Each read waits for what is left of the total time (fetch/2) or for the
+  # idle timeout (fetch_to_file/3).
+  defp recv(socket, timer) do
+    case :ssl.recv(socket, 0, remaining(timer)) do
       {:ok, data} -> {:ok, data}
       {:error, :closed} -> {:error, :closed, :closed}
-      {:error, :timeout} -> {:error, :timeout, :timeout}
+      {:error, :timeout} -> {:error, :timeout, elem(timer, 0)}
       {:error, reason} -> {:error, :socket_error, reason}
     end
   end
 
-  defp remaining(deadline), do: max(deadline - System.monotonic_time(:millisecond), 0)
+  defp remaining({:deadline, deadline}),
+    do: max(deadline - System.monotonic_time(:millisecond), 0)
+
+  defp remaining({:idle, ms}), do: ms
 end

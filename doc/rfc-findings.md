@@ -60,6 +60,7 @@ Where a live repository departs from the RFCs, or its servers from what everyone
 | [F-037](#f-037-a-delta-publish-doesnt-say-when-its-hash-is-required) | 8182 §3.4.2, §3.5.4 | gap | [6919](https://www.rfc-editor.org/errata/eid6919), held for document update | Enforced as the erratum says (#204) |
 | [F-038](#f-038-barry-writes-session_id-1) | 8182 §3.5.1.3 | tooling | — | Fixtures set `session` to a version 4 UUID (#202) |
 | [F-039](#f-039-rfc-8182-cites-no-xml-specification) | 8182 §3.5, §7 | missing reference | none found (not reported) | XML 1.0 (Fifth Edition) for the subset RRDP needs (D-041, #198) |
+| [F-040](#f-040-rfc-8182-cites-obsoleted-http-rfcs) | 8182 §3.4.1, §3.4.4, §7 | obsolete reference | none found (not reported) | RFC 9110 §13.1.3 and RFC 9112 for the HTTP side (#200) |
 
 ## Entries
 
@@ -621,6 +622,15 @@ Where a live repository departs from the RFCs, or its servers from what everyone
 - **The problem:** "well-formed", "XML namespace", the encoding rule and the schema's datatypes are defined only in W3C and ISO documents the RFC doesn't cite, so which XML version and which datatype definitions apply is left to the reader. Lumina builds only from the RFC texts; here it has to step outside them.
 - **Resolution:** the parser follows XML 1.0 (Fifth Edition) for the subset RRDP needs (D-041, #198), and its errors name XML 1.0 sections. The schema's datatypes are checked in #199 as their names suggest (a positive decimal integer, an absolute URI, base64), which the RFC's own rules also say (§3.5.1.3: "an unbounded, unsigned positive integer in decimal format").
 - **Talk note:** a MUST that rests on documents the RFC never names: two RPs can read "well-formed" against different XML versions and both claim conformance.
+
+### F-040: RFC 8182 cites obsoleted HTTP RFCs
+
+- **Where:** RFC 8182 §3.4.1: "a "User-Agent" header explained in Section 5.5.3. of [RFC7231]"; §3.4.4: "Relying Parties MUST use the "If-Modified-Since" header explained in Section 3.3 of [RFC7232]"; §3.2 and §4.3 cite [RFC7230] for HTTPS URIs and HTTPS. RFC 7230, 7231 and 7232 were obsoleted in June 2022 by RFC 9110 (semantics, §10.1.5 User-Agent, §13.1.3 If-Modified-Since) and RFC 9112 (HTTP/1.1 messages). RFC 9674 (2024) updates RFC 8182 but leaves these references.
+- **Kind:** obsolete reference.
+- **Official errata:** none found for this; RFC 8182 has 7239 (verified, §3.2) and 6919 (held, §3.4.2) (checked 2026-11-17). **Not reported.**
+- **The problem:** none in substance: the header definitions carried over unchanged. A reader following the references lands on obsoleted documents, and neither RFC 9110 nor RFC 9112 is in Lumina's RFC library.
+- **Resolution:** `Lumina.HTTPS` follows RFC 9110 §13.1.3 (send the earlier `Last-Modified` value as given) and RFC 9112 §6.3 and §7.1 (message framing, chunked coding) (#200). RFC 9110 and RFC 9112 aren't added to `doc/rfc/`; the tests cite RFC 8182 sections.
+- **Talk note:** an RFC's references age even when an update to the RFC comes along: RFC 9674 rewrote §3.4.1's rules and left §3.4.1's citations alone.
 
 ## TA deviations
 
