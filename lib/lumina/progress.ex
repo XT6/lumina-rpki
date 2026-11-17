@@ -29,9 +29,11 @@ defmodule Lumina.Progress do
     * `{:rrdp_started, notify}` and `{:rrdp_finished, notify, outcome}`
     * `{:rrdp_download, notify, kind, bytes}` every MiB received and
       `{:rrdp_downloaded, notify, kind, bytes}` once the file is in
-      (`kind` is `:notification` or `:snapshot`)
-    * `{:rrdp_objects, notify, count}`: objects written to the store,
-      every 1000 and at the end
+      (`kind` is `:notification`, `:snapshot` or `:delta`)
+    * `{:rrdp_objects, notify, count}`: snapshot objects written to the
+      store, every 1000 and at the end, or delta elements applied
+    * `{:rrdp_fallback, notify, reason}`: a delta was rejected, and the
+      snapshot is used instead (#204)
 
   Events of a validation (`Lumina.Validate.run/3`):
 

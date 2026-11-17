@@ -605,7 +605,7 @@ Where a live repository departs from the RFCs, or its servers from what everyone
 - **Kind:** gap.
 - **Official errata:** [6919](https://www.rfc-editor.org/errata/eid6919), held for document update (checked 2026-11-17). It adds the rule from RFC 8181: "the hash MUST be present if the publication operation is overwriting an existing object, and it MUST NOT be present if this publication operation is writing to a new object."
 - **The problem:** without the rule, a `publish` without a hash for a URI the RP already holds is either a new object or a silent overwrite, and §3.4.2's check has nothing to compare.
-- **Resolution:** Lumina enforces the erratum's rule: an overwrite without the old object's hash, a hash that doesn't match the stored object, or a hash for a URI not in the repository's store rejects the delta, and the snapshot is used (RFC 8182 §3.4.2); #204.
+- **Resolution:** Lumina enforces the erratum's rule: an overwrite without the old object's hash, a hash that doesn't match the stored object, or a hash for a URI not in the repository's store rejects the delta, and the snapshot is used (RFC 8182 §3.4.2). Done in #204: rules `publish_without_hash`, `replace_not_held`, `replace_hash_mismatch`, `withdraw_not_held`, `withdraw_hash_mismatch` (`Lumina.RRDP.Sync`).
 - **Talk note:** the rule existed in the sibling protocol (RFC 8181) and was lost between the two documents.
 
 ### F-038: Barry writes session_id "1"
@@ -639,7 +639,7 @@ Where a live repository departs from the RFCs, or its servers from what everyone
 - **Kind:** ambiguity.
 - **Official errata:** none found for this; RFC 8182 has 7239 (verified, §3.2) and 6919 (held, §3.4.2) (checked 2026-11-17). **Not reported.**
 - **The problem:** a snapshot with two `publish` elements for one URI gives that object two contents. An RP that keeps the last one and an RP that keeps the first see different repositories from the same file, and a streaming RP can't tell which the publisher meant.
-- **Resolution:** Lumina rejects such a snapshot (`snapshot_rejected` with rule `duplicate_publish`; the store is kept) (#203). A state with two values for one object isn't "a complete current state". This is Lumina's reading, open to the maintainer's review.
+- **Resolution:** Lumina rejects such a snapshot (`snapshot_rejected` with rule `duplicate_publish`; the store is kept) (#203). A state with two values for one object isn't "a complete current state". Maintainer decision (2026-11-17, D-046): keep this strict reading, and check during live testing (#209) whether any live snapshot publishes a URI twice.
 - **Talk note:** "complete current state" implies a set, but neither the rules nor the schema enforces it.
 
 ## TA deviations

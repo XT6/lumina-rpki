@@ -13,91 +13,41 @@ defmodule Lumina.RRDP.SyncTest do
   Lumina lose the repository it already has, and record the failure in
   the state.
 
-  The server's routes live in an Agent, so a test can change what is
+  The server is `Lumina.Test.RRDPServer`: a test can change what is
   served between syncs and see which paths were requested.
   """
   use ExUnit.Case, async: true
 
   import ExUnit.CaptureLog
 
-  alias Lumina.RRDP.{Snapshot, State, Store, Sync}
-  alias Lumina.Test.{Fixture, HTTPSServer}
+  alias Lumina.RRDP.{State, Store, Sync}
+  alias Lumina.Test.{Fixture, RRDPServer}
   alias Mix.Lumina.Fixtures
 
   @moduletag :tmp_dir
   @base "https://localhost:8443/rrdp/"
   @now ~U[2030-01-01 00:00:00Z]
 
-  # A server whose routes (path => response) can be replaced, logging the
-  # paths requested since.
-  defp server(routes) do
-    agent = start_supervised!({Agent, fn -> %{routes: routes, log: []} end})
-    pki = HTTPSServer.pki()
+  defp server(routes), do: RRDPServer.start!(routes, @now)
 
-    port =
-      HTTPSServer.start!(pki, fn request ->
-        route =
-          Agent.get_and_update(agent, fn state ->
-            {Map.get(state.routes, request.path, {404, [], "not found"}),
-             %{state | log: state.log ++ [request.path]}}
-          end)
+  defp serve(server, routes), do: RRDPServer.serve(server, routes)
 
-        if is_function(route, 1), do: route.(request), else: route
-      end)
+  defp requested(server), do: RRDPServer.requested(server)
 
-    %{
-      agent: agent,
-      port: port,
-      opts: [cacerts: pki.cacerts, remap: %{"localhost:8443" => "localhost:#{port}"}, now: @now]
-    }
-  end
-
-  defp serve(server, routes), do: Agent.update(server.agent, &%{&1 | routes: routes, log: []})
-
-  defp requested(server), do: Agent.get(server.agent, & &1.log)
-
-  defp routes(fixture), do: HTTPSServer.dir_routes(fixture.rrdp_root, "/rrdp/")
+  defp routes(fixture), do: RRDPServer.routes(fixture)
 
   defp sync(server, root), do: Sync.run(notify(), root, server.opts)
 
   defp notify, do: Fixture.load!("m8-rrdp-delta").notification_uri
 
-  defp hash(bytes), do: :sha256 |> :crypto.hash(bytes) |> Base.encode16(case: :lower)
+  defp hash(bytes), do: RRDPServer.hash(bytes)
 
-  defp notification(session, serial, snapshot_uri, snapshot_hash) do
-    """
-    <notification xmlns="http://www.ripe.net/rpki/rrdp" version="1" \
-    session_id="#{session}" serial="#{serial}">
-      <snapshot uri="#{snapshot_uri}" hash="#{snapshot_hash}"/>
-    </notification>
-    """
-  end
+  defp notification(session, serial, snapshot_uri, snapshot_hash),
+    do: RRDPServer.notification(session, serial, {snapshot_uri, {:hash, snapshot_hash}})
 
-  # The store's files: path relative to the store => bytes.
-  defp store_files(root) do
-    store = Store.path(root, notify())
+  defp store_files(root), do: RRDPServer.store_files(root, notify())
 
-    for path <- Path.wildcard(Path.join(store, "**/*"), match_dot: true),
-        File.regular?(path),
-        into: %{},
-        do: {Path.relative_to(path, store), File.read!(path)}
-  end
-
-  # The objects of a fixture's snapshot (serial K's, or the last), as the
-  # store lays them out.
-  defp snapshot_files(fixture, file \\ "snapshot.xml") do
-    path = Path.join(fixture.rrdp_root, file)
-    xml = File.read!(path)
-    [_, serial] = Regex.run(~r/serial="(\d+)"/, xml)
-    expected = %{session_id: fixture.session_id, serial: String.to_integer(serial)}
-
-    collect = fn {:publish, uri, bytes}, acc ->
-      {:cont, Map.put(acc, Path.relative_to(Store.object_path("/s", uri), "/s"), bytes)}
-    end
-
-    {:ok, files} = Snapshot.stream(path, expected, collect, %{})
-    files
-  end
+  defp snapshot_files(fixture), do: RRDPServer.snapshot_files(fixture)
 
   # A cache synced to m8-rrdp-delta's serial 2, and its store's files.
   defp synced(dir) do

@@ -1,0 +1,7 @@
+<notification xmlns="http://www.ripe.net/rpki/rrdp"
+              version="1"
+              session_id="11d50407-ca1e-4950-8bcb-0e97f8302a2a"
+              serial="2">
+  <snapshot uri="https://localhost:8443/rrdp/snapshot-2.xml" hash="fd76afbfb845260503c81205371aa42f642441b9ee8295ab980eb4a1fa7740b3" />
+  <delta serial="2" uri="https://localhost:8443/rrdp/delta-2.xml" hash="1028d9f265eea0f2a83b5885487985367fccfb3b4675571db75b5fd01ede0995" />
+</notification>

@@ -4,9 +4,9 @@
 
 Every test, what it checks and why it exists. See [testing.md](../testing.md) for the conventions.
 
-- 93 Barry fixtures: 24 valid, 69 invalid.
+- 94 Barry fixtures: 25 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 956 unit tests in 76 modules.
+- 971 unit tests in 77 modules.
 
 ## Barry fixtures
 
@@ -1216,6 +1216,21 @@ snapshot, and the same VRPs as an RP that fetched serial 2's snapshot.
 - **Expected:** valid
 - **RFC:** [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)), [8182 §3.5.3.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.3.3)), [6481 §2](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-2))
 - **Files:** [descriptor](../../test/fixtures/barry/m8-rrdp-delta/case.repo) · [metadata](../../test/fixtures/barry/m8-rrdp-delta/case.exs) · [rsync tree](../../test/fixtures/barry/m8-rrdp-delta/rsync)
+
+#### `m8-rrdp-three`: RRDP repository with two deltas: a ROA added, then one withdrawn and one replaced
+
+Two deltas in a row (#204). Serial 1 is a TA, one CA and two ROAs.
+Delta 2 publishes the new roa3.roa and replaces ca1.mft. Delta 3
+withdraws roa1.roa, replaces roa3.roa (re-signed, so new bytes under
+the same URI) and replaces ca1.mft again; every other file is kept
+byte for byte (Barry's shield marker). An RP at serial 1 must apply
+both deltas in order, each replace and withdraw naming the hash of the
+object it holds, and end with exactly serial 3's snapshot; an RP at
+serial 2 applies delta 3 only.
+
+- **Expected:** valid
+- **RFC:** [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)), [8182 §3.5.3.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.3.3))
+- **Files:** [descriptor](../../test/fixtures/barry/m8-rrdp-three/case.repo) · [metadata](../../test/fixtures/barry/m8-rrdp-three/case.exs) · [rsync tree](../../test/fixtures/barry/m8-rrdp-three/rsync)
 
 ## Test TALs
 
@@ -3392,6 +3407,55 @@ live store's files. A state file that can't be trusted must read as
 - *state:* a corrupt state file reads as never synced
   Not JSON, a field of the wrong type, a bad delta hash, or another notification URI.
 
+### `Lumina.RRDP.SyncDeltasTest`
+
+[test/lumina/rrdp/sync_deltas_test.exs](../../test/lumina/rrdp/sync_deltas_test.exs)
+
+Catching up with deltas (#204, `Lumina.RRDP.Sync.run/3`): RFC 8182
+§3.4.2 with the publish-hash rule of erratum 6919 (F-037), against the
+delta fixtures `m8-rrdp-three` (serials 1 to 3) and `m8-rrdp-delta`
+(1 and 2) served by `Lumina.Test.RRDPServer`.
+
+A store at serial K must reach serial N by fetching only deltas K+1 to
+N, and end with exactly serial N's snapshot. Every rejected delta, and
+every element that would touch an object the store doesn't hold with
+the hash it names, must drop the half-applied copy and fall back to
+the snapshot (§3.4.2); if the snapshot fails too, the last good store
+stays. Withdraws and replaces only ever reach the repository's own
+store, so one repository can't remove or change objects another
+published under the same rsync URIs (§3.4.2).
+
+- from serial 1, serial 3 is reached by deltas 2 and 3 alone, and equals its snapshot (RFC [8182 §3.4.1](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.1)), [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)))
+- from serial 2, only delta 3 is fetched (RFC [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)))
+- m8-rrdp-delta's serial 1 store reaches serial 2 by its delta (RFC [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)))
+- a delta whose hash isn't the notification's falls back to the snapshot (RFC [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)))
+  Delta 2's file served where delta 3 is announced.
+- a delta of another session_id falls back to the snapshot (RFC [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)), [8182 §3.5.3.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.3.3)))
+- a delta of another serial falls back to the snapshot (RFC [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)), [8182 §3.5.3.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.3.3)))
+  Delta 3's file with serial 4: not one more than the store's serial 2.
+- a gap in the listed deltas goes straight to the snapshot (RFC [8182 §3.4.1](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.1)))
+  The store is at serial 1 and the notification lists only delta 3:
+  deltas can't reach serial 3, so the snapshot is used and no delta
+  is fetched. Not a delta rejection, so there is no fallback.
+- a withdraw of a URI the store doesn't hold falls back to the snapshot (RFC [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)))
+- a withdraw whose hash isn't the stored object's falls back to the snapshot (RFC [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)))
+- a publish replacing an object with a wrong hash falls back to the snapshot (RFC [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)))
+- a publish without a hash for an object the store holds falls back to the snapshot (RFC [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)))
+  Erratum 6919 (F-037): an overwrite must give the old hash.
+- a publish with a hash for a URI the store doesn't hold falls back to the snapshot (RFC [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)))
+  Erratum 6919 (F-037): a new object has no hash.
+- a rejected delta whose snapshot fails too leaves the store at its serial (RFC [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)), [8182 §3.4.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.3)))
+  Delta 3 withdraws roa2.roa and then fails; the snapshot is a 404.
+  The half-applied copy is dropped, so roa2.roa is still there.
+- a cross-origin redirect of a delta fails the sync without the snapshot (RFC [9674 §3.2](../rfc/rfc9674.txt) ([html](https://www.rfc-editor.org/rfc/rfc9674.html#section-3.2)))
+- a repository can't withdraw or replace another repository's objects (RFC [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)))
+  Repository A (m8-rrdp-three) holds roa2.roa. Repository B, another
+  notification URI on the same server, starts from a snapshot of one
+  object, then sends a delta that withdraws A's roa2.roa, and then one
+  that replaces it, each naming A's hash. Neither reaches A's store:
+  B's store doesn't hold the object, so each delta is rejected and B
+  takes its snapshot.
+
 ### `Lumina.RRDP.SyncTest`
 
 [test/lumina/rrdp/sync_test.exs](../../test/lumina/rrdp/sync_test.exs)
@@ -3409,7 +3473,7 @@ must keep the last good store, so a broken or hostile server can't make
 Lumina lose the repository it already has, and record the failure in
 the state.
 
-The server's routes live in an Agent, so a test can change what is
+The server is `Lumina.Test.RRDPServer`: a test can change what is
 served between syncs and see which paths were requested.
 
 - a fresh cache syncs every fixture's repository, and the store holds its rsync tree's files (RFC [8182 §3.4.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.3)), [8182 §3.5.2.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.2.3)))

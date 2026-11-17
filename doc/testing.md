@@ -206,6 +206,8 @@ fixture.versions     # %{serial => description}: rrdp_versions, or %{1 => title}
 
 `load!/1` raises if the fixture doesn't exist or fails its metadata check. Shared test helpers live in `test/support/`, which is compiled only in the test environment.
 
+RRDP sync tests serve a fixture with `Lumina.Test.RRDPServer`: `start!(RRDPServer.routes(fixture, serial))` serves its `rrdp/` with the notification of `serial` (the last by default), `serve/2` changes the routes between syncs, `requested/1` lists the paths fetched, `notification/4`, `snapshot/3` and `delta/3` build hand-made files, and `store_files/2` and `snapshot_files/2` compare a store with a snapshot. Delta fixtures: `m8-rrdp-delta` (serials 1 and 2) and `m8-rrdp-three` (1 to 3).
+
 `m0-minimal-valid` (TA → CA → ROA) is the positive baseline. New invalid fixtures should usually be this tree with one field overridden, so a rejection can be traced to that one change.
 
 ### Tests that run Barry
