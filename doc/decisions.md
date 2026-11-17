@@ -48,7 +48,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-038](#d-038-rpkinotify-in-an-ee-certificates-sia-only-warns) | rpkiNotify in an EE certificate's SIA only warns | 2026-11-16 | #190 |
 | [D-039](#d-039-a-module-fetch-is-retried-once-after-a-transient-failure) | A module fetch is retried once after a transient failure | 2026-11-16 | #193 |
 | [D-040](#d-040-rrdp-failure-falls-back-to-rsync-in-the-same-run) | RRDP failure falls back to rsync in the same run | 2026-11-17 | M8 plan, #206 |
-| [D-041](#d-041-rrdp-xml-is-parsed-by-luminas-own-strict-streaming-parser) | RRDP XML is parsed by Lumina's own strict streaming parser | 2026-11-17 | M8 plan, #198 |
+| [D-041](#d-041-rrdp-xml-is-parsed-by-luminas-own-strict-streaming-parser) | RRDP XML is parsed by Lumina's own strict streaming parser; comments allowed | 2026-11-17 | M8 plan, #198 |
 | [D-042](#d-042-a-session_id-that-isnt-a-version-4-uuid-only-warns) | A session_id that isn't a version 4 UUID only warns | 2026-11-17 | M8 plan, #199 |
 | [D-043](#d-043-rrdp-limits-2-gib-files-300-s-idle) | RRDP limits: 2 GiB files, 300 s idle | 2026-11-17 | M8 plan, #200 |
 
@@ -518,10 +518,10 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 ## D-041: RRDP XML is parsed by Lumina's own strict streaming parser
 
 - **Date:** 2026-11-17
-- **Decision:** RRDP files are parsed by a parser written for Lumina, streaming from the downloaded file with bounded memory. It accepts what RRDP needs: an optional XML declaration (encoding US-ASCII if given), elements, attributes in any order, character references and the five predefined entities, base64 text and whitespace. It rejects a DOCTYPE, processing instructions other than the declaration, CDATA sections, any other entity, and bytes outside US-ASCII. The RFC 8182 §3.5.4 schema is checked as the file is read.
+- **Decision:** RRDP files are parsed by a parser written for Lumina, streaming from the downloaded file with bounded memory. It accepts what RRDP needs: an optional XML declaration (encoding US-ASCII if given), elements, attributes in any order, character references and the five predefined entities, base64 text, whitespace, and comments (XML 1.0 §2.5: no `--` inside), which are skipped. It rejects a DOCTYPE, processing instructions other than the declaration, CDATA sections, any other entity, and bytes outside US-ASCII. The RFC 8182 §3.5.4 schema is checked as the file is read.
 - **Why:** Lumina has no runtime dependencies. Snapshots reach 760 MB (ARIN, 2026-11-16), so the whole file can't be held in memory. OTP's `xmerl_sax_parser` handles full XML, including the DTDs and entities RRDP never needs and that entity-expansion attacks use, and builds charlists. In a survey of 109 live notification files (2026-11-16), none used comments, DOCTYPEs or prefixes.
 - **Where:** M8 plan (maintainer, 2026-11-17: "Own strict streaming parser"); #198.
-- **Consequences:** comments are rejected too; XML allows them, but no server sends them. If one does, it is an RFC finding and the parser can accept them.
+- **Changed (2026-11-17, maintainer, before any code):** comments are accepted and skipped ("I'd relax the comments requirement now. Only that one."). XML allows them anywhere markup may appear, and rejecting them would turn a harmless, well-formed file into an RRDP failure (and a fall back to rsync, D-040). Everything else stays rejected.
 
 ## D-042: A session_id that isn't a version 4 UUID only warns
 
