@@ -168,6 +168,34 @@ defmodule Lumina.HTTPSFileTest do
 
       assert File.read!(target) == "abcdefgh"
     end
+
+    @tag doc: "For download progress (D-036, #203): a 1 MB body sent 64 KiB at a time."
+    test ":on_data is called with the bytes received so far, up to the whole body",
+         %{tmp_dir: dir} do
+      source = Path.join(dir, "source")
+      File.write!(source, :binary.copy("x", 1_000_000))
+      {base, _port, pki} = serve(%{"/s.xml" => {:file, source}})
+      test = self()
+
+      assert {:ok, %{size: 1_000_000}} =
+               HTTPS.fetch_to_file(uri!(base <> "/s.xml"), Path.join(dir, "s.xml"),
+                 cacerts: pki.cacerts,
+                 on_data: &send(test, {:bytes, &1})
+               )
+
+      sizes = collect_sizes([])
+      assert length(sizes) > 1
+      assert sizes == Enum.sort(sizes)
+      assert List.last(sizes) == 1_000_000
+    end
+  end
+
+  defp collect_sizes(acc) do
+    receive do
+      {:bytes, size} -> collect_sizes([size | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
   end
 
   describe "idle timeout (D-043)" do

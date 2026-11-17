@@ -128,8 +128,10 @@ defmodule Lumina.HTTPS do
   `:same_origin` (`true` follows only redirects to the scheme, host and
   port of `uri`; a `Lumina.URI`, typically the notification URI when
   fetching a snapshot or delta, to that URI's; RFC 9674 §3.2: others fail
-  as `:cross_origin_redirect` and are logged), and `:cacerts` and
-  `:address` as for `fetch/2`.
+  as `:cross_origin_redirect` and are logged), `:on_data` (a function
+  called with the bytes received so far after each piece of the body is
+  written, for progress), and `:cacerts`, `:address` and `:remap` as for
+  `fetch/2`.
   """
   @spec fetch_to_file(URI.t(), Path.t(), keyword()) ::
           {:ok, file_result()} | {:ok, :not_modified} | {:error, error()}
@@ -138,7 +140,9 @@ defmodule Lumina.HTTPS do
     timer = {:idle, opts[:idle_timeout] * 1000}
     origin = with(%URI{} = notify <- opts[:same_origin], do: notify, else: (_ -> uri))
 
-    case follow(uri, origin, {:file, path}, opts, timer, opts[:max_redirects], []) do
+    target = {:file, path, opts[:on_data]}
+
+    case follow(uri, origin, target, opts, timer, opts[:max_redirects], []) do
       {:ok, %{body: body} = result} ->
         last_modified = result.headers |> List.keyfind("last-modified", 0) |> header_value()
 
@@ -468,13 +472,21 @@ defmodule Lumina.HTTPS do
 
   defp open_sink(:memory, max), do: {:ok, %{out: :memory, acc: [], size: 0, max: max}}
 
-  defp open_sink({:file, path}, max) do
+  defp open_sink({:file, path, on_data}, max) do
     temp = "#{path}.#{System.unique_integer([:positive])}.part"
 
     with :ok <- File.mkdir_p(Path.dirname(path)),
          {:ok, io} <- :file.open(temp, [:write, :raw, :binary, :exclusive]) do
       {:ok,
-       %{out: io, path: path, temp: temp, hash: :crypto.hash_init(:sha256), size: 0, max: max}}
+       %{
+         out: io,
+         path: path,
+         temp: temp,
+         hash: :crypto.hash_init(:sha256),
+         size: 0,
+         max: max,
+         on_data: on_data
+       }}
     else
       {:error, reason} -> {:error, :file_error, reason}
     end
@@ -489,8 +501,9 @@ defmodule Lumina.HTTPS do
   defp write(sink, data) do
     case :file.write(sink.out, data) do
       :ok ->
-        {:ok,
-         %{sink | hash: :crypto.hash_update(sink.hash, data), size: sink.size + byte_size(data)}}
+        size = sink.size + byte_size(data)
+        if sink.on_data, do: sink.on_data.(size)
+        {:ok, %{sink | hash: :crypto.hash_update(sink.hash, data), size: size}}
 
       {:error, reason} ->
         {:error, :file_error, reason}

@@ -21,6 +21,9 @@ defmodule Lumina.Test.HTTPSServer do
     * a function of the request, `%{path: path, headers: headers}`
       (header names in lower case), returning one of the above.
 
+  `routes` can also be one function of the request, for every path (a
+  test that changes what is served between requests).
+
   Any other path is a 404. One request per connection. The server stops
   when the test exits.
   """
@@ -75,7 +78,7 @@ defmodule Lumina.Test.HTTPSServer do
   end
 
   @doc "Starts the server; returns its port."
-  @spec start!(pki(), %{String.t() => response() | (map() -> response())}) ::
+  @spec start!(pki(), %{String.t() => response() | (map() -> response())} | (map() -> response())) ::
           :inet.port_number()
   def start!(pki, routes) do
     {:ok, listen} =
@@ -112,11 +115,12 @@ defmodule Lumina.Test.HTTPSServer do
 
     with {:ok, socket} <- :ssl.handshake(socket, 5_000),
          {:ok, request} <- read_request(socket, "") do
-      response =
-        case Map.get(routes, request.path, {404, [], "not found"}) do
-          fun when is_function(fun, 1) -> fun.(request)
-          response -> response
-        end
+      route =
+        if is_function(routes, 1),
+          do: routes,
+          else: Map.get(routes, request.path, {404, [], "not found"})
+
+      response = if is_function(route, 1), do: route.(request), else: route
 
       _ = respond(socket, response)
       _ = :ssl.close(socket)
