@@ -74,8 +74,9 @@ defmodule Lumina.RRDP.Sync do
   #206).
 
   Progress (D-036) goes to the `:progress` function: `{:rrdp_started,
-  notify}`, `{:rrdp_download, notify, kind, bytes}` (`kind`
-  `:notification`, `:snapshot` or `:delta`) every MiB received,
+  notify}`, `{:rrdp_download, notify, kind, bytes, total}` (`kind`
+  `:notification`, `:snapshot` or `:delta`; `total` the Content-Length,
+  or `nil`) every MiB received,
   `{:rrdp_downloaded, notify, kind, bytes}` once a file is in,
   `{:rrdp_objects, notify, count}` every 1000 snapshot objects written
   and at the end of a snapshot or a run of deltas (elements applied),
@@ -600,17 +601,18 @@ defmodule Lumina.RRDP.Sync do
 
   defp xml_opts(opts), do: Keyword.take(opts, [:max_object])
 
-  # Reports the bytes received every MiB.
+  # Reports the bytes received every MiB, and the file's length when the
+  # response announced it (#208).
   defp on_data(opts, notify, kind) do
     if opts[:progress] do
       last = :atomics.new(1, [])
 
-      fn size ->
+      fn size, total ->
         mib = div(size, @bytes_every)
 
         if mib > :atomics.get(last, 1) do
           :atomics.put(last, 1, mib)
-          Progress.emit(opts, {:rrdp_download, notify, kind, size})
+          Progress.emit(opts, {:rrdp_download, notify, kind, size, total})
         end
       end
     end

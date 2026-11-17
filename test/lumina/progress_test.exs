@@ -16,9 +16,10 @@ defmodule Lumina.ProgressTest do
   use ExUnit.Case, async: true
 
   doctest Lumina.Test.Quiet
+  doctest Lumina.Progress, only: [bytes: 1]
 
   alias Lumina.{CLI, Object, Progress, TAL, Validate, Walk}
-  alias Lumina.Test.{Fixture, RsyncDaemon}
+  alias Lumina.Test.{Fixture, RRDPServer, RsyncDaemon}
 
   @moduletag :tmp_dir
 
@@ -183,6 +184,97 @@ defmodule Lumina.ProgressTest do
                  "rsync 2 done, 1 running, 1 failed  rrdp 1 done, 0 running, 1 failed  files 120"
     end
 
+    defp notify(host) do
+      {:ok, uri} = Lumina.URI.parse("https://#{host}/notification.xml")
+      uri
+    end
+
+    defp level_zero do
+      Progress.new(0)
+      |> Progress.update({:tal_started, "tals/ripe.tal", 1, 1}, 0)
+      |> Progress.update({:level_started, 0, %{points: 1, fetches: 1}}, 0)
+    end
+
+    @tag doc: """
+         An RRDP repository's sync (#208): the walk's fetch events and the
+         RRDP sync's. While the snapshot downloads, the status line adds the
+         bytes received to the rrdp counts and, past 5 s, shows the file
+         being received with the length its Content-Length announced.
+         Finished, the bytes stay counted.
+         """
+    test "an RRDP download shows its bytes received and, when slow, its file and length" do
+      n = notify("rrdp.example")
+      mib = 1024 * 1024
+
+      running =
+        level_zero()
+        |> Progress.update({:fetch_started, to_string(n), "rrdp.example"}, 1_000)
+        |> Progress.update({:rrdp_started, n}, 1_000)
+        |> Progress.update({:rrdp_downloaded, n, :notification, 2048}, 1_200)
+        |> Progress.update({:rrdp_download, n, :snapshot, 3 * mib, 10 * mib}, 4_000)
+
+      assert Progress.render(running, 7_000) ==
+               "7s  ripe.tal (1/1)  level 0 (1 point)  points 0  rsync 0 done, 0 running  " <>
+                 "rrdp 0 done, 1 running, 3.0 MiB  files 0  " <>
+                 "slowest: rrdp.example 6s snapshot 3.0 MiB of 10.0 MiB"
+
+      done =
+        running
+        |> Progress.update({:rrdp_downloaded, n, :snapshot, 10 * mib}, 6_000)
+        |> Progress.update({:rrdp_finished, n, :snapshot}, 6_500)
+        |> Progress.update({:fetch_finished, to_string(n), "rrdp.example", :ok, 9}, 6_500)
+
+      assert Progress.render(done, 7_000) ==
+               "7s  ripe.tal (1/1)  level 0 (1 point)  points 0  rsync 0 done, 0 running  " <>
+                 "rrdp 1 done, 0 running, 10.0 MiB  files 0"
+
+      assert done.notice == nil
+    end
+
+    @tag doc: """
+         Without a Content-Length the slow download shows only its bytes.
+         A sync that took more than 10 s leaves a notice, the line plain
+         mode prints for it: its outcome, time and bytes, those of a file
+         it didn't finish included. A quick one leaves none.
+         """
+    test "an RRDP sync over 10 s gets a line of its own, with its outcome, time and bytes" do
+      slow = notify("slow.example")
+      quick = notify("quick.example")
+      mib = 1024 * 1024
+
+      state =
+        level_zero()
+        |> Progress.update({:fetch_started, to_string(slow), "slow.example"}, 0)
+        |> Progress.update({:rrdp_started, slow}, 0)
+        |> Progress.update({:rrdp_download, slow, :snapshot, 2 * mib, nil}, 5_000)
+
+      assert Progress.render(state, 8_000) =~ "slowest: slow.example 8s snapshot 2.0 MiB"
+
+      state = Progress.update(state, {:rrdp_finished, slow, {:failed, :snapshot_failed}}, 11_000)
+
+      assert state.notice ==
+               "rrdp https://slow.example/notification.xml: failed (snapshot_failed) in 11s, 2.0 MiB"
+
+      assert state.downloads == %{}
+      assert state.rrdp_bytes == 2 * mib
+
+      state =
+        state
+        |> Progress.update({:rrdp_started, quick}, 12_000)
+        |> Progress.update({:rrdp_downloaded, quick, :delta, 4096}, 12_500)
+        |> Progress.update({:rrdp_finished, quick, {:deltas, 2}}, 13_000)
+
+      assert state.notice == nil
+
+      state =
+        state
+        |> Progress.update({:rrdp_started, quick}, 20_000)
+        |> Progress.update({:rrdp_downloaded, quick, :delta, 4096}, 25_000)
+        |> Progress.update({:rrdp_finished, quick, {:deltas, 2}}, 31_000)
+
+      assert state.notice == "rrdp https://quick.example/notification.xml: 2 deltas in 11s, 4 KiB"
+    end
+
     test "on a terminal, the status line is cut to the terminal width" do
       assert Progress.render(scripted(), 4_000, columns: 30) == "4s  lacnic.tal (1/2)  level 1"
     end
@@ -328,6 +420,42 @@ defmodule Lumina.ProgressTest do
                run(["sync", "--cache", Path.join(tmp, "cache"), "--tal", tal, "--quiet"],
                  remap: remap
                )
+    end
+
+    @tag :rsync
+    @tag doc: """
+         m0-minimal-valid synced over RRDP (Lumina.Test.RRDPServer; RRDP
+         turned on, as outside tests): the plain lines count the
+         repository under rrdp, with the bytes received, and none under
+         rsync. --quiet prints nothing.
+         """
+    test "a sync over RRDP reports its progress by default, and none with --quiet",
+         %{tmp_dir: tmp} do
+      fixture = Fixture.load!("m0-minimal-valid")
+      server = RRDPServer.start!(RRDPServer.routes(fixture))
+
+      internal = [
+        rrdp: true,
+        rrdp_opts: [cacerts: server.opts[:cacerts], min_interval: 0],
+        remap: server.opts[:remap],
+        https: [cacerts: server.opts[:cacerts], remap: server.opts[:remap]]
+      ]
+
+      args = &["sync", "--cache", Path.join(tmp, &1), "--tal", fixture.tal_path]
+      assert {0, out, err} = run(args.("cache"), internal)
+      assert out =~ "  rrdp: 1 repository: 1 snapshot\n"
+      refute err =~ "\e"
+      lines = String.split(err, "\n", trim: true)
+
+      assert Enum.all?(
+               lines,
+               &(&1 =~ ~r/\A\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ \d+s  case\.tal \(1\/1\)/)
+             )
+
+      assert List.last(lines) =~ ~r/rsync 0 done, 0 running  rrdp 1 done, 0 running, \d+ KiB/
+
+      # Another cache, so this sync, too, downloads the snapshot.
+      assert {0, ^out, ""} = run(args.("quiet") ++ ["--quiet"], internal)
     end
 
     test "lumina help sync lists --progress and --quiet" do

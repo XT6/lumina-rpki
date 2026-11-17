@@ -270,22 +270,32 @@ defmodule Lumina.Sync do
     ]
   end
 
-  # The RRDP repositories a walk synced (#206), by outcome.
+  # The RRDP repositories a walk synced (#206, #208), by outcome. A failed
+  # one's publication points were fetched with rsync (D-040).
   defp rrdp_line([]), do: []
 
   defp rrdp_line(syncs) do
     counts =
-      syncs
-      |> Enum.map(fn
-        %{outcome: {:failed, _}} -> "failed"
-        %{outcome: {:deltas, _}} -> "deltas"
-        %{outcome: outcome} -> to_string(outcome)
+      Enum.frequencies_by(syncs, fn
+        %{outcome: {:failed, _}} -> :failed
+        %{outcome: {:deltas, _}} -> :deltas
+        %{outcome: outcome} -> outcome
       end)
-      |> Enum.frequencies()
-      |> Enum.sort()
-      |> Enum.map_join(", ", fn {outcome, n} -> "#{n} #{outcome}" end)
 
-    "  rrdp repositories: #{length(syncs)} (#{counts})\n"
+    outcomes =
+      for {outcome, label} <- [
+            snapshot: "snapshot",
+            deltas: "deltas",
+            unchanged: "unchanged",
+            recent: "recent",
+            failed: "failed (rsync fallback)"
+          ],
+          n = Map.get(counts, outcome, 0),
+          n > 0,
+          do: "#{n} #{label}"
+
+    n = length(syncs)
+    "  rrdp: #{n} repositor#{if n == 1, do: "y", else: "ies"}: #{Enum.join(outcomes, ", ")}\n"
   end
 
   # A short reason for a failure's detail. For rsync failures Lumina can't
@@ -298,6 +308,10 @@ defmodule Lumina.Sync do
     end
   end
 
+  # An RRDP sync that failed (#206): why, and the error behind it.
+  defp reason(%{reason: reason, error: error}) when not is_nil(error),
+    do: "#{reason}: #{rrdp_error(error)}"
+
   defp reason(%{reason: reason}), do: to_string(reason)
 
   defp reason(%{manifest: manifest, reasons: reasons}),
@@ -305,10 +319,16 @@ defmodule Lumina.Sync do
 
   defp reason(%{notify: notify}), do: "RRDP #{notify} failed; fetched over rsync (D-040)"
 
+  # An RRDP sync's warnings (D-042's session, RFC 9697's desync, the
+  # HTTPS fetches'), and a rejected delta that gave way to the snapshot.
   defp reason(%{warnings: warnings, fallback: fallback}) do
-    Enum.map(warnings, &to_string(&1[:rule] || inspect(&1)))
-    |> Enum.concat(if fallback, do: ["delta #{fallback.reason}; snapshot used"], else: [])
-    |> Enum.join(", ")
+    Enum.map(warnings, &rrdp_error/1)
+    |> Enum.concat(
+      if fallback,
+        do: ["#{fallback.reason}: #{rrdp_error(fallback.error)}; snapshot used"],
+        else: []
+    )
+    |> Enum.join("; ")
   end
 
   defp reason(%{certificate: name}), do: "from #{name}"
@@ -318,6 +338,22 @@ defmodule Lumina.Sync do
     do: Enum.map_join(problems, ", ", &Lumina.Chain.rule_text/1)
 
   defp reason(other), do: inspect(other)
+
+  defp rrdp_error(%{rule: rule, message: message}), do: "#{rule}: #{message}"
+
+  defp rrdp_error(%{reason: reason, detail: detail}) when is_binary(detail),
+    do: "#{reason}: #{String.slice(detail, 0, 200)}"
+
+  defp rrdp_error(%{reason: reason, detail: nil}), do: to_string(reason)
+
+  defp rrdp_error(%{reason: reason, detail: detail}),
+    do: "#{reason}: #{String.slice(inspect(detail), 0, 200)}"
+
+  defp rrdp_error({:wildcard_certificate, uri, name}),
+    do: "#{uri}: certificate matched by wildcard #{name}"
+
+  defp rrdp_error(error) when is_atom(error), do: to_string(error)
+  defp rrdp_error(error), do: String.slice(inspect(error), 0, 200)
 
   # The lock.
 

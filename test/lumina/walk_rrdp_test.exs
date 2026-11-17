@@ -209,7 +209,7 @@ defmodule Lumina.WalkRRDPTest do
     assert Enum.count(RRDPServer.requested(server), &(&1 == "/rrdp/notification.xml")) == 1
 
     summary = Lumina.Sync.summary([first, second])
-    assert summary =~ "  rrdp repositories: 1 (1 snapshot)\n"
+    assert summary =~ "  rrdp: 1 repository: 1 snapshot\n"
     assert summary =~ "2 TAL(s), 0 rsync fetch(es), 1 RRDP repository, 0 TAL(s) with failures"
   end
 

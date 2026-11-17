@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 94 Barry fixtures: 25 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 995 unit tests in 81 modules.
+- 1005 unit tests in 81 modules.
 
 ## Barry fixtures
 
@@ -1667,6 +1667,12 @@ The fixture TALs name `https://localhost:8443` and
 URI points at its own daemon, and remaps `localhost:8873` in the
 repository's certificates to it (`:remap`, see `Lumina.Walk`).
 
+RRDP (#208): `--no-rrdp`, the RRDP limits and the summary's `rrdp:`
+line, against `Lumina.Test.RRDPServer`, which serves the fixture's
+`rrdp/` files (the TA certificate too) at `https://localhost:8443`.
+RRDP is off by default in tests (`test/test_helper.exs`), so these
+runs turn it on through the internal options, as the real default.
+
 - *syncing:* a full sync exits 0 and prints the TA URI, publication points and fetches (RFC [8630 §3](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-3)), [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
 - *syncing:* an invalid CA is listed with its reasons, and isn't walked (RFC [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)), [6487 §7.2](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-7.2)))
   D-014: an invalid CA isn't a fetch failure; the sync exits 0.
@@ -1724,9 +1730,33 @@ repository's certificates to it (`:remap`, see `Lumina.Walk`).
   An rsync that passes the version check but rejects an argument
   (exit 1): the fetch fails as usage_error, and rsync's own message
   is in the summary.
+- *RRDP:* --no-rrdp fetches nothing over HTTPS but the TA certificate (RFC [8182 §3.4.5](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.5)))
+  m0-minimal-valid is served over RRDP and rsync. With --no-rrdp the
+  only HTTPS request is the TA certificate's (the TAL's HTTPS URI
+  comes first, RFC 8630 section 3); the repository comes from rsync
+  and the summary has no rrdp line. The same sync without the flag
+  reads the notification.
+- *RRDP:* the summary counts RRDP repositories by outcome, and lists a failure with its reason (RFC [8182 §3.4.1](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.1)), [8182 §3.4.5](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.5)))
+  m8-rrdp-three synced four times into one cache: at serial 2 (the
+  snapshot), at serial 3 (one delta), again (unchanged), and with the
+  notification gone (failed; the point fetched with rsync, D-040).
+  Each summary counts its repository under the right outcome, and the
+  failure is listed with its reason, as is the rsync fallback.
+- *RRDP:* --rrdp-max-size limits the snapshot downloaded (RFC [8182 §3.4.5](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.5)))
+  --rrdp-max-size 1K is smaller than m0-minimal-valid's snapshot: the
+  RRDP sync fails as too large and the point comes from rsync.
+- *RRDP:* --rrdp-idle-timeout limits how long an RRDP download may go without data
+  The notification is sent only after 2 s of silence; with
+  --rrdp-idle-timeout 1 the RRDP sync gives up and rsync is used.
+- *RRDP:* the summary's rrdp line counts every outcome, and names each warning (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)), [9697 §4](../rfc/rfc9697.txt) ([html](https://www.rfc-editor.org/rfc/rfc9697.html#section-4)))
+  Lumina.Sync.summary/1 on one walk that synced five repositories, one
+  per outcome: the rrdp line counts each, in a fixed order, and each
+  warning and failure is listed with its reason (D-042's session,
+  RFC 9697's desync, a rejected delta, a cross-origin redirect).
 - *usage:* --tal on a missing file is a usage error
 - *usage:* --tal on a file that isn't a TAL is a usage error (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
 - *usage:* an unknown flag, a stray argument or a bad number is a usage error
+- *usage:* a bad --rrdp-max-size or --rrdp-idle-timeout is a usage error
 - *usage:* an empty TAL folder without --tal is a usage error
 - *usage:* lumina help sync describes the flags and exit codes
 - *usage:* lumina help lists sync
@@ -1882,6 +1912,12 @@ sync`, then runs `lumina vrps` at 2030-01-01 (`--now`), through
   still written for the first.
 - *--format json (#167):* with no VRPs, roas is an empty array
 - *--sync (#185):* with an empty cache, the TAL is synced and its VRPs written
+- *--sync (#185):* --sync --no-rrdp syncs the repository with rsync only (RFC [8182 §3.4.5](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.5)))
+  m1-roa-prefixes served over RRDP (Lumina.Test.RRDPServer, the TA
+  certificate too) and rsync, with RRDP on as outside tests. With
+  --no-rrdp the sync asks the HTTPS server only for the TA
+  certificate; without it, for the notification. The VRPs are the
+  same.
 - *--sync (#185):* a TAL synced within --max-age isn't synced again
   Synced 10 minutes before, within the default --max-age of 1h: no
   sync, shown by the repository host now pointing at a closed port,
@@ -1899,7 +1935,7 @@ sync`, then runs `lumina vrps` at 2030-01-01 (`--now`), through
   code is 0 (D-037).
 - *--sync (#185):* a TAL counts as synced only if its TA and the TA's own publication point were fetched
   Reports as Lumina.Sync.run/3 gives them, reduced to what matters.
-- *--sync (#185):* sync flags without --sync, and a bad --max-age, are usage errors
+- *--sync (#185):* sync flags without --sync, and a bad --max-age or RRDP limit, are usage errors
 - *--output:* writes the same bytes as standard output, and nothing to standard output
 - *--output:* a file that can't be written fails with exit 1 and leaves nothing behind
 - *failures:* above --max-invalid the VRPs are still written, with a warning, and exit 1 (RFC [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)))
@@ -3056,6 +3092,17 @@ commands as given.
 - *status text:* RRDP syncs are counted apart from rsync runs
   An RRDP repository (#206) is a fetch with an https:// URI: counted
   under rrdp, not rsync, while it runs and once done.
+- *status text:* an RRDP download shows its bytes received and, when slow, its file and length
+  An RRDP repository's sync (#208): the walk's fetch events and the
+  RRDP sync's. While the snapshot downloads, the status line adds the
+  bytes received to the rrdp counts and, past 5 s, shows the file
+  being received with the length its Content-Length announced.
+  Finished, the bytes stay counted.
+- *status text:* an RRDP sync over 10 s gets a line of its own, with its outcome, time and bytes
+  Without a Content-Length the slow download shows only its bytes.
+  A sync that took more than 10 s leaves a notice, the line plain
+  mode prints for it: its outcome, time and bytes, those of a file
+  it didn't finish included. A quick one leaves none.
 - *status text:* on a terminal, the status line is cut to the terminal width
 - *validation (#180):* Validate.run/3 reports each level and each point validated, with counts matching the result
   m0-minimal-valid, synced then validated: a level event pair per
@@ -3072,6 +3119,11 @@ commands as given.
   pipe gets: a timestamp, no control characters, one line per TAL
   and per finished level.
 - *lumina sync:* --quiet reports no progress
+- *lumina sync:* a sync over RRDP reports its progress by default, and none with --quiet
+  m0-minimal-valid synced over RRDP (Lumina.Test.RRDPServer; RRDP
+  turned on, as outside tests): the plain lines count the
+  repository under rrdp, with the bytes received, and none under
+  rsync. --quiet prints nothing.
 - *lumina sync:* lumina help sync lists --progress and --quiet
 
 ### `Lumina.PublicationPointTest`

@@ -30,7 +30,8 @@ defmodule Lumina.Progress do
   once the walk syncs over RRDP, #206):
 
     * `{:rrdp_started, notify}` and `{:rrdp_finished, notify, outcome}`
-    * `{:rrdp_download, notify, kind, bytes}` every MiB received and
+    * `{:rrdp_download, notify, kind, bytes, total}` every MiB received
+      (`total` from the Content-Length, or `nil`) and
       `{:rrdp_downloaded, notify, kind, bytes}` once the file is in
       (`kind` is `:notification`, `:snapshot` or `:delta`)
     * `{:rrdp_objects, notify, count}`: snapshot objects written to the
@@ -48,13 +49,20 @@ defmodule Lumina.Progress do
       validated, with its CA certificates and signed objects (its
       manifest included) and how many are invalid
 
+  The status line counts RRDP repositories apart from rsync runs, with
+  the bytes received, and when the slowest fetch is an RRDP download, it
+  shows the file being received and its length, if the server announced
+  it (#208).
+
   `update/3` folds events into a state and `render/3` turns a state into
   status text; both are pure. `start/2` runs them in a process that draws
   on a device:
 
     * `:tty`: one status line, redrawn in place at most every 200 ms;
-    * `:plain`: timestamped lines, one per finished level and one every
-      10 s, with no control characters, for logs and pipes.
+    * `:plain`: timestamped lines, one per finished level, one every
+      10 s and one per RRDP repository whose sync took more than 10 s
+      (its outcome, time and bytes, #208), with no control characters,
+      for logs and pipes.
   """
 
   @tty_interval 200
@@ -91,6 +99,14 @@ defmodule Lumina.Progress do
       fetches_retried: 0,
       rrdp_done: 0,
       rrdp_failed: 0,
+      # RRDP downloads (#208): bytes of the files received, the files
+      # being received ({notify, kind} => {bytes, total}), and when each
+      # repository's sync started, with the bytes it has received.
+      rrdp_bytes: 0,
+      downloads: %{},
+      rrdp_syncs: %{},
+      # A line for the plain log, set when an event deserves one.
+      notice: nil,
       level_fetches: 0,
       running: %{},
       files: 0,
@@ -140,6 +156,47 @@ defmodule Lumina.Progress do
         fetches_done: state.fetches_done + 1,
         fetches_failed: state.fetches_failed + if(outcome == :ok, do: 0, else: 1),
         files: state.files + files
+    }
+  end
+
+  def update(state, {:rrdp_started, notify}, now),
+    do: %{state | rrdp_syncs: Map.put(state.rrdp_syncs, to_string(notify), {now, 0})}
+
+  def update(state, {:rrdp_download, notify, kind, bytes, total}, _now),
+    do: %{state | downloads: Map.put(state.downloads, {to_string(notify), kind}, {bytes, total})}
+
+  def update(state, {:rrdp_downloaded, notify, kind, bytes}, _now) do
+    key = to_string(notify)
+
+    %{
+      state
+      | downloads: Map.delete(state.downloads, {key, kind}),
+        rrdp_bytes: state.rrdp_bytes + bytes,
+        rrdp_syncs:
+          Map.update(state.rrdp_syncs, key, {nil, bytes}, fn {since, n} -> {since, n + bytes} end)
+    }
+  end
+
+  # A repository's sync that took more than 10 s gets a line of its own in
+  # the plain log (`notice`); bytes of a file it didn't finish still count.
+  def update(state, {:rrdp_finished, notify, outcome}, now) do
+    key = to_string(notify)
+    {partial, downloads} = Map.split_with(state.downloads, fn {{k, _}, _} -> k == key end)
+    partial = partial |> Map.values() |> Enum.map(&elem(&1, 0)) |> Enum.sum()
+    {since, bytes} = Map.get(state.rrdp_syncs, key, {nil, 0})
+    elapsed = if since, do: now - since, else: 0
+
+    notice =
+      if elapsed > @plain_interval,
+        do:
+          "rrdp #{key}: #{outcome_text(outcome)} in #{seconds(elapsed)}s, #{bytes(bytes + partial)}"
+
+    %{
+      state
+      | downloads: downloads,
+        rrdp_bytes: state.rrdp_bytes + partial,
+        rrdp_syncs: Map.delete(state.rrdp_syncs, key),
+        notice: notice
     }
   end
 
@@ -226,21 +283,58 @@ defmodule Lumina.Progress do
   defp rrdp(state) do
     running = Enum.count(Map.keys(state.running), &String.starts_with?(&1, "https://"))
 
+    received =
+      state.rrdp_bytes + (state.downloads |> Map.values() |> Enum.map(&elem(&1, 0)) |> Enum.sum())
+
     if state.rrdp_done + running > 0 do
       failed = if state.rrdp_failed > 0, do: ", #{state.rrdp_failed} failed", else: ""
-      "rrdp #{state.rrdp_done} done, #{running} running#{failed}"
+      received = if received > 0, do: ", #{bytes(received)}", else: ""
+      "rrdp #{state.rrdp_done} done, #{running} running#{failed}#{received}"
     end
   end
 
   # The fetch running longest, once it has taken more than 5 s: a slow or
-  # stuck host shows here.
-  defp slowest(%{running: running}, now) when map_size(running) > 0 do
-    {host, since} = running |> Map.values() |> Enum.min_by(&elem(&1, 1))
+  # stuck host shows here, and for an RRDP repository the file it is
+  # receiving, with its length when known.
+  defp slowest(%{running: running} = state, now) when map_size(running) > 0 do
+    {uri, {host, since}} = Enum.min_by(running, fn {_uri, {_host, since}} -> since end)
     elapsed = now - since
-    if elapsed > 5_000, do: "slowest: #{host} #{seconds(elapsed)}s"
+    if elapsed > 5_000, do: "slowest: #{host} #{seconds(elapsed)}s#{download(state, uri)}"
   end
 
   defp slowest(_state, _now), do: nil
+
+  defp download(state, uri) do
+    state.downloads
+    |> Enum.filter(fn {{key, _kind}, _} -> key == uri end)
+    |> Enum.map(fn {{_key, kind}, progress} -> {kind, progress} end)
+    |> Enum.max_by(fn {_kind, {bytes, _}} -> bytes end, fn -> nil end)
+    |> case do
+      nil -> ""
+      {kind, {bytes, nil}} -> " #{kind} #{bytes(bytes)}"
+      {kind, {bytes, total}} -> " #{kind} #{bytes(bytes)} of #{bytes(total)}"
+    end
+  end
+
+  defp outcome_text({:deltas, n}), do: "#{n} delta#{if n == 1, do: "", else: "s"}"
+  defp outcome_text({:failed, reason}), do: "failed (#{reason})"
+  defp outcome_text(outcome), do: to_string(outcome)
+
+  @doc """
+  `bytes` for people, in binary units.
+
+      iex> Lumina.Progress.bytes(512)
+      "512 B"
+      iex> Lumina.Progress.bytes(3 * 1024 * 1024 + 300 * 1024)
+      "3.3 MiB"
+      iex> Lumina.Progress.bytes(5 * 1024 * 1024 * 1024)
+      "5.0 GiB"
+  """
+  @spec bytes(non_neg_integer()) :: String.t()
+  def bytes(n) when n < 1024, do: "#{n} B"
+  def bytes(n) when n < 1024 * 1024, do: "#{div(n, 1024)} KiB"
+  def bytes(n) when n < 1024 * 1024 * 1024, do: "#{Float.round(n / (1024 * 1024), 1)} MiB"
+  def bytes(n), do: "#{Float.round(n / (1024 * 1024 * 1024), 1)} GiB"
 
   defp seconds(ms), do: div(ms, 1000)
 
@@ -278,11 +372,23 @@ defmodule Lumina.Progress do
         r = %{r | state: update(r.state, event, at), dirty: true}
 
         cond do
-          mode == :plain and match?({:level_finished, _, _}, event) -> loop(draw(r))
-          mode == :plain and match?({:validation_level_finished, _, _}, event) -> loop(draw(r))
-          mode == :plain and match?({:tal_started, _, _, _}, event) -> loop(draw(r))
-          now() - r.drawn >= interval -> loop(draw(r))
-          true -> loop(r)
+          mode == :plain and match?({:rrdp_finished, _, _}, event) and r.state.notice != nil ->
+            loop(note(r))
+
+          mode == :plain and match?({:level_finished, _, _}, event) ->
+            loop(draw(r))
+
+          mode == :plain and match?({:validation_level_finished, _, _}, event) ->
+            loop(draw(r))
+
+          mode == :plain and match?({:tal_started, _, _, _}, event) ->
+            loop(draw(r))
+
+          now() - r.drawn >= interval ->
+            loop(draw(r))
+
+          true ->
+            loop(r)
         end
 
       {:stop, _from} ->
@@ -308,6 +414,13 @@ defmodule Lumina.Progress do
     stamp = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
     IO.write(r.device, "#{stamp} #{render(r.state, now())}\n")
     %{r | drawn: now(), dirty: false}
+  end
+
+  # A line of its own in the plain log, such as a slow RRDP repository.
+  defp note(r) do
+    stamp = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+    IO.write(r.device, "#{stamp} #{r.state.notice}\n")
+    %{r | state: %{r.state | notice: nil}}
   end
 
   defp columns do

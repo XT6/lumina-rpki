@@ -24,10 +24,14 @@ Fetches the trust anchors and repositories into a local cache. Nothing is valida
 ```sh
 ./lumina sync                          # every TAL in ./tals/ (the five RIRs)
 ./lumina sync --tal tals/lacnic.tal    # one TAL
-./lumina help sync                     # flags: --cache, --timeout, --max-depth, --per-host, --rsync, --progress, --quiet
+./lumina sync --no-rrdp               # rsync only, never RRDP
+./lumina help sync                     # flags: --cache, --timeout, --max-depth, --per-host, --rsync, --no-rrdp,
+                                       #   --rrdp-max-size, --rrdp-idle-timeout, --progress, --quiet
 ```
 
-On a terminal, a status line on stderr shows progress: the TAL, the walk level, publication points, rsync runs (done, running, failed), files mirrored, and the slowest fetch in progress. `--progress` writes timestamped lines instead when stderr isn't a terminal (logs, CI); `--quiet` turns progress off. The summary on stdout is the same either way.
+A CA that names an RRDP repository (an HTTPS `rpkiNotify`, RFC 8182) is synced over RRDP, and fetched with rsync in the same run if that fails ([D-040](doc/decisions.md)); other CAs are fetched with rsync. `--no-rrdp` uses rsync for every publication point (trust anchors are still fetched over HTTPS first). An RRDP snapshot or delta file may be at most `--rrdp-max-size` (default `2G`), and a download may go `--rrdp-idle-timeout` seconds (default 300) without data; there is no limit on its total time (D-043). The summary counts each TAL's RRDP repositories by outcome, such as `rrdp: 12 repositories: 3 snapshot, 7 deltas, 1 unchanged, 1 failed (rsync fallback)`, and lists each failure and warning with its reason.
+
+On a terminal, a status line on stderr shows progress: the TAL, the walk level, publication points, rsync runs (done, running, failed), RRDP repositories (done, running, failed, bytes received), files mirrored, and the slowest fetch in progress (for an RRDP download, the file and how much of it has arrived). `--progress` writes timestamped lines instead when stderr isn't a terminal (logs, CI), plus a line for each RRDP repository that took more than 10 s; `--quiet` turns progress off. The summary on stdout is the same either way.
 
 A module fetch whose connection drops or times out is tried once more after 10 to 30 s, and listed as `retried` in the summary; other failures (an unknown host, a refused connection, a missing module) aren't ([D-039](doc/decisions.md#d-039-a-module-fetch-is-retried-once-after-a-transient-failure)).
 
