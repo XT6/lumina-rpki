@@ -1,9 +1,9 @@
 defmodule Lumina.Source do
   @moduledoc """
-  Where each CA's publication point was last read from while accepted
-  (#206): its RRDP repository's store or the rsync tree. A sync may read a
-  point over RRDP one run and from rsync the next (D-040), and offline
-  validation (#207) must read the copy the walk accepted.
+  Where each CA's publication point was last read from by a sync (#206):
+  its RRDP repository's store or the rsync tree. A sync may read a point
+  over RRDP one run and from rsync the next (D-040), and offline
+  validation (#207) must read the copy the last sync read: `resolve/3`.
 
   One file per point, keyed like the walk's (`Lumina.Walk.point_key/2`,
   the manifest URI): `<root>/.state/sources/<SHA-256 of the key, hex>.json`
@@ -12,7 +12,8 @@ defmodule Lumina.Source do
   never recorded, or a file that can't be read or names another point.
   """
 
-  alias Lumina.URI
+  alias Lumina.{Cache, Certificate, URI, Walk}
+  alias Lumina.RRDP.Store
 
   @type source :: {:rrdp, URI.t()} | {:rsync, URI.t()}
 
@@ -61,6 +62,38 @@ defmodule Lumina.Source do
       %{source: {transport, uri}, at: at}
     else
       _ -> nil
+    end
+  end
+
+  @doc """
+  Where the point `pp` (an rsync URI) of a source lives in the cache at
+  `root`: in the RRDP store of `{:rrdp, notify}` (`Lumina.RRDP.Store`),
+  or in the rsync tree.
+  """
+  @spec path(Path.t(), source() | :rsync, URI.t()) :: Path.t()
+  def path(root, {:rrdp, %URI{} = notify}, %URI{} = pp),
+    do: Store.object_path(Store.path(root, notify), pp)
+
+  def path(root, _rsync, %URI{} = pp), do: Cache.path(root, pp)
+
+  @doc """
+  Where to read the publication point `pp` of the CA certificate `ca`
+  offline (#207): the RRDP store when the last sync read it from there,
+  the certificate still names that notification URI (`Walk.notify_uri/1`)
+  and the store is in the cache; the rsync tree otherwise, which is also
+  where a cache synced before RRDP (no record) has every point. Returns
+  the path and the source.
+  """
+  @spec resolve(Path.t(), Certificate.t(), URI.t()) :: {Path.t(), source()}
+  def resolve(root, %Certificate{} = ca, %URI{} = pp) do
+    with %{source: {:rrdp, notify} = source} <- load(root, Walk.point_key(ca, pp)),
+         {:ok, ^notify} <- Walk.notify_uri(ca),
+         true <- File.dir?(Store.path(root, notify)) do
+      {path(root, source, pp), source}
+    else
+      _ ->
+        {:ok, module} = URI.module(pp)
+        {Cache.path(root, pp), {:rsync, module}}
     end
   end
 

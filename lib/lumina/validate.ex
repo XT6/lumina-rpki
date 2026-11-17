@@ -29,7 +29,6 @@ defmodule Lumina.Validate do
   """
 
   alias Lumina.{
-    Cache,
     Certificate,
     Chain,
     CMS,
@@ -41,6 +40,7 @@ defmodule Lumina.Validate do
     PublicationPoint,
     ROA,
     SignedObject,
+    Source,
     TA,
     TAL,
     Walk
@@ -79,6 +79,9 @@ defmodule Lumina.Validate do
   @type result :: %{
           ta: %{uri: String.t(), path: Path.t(), valid: boolean(), problems: [map()]} | nil,
           objects: [entry()],
+          points: [
+            %{uri: String.t(), source: Source.source(), status: :accepted | :failed | :fallback}
+          ],
           vrps: [vrp()],
           unlisted: non_neg_integer(),
           fallback: non_neg_integer(),
@@ -370,6 +373,11 @@ defmodule Lumina.Validate do
   (`point/5`),
   breadth first. Returns `{:error, :no_ta}` if no TA is stored.
 
+  Each point is read from where the last sync read it (#207,
+  `Lumina.Source.resolve/3`): its RRDP repository's store, or the rsync
+  tree (also for a cache synced before RRDP). `:points` lists them in
+  walk order with their `source` and `status`.
+
   `:issues` are those of the walk (`Lumina.Walk`): `:missing` (a valid
   CA's publication point isn't in the cache), `:loop`, `:duplicate`,
   `:depth_exceeded`, `:no_repository` and `:bad_uri`.
@@ -407,6 +415,7 @@ defmodule Lumina.Validate do
           visited: MapSet.new(),
           progress: Keyword.take(opts, [:progress]),
           objects: [],
+          points: [],
           unlisted: 0,
           fallback: 0,
           issues: []
@@ -423,6 +432,7 @@ defmodule Lumina.Validate do
          %{
            ta: ta,
            objects: objects,
+           points: Enum.reverse(state.points),
            vrps: vrps(objects, Keyword.get(opts, :name)),
            unlisted: state.unlisted,
            fallback: state.fallback,
@@ -470,7 +480,7 @@ defmodule Lumina.Validate do
     {next, state} =
       plans
       |> parallel(fn
-        {:point, cert, path, key, depth, ancestors, resources} ->
+        {:point, cert, {path, source}, key, depth, ancestors, resources} ->
           validated =
             point(cert, path, key, now, objects: true, last_valid: root, resources: resources)
 
@@ -483,7 +493,7 @@ defmodule Lumina.Validate do
              }}
           )
 
-          {:point, validated, key, depth, ancestors}
+          {:point, validated, {key, source}, depth, ancestors}
 
         other ->
           other
@@ -509,7 +519,8 @@ defmodule Lumina.Validate do
         # Several CAs may share a directory, each with its own manifest
         # (RFC 9286 §1, #195).
         id = Walk.point_key(cert, pp)
-        path = Cache.path(state.root, pp)
+        # The RRDP store or the rsync tree, as the last sync read it (#207).
+        {path, source} = Source.resolve(state.root, cert, pp)
 
         cond do
           depth > state.max_depth ->
@@ -525,7 +536,7 @@ defmodule Lumina.Validate do
             {{:issue, :missing, key, nil}, %{state | visited: MapSet.put(state.visited, id)}}
 
           true ->
-            {{:point, cert, path, key, depth, [id | ancestors], resources},
+            {{:point, cert, {path, source}, key, depth, [id | ancestors], resources},
              %{state | visited: MapSet.put(state.visited, id)}}
         end
     end
@@ -535,10 +546,11 @@ defmodule Lumina.Validate do
   defp visit({:issue, kind, uri, detail}, state), do: {[], issue(state, kind, uri, detail)}
 
   # `ancestors` includes the point's own id.
-  defp visit({:point, %{point: point, entries: entries}, _key, depth, ancestors}, state) do
+  defp visit({:point, %{point: point, entries: entries}, {key, source}, depth, ancestors}, state) do
     state = %{
       state
       | objects: Enum.reverse(entries, state.objects),
+        points: [%{uri: key, source: source, status: point.status} | state.points],
         unlisted: state.unlisted + length(point.unlisted),
         fallback: state.fallback + if(point.status == :fallback, do: 1, else: 0)
     }
@@ -594,6 +606,7 @@ defmodule Lumina.Validate do
       [
         accepted <> ": valid\n",
         warning_line(ta.uri, ta.problems),
+        sources_line(result.points),
         counts("CA certificates", Enum.filter(result.objects, &(&1.kind == :ca))),
         type_counts(result.objects),
         overclaims_line(Enum.count(result.objects, &Chain.overclaim?(&1[:problems] || []))),
@@ -613,6 +626,13 @@ defmodule Lumina.Validate do
     else
       [accepted <> ": INVALID (#{rules(ta.problems, :error)}); nothing below it validated\n"]
     end
+  end
+
+  # Publication points by where they were read from (#207).
+  defp sources_line(points) do
+    rrdp = Enum.count(points, &match?(%{source: {:rrdp, _}}, &1))
+
+    "  publication points: #{length(points)}: #{rrdp} from RRDP, #{length(points) - rrdp} from rsync\n"
   end
 
   defp type_counts(objects) do

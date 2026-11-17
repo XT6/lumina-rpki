@@ -122,7 +122,6 @@ defmodule Lumina.Walk do
   """
 
   alias Lumina.{Cache, Certificate, Progress, Rsync, Source, URI, Validate}
-  alias Lumina.RRDP.Store
   alias Lumina.RRDP.Sync, as: RRDPSync
 
   @default_max_depth 32
@@ -435,11 +434,8 @@ defmodule Lumina.Walk do
   # serves it, else the rsync tree.
   defp point_path(state, cert, pp) do
     case unit(state, cert, pp) do
-      {:ok, %URI{scheme: "https"} = notify} ->
-        Store.object_path(Store.path(state.root, notify), pp)
-
-      _ ->
-        Cache.path(state.root, pp)
+      {:ok, %URI{scheme: "https"} = notify} -> Source.path(state.root, {:rrdp, notify}, pp)
+      _ -> Source.path(state.root, :rsync, pp)
     end
   end
 
@@ -766,11 +762,9 @@ defmodule Lumina.Walk do
       {children, state} =
         children({cert, resources}, path, key, depth, ancestors, {unit, outcome, first}, state)
 
-      # Where the point was last read from while accepted, for offline
-      # validation (#206, #207).
-      _ =
-        if hd(state.points).status == :accepted,
-          do: Source.save(state.root, point_key(cert, pp), source, state.now)
+      # Where the point was read from, for offline validation (#207),
+      # which then sees the copy this walk saw (or its last valid copy).
+      _ = Source.save(state.root, point_key(cert, pp), source, state.now)
 
       {children, state}
     else
