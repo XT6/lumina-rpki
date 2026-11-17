@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 94 Barry fixtures: 25 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 971 unit tests in 77 modules.
+- 978 unit tests in 78 modules.
 
 ## Barry fixtures
 
@@ -3455,6 +3455,45 @@ published under the same rsync URIs (§3.4.2).
   that replaces it, each naming A's hash. Neither reaches A's store:
   B's store doesn't hold the object, so each delta is rejected and B
   takes its snapshot.
+
+### `Lumina.RRDP.SyncPollingTest`
+
+[test/lumina/rrdp/sync_polling_test.exs](../../test/lumina/rrdp/sync_polling_test.exs)
+
+Session desynchronization (RFC 9697) and polling (RFC 8182 §3.4.4) in
+`Lumina.RRDP.Sync.run/3` (#205), against the delta fixture
+`m8-rrdp-three` served by `Lumina.Test.RRDPServer`.
+
+A server can rewrite a delta it already published, and an RP that keeps
+applying deltas would then drift from the repository without noticing.
+RFC 9697 has the RP compare the hash of every delta serial it saw in
+the last notification with the new one, and take the snapshot when any
+changed. RFC 8182 §3.4.4 forbids polling a notification more than once
+a minute and requires `If-Modified-Since`, so a run from cron, or two
+runs in a row, must not hammer a repository: a store synced less than
+60 s ago is used without any request, and a 304 changes nothing.
+
+- a delta hash that changed for a serial seen before is a desync: warned, then the snapshot (RFC [9697 §3.1](../rfc/rfc9697.txt) ([html](https://www.rfc-editor.org/rfc/rfc9697.html#section-3.1)), [9697 §4](../rfc/rfc9697.txt) ([html](https://www.rfc-editor.org/rfc/rfc9697.html#section-4)), [9697 §5](../rfc/rfc9697.txt) ([html](https://www.rfc-editor.org/rfc/rfc9697.html#section-5)))
+  RFC 9697 §3.1's scenario on m8-rrdp-three: the store is at serial 2,
+  having seen delta 2's hash. The notification at serial 3 lists
+  delta 2 with another hash. A warning names serial 2, and the
+  snapshot is used, not delta 3.
+- unchanged hashes for every serial seen before let the deltas be used (RFC [9697 §3](../rfc/rfc9697.txt) ([html](https://www.rfc-editor.org/rfc/rfc9697.html#section-3)), [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)))
+- a desync at the store's serial is warned, and the store stays (RFC [9697 §4](../rfc/rfc9697.txt) ([html](https://www.rfc-editor.org/rfc/rfc9697.html#section-4)), [8182 §3.4.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.3)))
+  The store is at serial 3, and the notification, still at serial 3,
+  lists delta 3 with another hash. The desync is warned, but the
+  snapshot isn't processed: its serial isn't greater than the last
+  processed (F-042).
+- a 304 leaves the store and the state as they were (RFC [8182 §3.4.4](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.4)))
+  A 304 to If-Modified-Since: nothing else is downloaded, the store
+  is as it was, and so is the state but for its times.
+- a second sync within a minute makes no request (RFC [8182 §3.4.4](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.4)))
+  Synced at T: a sync at T + 30 s and at T + 59 s makes no request
+  at all and uses the store (:recent); at T + 60 s the notification
+  is fetched again.
+- a last success in the future doesn't stop a fetch (RFC [8182 §3.4.4](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.4)))
+  A last success later than now means the clock went back; it doesn't hold the fetch.
+- the once-a-minute limit doesn't apply to a store never synced (RFC [8182 §3.4.4](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.4)))
 
 ### `Lumina.RRDP.SyncTest`
 

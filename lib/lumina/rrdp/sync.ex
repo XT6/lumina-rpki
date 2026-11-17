@@ -1,15 +1,26 @@
 defmodule Lumina.RRDP.Sync do
   @moduledoc """
-  Syncs one RRDP repository, from its deltas or its snapshot (#203, #204;
-  RFC 8182 §3.4.1 to §3.4.3; RFC 9674 §3.2).
+  Syncs one RRDP repository, from its deltas or its snapshot (#203 to
+  #205; RFC 8182 §3.4.1 to §3.4.4; RFC 9674 §3.2; RFC 9697).
 
   `run/3` takes the repository's notification URI (the `rpkiNotify` URI
   in a CA certificate) and the cache root:
 
+    0. A store synced successfully less than a minute ago is used as it
+       is, without any request: `:recent` (RFC 8182 §3.4.4 forbids
+       polling more often).
     1. The notification file is fetched (`Lumina.HTTPS.fetch_to_file/3`,
        at most 20 MiB, D-043; redirects only to its own origin, RFC 9674
        §3.2; `If-Modified-Since` with the `Last-Modified` of the last
-       successful sync, §3.4.4) and decoded (`Lumina.RRDP.Notification`).
+       successful sync, §3.4.4; a 304 is `:unchanged`, and the state
+       keeps all but its times) and decoded (`Lumina.RRDP.Notification`).
+       With the same session_id, the hash of every delta serial listed
+       both here and in the last notification accepted is compared
+       (RFC 9697 §3, §5): any change is a desync, warned (`rrdp_desync`,
+       with the serials, and logged) and followed by the snapshot instead
+       of the deltas (§4). At an unchanged serial the warning stands but
+       the store stays: §3.4.3 rejects a snapshot whose serial isn't
+       greater (F-042).
     2. If its session_id and serial are those of the store, nothing more
        is downloaded: `:unchanged`. With the same session_id, a serial
        below the store's rejects it (`:serial_not_greater`, §3.4.3). A new
@@ -72,6 +83,8 @@ defmodule Lumina.RRDP.Sync do
   `{:rrdp_finished, notify, outcome}`.
   """
 
+  require Logger
+
   alias Lumina.{Cache, HTTPS, Progress, URI}
   alias Lumina.RRDP
   alias Lumina.RRDP.{Delta, Notification, Snapshot, State, Store}
@@ -81,6 +94,8 @@ defmodule Lumina.RRDP.Sync do
   @https_opts [:cacerts, :address, :remap, :connect_timeout, :idle_timeout, :max_redirects]
   @bytes_every 1024 * 1024
   @objects_every 1000
+  # RFC 8182 §3.4.4: once a minute at most.
+  @min_interval 60
 
   @type reason ::
           :notification_failed
@@ -96,7 +111,8 @@ defmodule Lumina.RRDP.Sync do
 
   @type result :: %{
           notify: URI.t(),
-          outcome: :snapshot | {:deltas, pos_integer()} | :unchanged | {:failed, reason()},
+          outcome:
+            :snapshot | {:deltas, pos_integer()} | :unchanged | :recent | {:failed, reason()},
           session_id: String.t() | nil,
           serial: pos_integer() | nil,
           objects: non_neg_integer() | nil,
@@ -115,7 +131,9 @@ defmodule Lumina.RRDP.Sync do
   error), `fallback` why deltas gave way to the snapshot (or `nil`), and
   `warnings` the notification's (D-042) and the HTTPS fetches'.
 
-  Options: `:now` (a `DateTime` for the state's times; default now),
+  Options: `:now` (a `DateTime` for the state's times and the polling
+  interval; default now), `:min_interval` (seconds; default 60, RFC 8182
+  §3.4.4; tests that sync repeatedly at one `:now` set 0),
   `:progress`, `:max_notification` (bytes; default 20 MiB), `:max_file`
   (snapshot or delta bytes; default 2 GiB), `:max_object` (default 20 MiB), and
   `:cacerts`, `:address`, `:remap`, `:connect_timeout`, `:idle_timeout`
@@ -125,24 +143,52 @@ defmodule Lumina.RRDP.Sync do
   def run(%URI{scheme: "https"} = notify, root, opts \\ []) do
     now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
     state = State.load(root, notify)
+    known = known(state, root, notify)
     Progress.emit(opts, {:rrdp_started, notify})
 
-    step =
-      case Cache.stage(root) do
-        {:ok, work} ->
-          try do
-            sync(notify, root, work, known(state, root, notify), opts)
-          after
-            Cache.discard(work)
+    result =
+      if recent?(known, now, Keyword.get(opts, :min_interval, @min_interval)) do
+        recent(notify, known)
+      else
+        step =
+          case Cache.stage(root) do
+            {:ok, work} ->
+              try do
+                sync(notify, root, work, known, opts)
+              after
+                Cache.discard(work)
+              end
+
+            {:error, reason} ->
+              {:failed, :store_failed, reason, []}
           end
 
-        {:error, reason} ->
-          {:failed, :store_failed, reason, []}
+        finish(step, notify, root, state, now)
       end
 
-    result = finish(step, notify, root, state, now)
     Progress.emit(opts, {:rrdp_finished, notify, result.outcome})
     result
+  end
+
+  # RFC 8182 §3.4.4: no polling more than once a minute. A store synced
+  # successfully less than `interval` seconds ago is used as it is. A
+  # last success in the future (the clock went back) doesn't count.
+  defp recent?(%{last_success: %DateTime{} = last, outcome: :ok}, now, interval),
+    do: DateTime.diff(now, last) in 0..(interval - 1)//1
+
+  defp recent?(_known, _now, _interval), do: false
+
+  defp recent(notify, known) do
+    %{
+      notify: notify,
+      outcome: :recent,
+      session_id: known.session_id,
+      serial: known.serial,
+      objects: nil,
+      error: nil,
+      fallback: nil,
+      warnings: []
+    }
   end
 
   # The saved state, if the store it describes is there; otherwise the
@@ -160,13 +206,18 @@ defmodule Lumina.RRDP.Sync do
         {:unchanged, nil, known.last_modified, warnings}
 
       {:ok, n, last_modified, warnings} ->
-        warnings = n.warnings ++ warnings
+        same_session = known && known.session_id == n.session_id
+        mutated = if same_session, do: mutated(known.deltas, n), else: []
+        warnings = n.warnings ++ warnings ++ desync(notify, mutated)
 
         cond do
-          known && known.session_id == n.session_id && n.serial == known.serial ->
+          # A desync at an unchanged serial isn't followed by the snapshot:
+          # RFC 8182 §3.4.3 rejects a snapshot whose serial isn't greater
+          # than the last processed (F-042).
+          same_session && n.serial == known.serial ->
             {:unchanged, n, last_modified, warnings}
 
-          known && known.session_id == n.session_id && n.serial < known.serial ->
+          same_session && n.serial < known.serial ->
             {:failed, :serial_not_greater,
              %{
                rule: :serial_not_greater,
@@ -176,7 +227,7 @@ defmodule Lumina.RRDP.Sync do
                    "below the #{known.serial} last processed"
              }, warnings}
 
-          known && known.session_id == n.session_id && covered?(n, known.serial) ->
+          same_session && mutated == [] && covered?(n, known.serial) ->
             case deltas(notify, root, work, n, known.serial, opts) do
               {:ok, applied, count, more} ->
                 {:deltas, n, last_modified, warnings ++ more, applied, count}
@@ -303,6 +354,26 @@ defmodule Lumina.RRDP.Sync do
       {:error, error} ->
         {:failed, failed, error, []}
     end
+  end
+
+  # RFC 9697 §3, §5: the serials listed both in the last notification
+  # accepted and in this one whose delta hash changed.
+  defp mutated(deltas, n) do
+    for %{serial: serial, hash: hash} <- n.deltas,
+        Map.has_key?(deltas, serial) and deltas[serial] != hash,
+        do: serial
+  end
+
+  defp desync(_notify, []), do: []
+
+  # RFC 9697 §4: SHOULD warn, then process the snapshot.
+  defp desync(notify, serials) do
+    message =
+      "#{notify}: the hash of delta #{Enum.join(serials, ", ")} changed since the last " <>
+        "notification accepted, so the deltas were mutated; using the snapshot (RFC 9697)"
+
+    Logger.warning(message)
+    [%{rule: :rrdp_desync, rfc: "9697#4", message: message, serials: serials}]
   end
 
   # Deltas can bring the store from `serial` to the notification's when
