@@ -57,6 +57,8 @@ Where a live repository departs from the RFCs, or its servers from what everyone
 | [F-034](#f-034-encompass-is-worded-range-by-range) | 6487 §7.1; 3779 §2.3, §3.3 | ambiguity | [5188](https://www.rfc-editor.org/errata/eid5188), held (related); otherwise none found (not reported) | Compared as sets (D-027, #152) |
 | [F-035](#f-035-what-using-inherit-asks-of-a-manifest-ee-certificate) | 9286 §5.1 | ambiguity | none found (not reported; to report) | Explicit kinds warn, absent ones don't (D-029, #157) |
 | [F-036](#f-036-a-verified-erratum-makes-the-solidus-an-escape-only-character) | 8259 §7 | erratum | [5318](https://www.rfc-editor.org/errata/eid5318), verified (editorial) | `/` written unescaped, as the prose allows (#167) |
+| [F-037](#f-037-a-delta-publish-doesnt-say-when-its-hash-is-required) | 8182 §3.4.2, §3.5.4 | gap | [6919](https://www.rfc-editor.org/errata/eid6919), held for document update | Enforced as the erratum says (#204) |
+| [F-038](#f-038-barry-writes-session_id-1) | 8182 §3.5.1.3 | tooling | — | Fixtures set `session` to a version 4 UUID (#202) |
 
 ## Entries
 
@@ -594,6 +596,22 @@ Where a live repository departs from the RFCs, or its servers from what everyone
 - **Resolution:** follow the prose: the solidus is written unescaped (#167). The JSON tests decode with `:json.decode/1` and check that the prefixes come out with a plain `/`.
 - **Talk note:** a verified erratum can be wrong too; read it against the text it corrects.
 
+### F-037: A delta publish doesn't say when its hash is required
+
+- **Where:** RFC 8182 §3.4.2: "When a Relying Party encounters a "withdraw" element, or a "publish" element where an object is replaced, ... it MUST verify that the object to be withdrawn or replaced was retrieved from this same Repository Server". The §3.5.4 schema makes `hash` optional on a delta's `publish`.
+- **Kind:** gap.
+- **Official errata:** [6919](https://www.rfc-editor.org/errata/eid6919), held for document update (checked 2026-11-17). It adds the rule from RFC 8181: "the hash MUST be present if the publication operation is overwriting an existing object, and it MUST NOT be present if this publication operation is writing to a new object."
+- **The problem:** without the rule, a `publish` without a hash for a URI the RP already holds is either a new object or a silent overwrite, and §3.4.2's check has nothing to compare.
+- **Resolution:** Lumina enforces the erratum's rule: an overwrite without the old object's hash, a hash that doesn't match the stored object, or a hash for a URI not in the repository's store rejects the delta, and the snapshot is used (RFC 8182 §3.4.2); #204.
+- **Talk note:** the rule existed in the sibling protocol (RFC 8181) and was lost between the two documents.
+
+### F-038: Barry writes session_id "1"
+
+- **Where:** RFC 8182 §3.5.1.3: "The session_id attribute MUST be a random version 4 UUID [RFC4122], unique to this session." Barry (pinned `478ee89`) writes `session_id="1"` in its notification and snapshot files by default (`src/rpki_tree.c`).
+- **Kind:** tooling incompatibility.
+- **Official errata:** none needed; the RFC is clear.
+- **Resolution:** RRDP fixtures set `session = <version 4 UUID>` on each `[notification: ...]`, which Barry supports (#202). Lumina rejects a session_id that isn't a UUID at all (D-042), so Barry's default can't be used. Suggestion for Barry: generate a random version 4 UUID by default.
+
 ## TA deviations
 
 Where a trust anchor's repository, or the servers it publishes on, departs from the RFCs or from what other repositories do, and Lumina has to decide what to do about it. Found by syncing the live RPKI.
@@ -602,6 +620,7 @@ Where a trust anchor's repository, or the servers it publishes on, departs from 
 | --- | --- | --- | --- |
 | [TD-001](#td-001-apnics-rsync-server-refuses-a-path-with-a-dot-segment) | APNIC | rsync server refuses `module/./path` | `./` only before a path starting with `-` (#189) |
 | [TD-002](#td-002-afrinics-ee-certificates-list-rpkinotify) | AFRINIC | rpkiNotify in EE certificates' SIA | Warning, not a reject (D-038, #190) |
+| [TD-003](#td-003-prefixlogics-rrdp-session_id-is-a-version-5-uuid) | ARIN (delegated: prefixlogic) | RRDP session_id is a version 5 UUID | Warning, not a reject (D-042, #199) |
 
 ### TD-001: APNIC's rsync server refuses a path with a dot segment
 
@@ -617,6 +636,13 @@ Where a trust anchor's repository, or the servers it publishes on, departs from 
 - **Found:** by the M7 done test's live run (#170), 2026-11-16. Lumina rejected the TA's manifest (`access_method`), so AFRINIC gave no VRPs, while Routinator's CSV has AFRINIC's.
 - **Resolution:** maintainer decision (2026-11-16, D-038): an rpkiNotify in an EE certificate's SIA is the warning `ee_sia_rpki_notify`; any other extra method still rejects (#190). AFRINIC then validates: 1,495 CA certificates, 12,664 valid ROAs, 32,796 VRPs.
 - **Talk note:** a context sentence lost between drafts became a MUST in a published RFC, a whole RIR implemented it, and the erratum came later.
+
+### TD-003: prefixlogic's RRDP session_id is a version 5 UUID
+
+- **Where:** `https://rrdp-ipv4.prefixlogic.com/rrdp/notification.xml` serves `session_id="3025d864-54b5-502e-9a2f-6f4b48f31bdd"`: version nibble 5. RFC 8182 §3.5.1.3: the session_id "MUST be a random version 4 UUID".
+- **Found:** surveying the 126 notification URIs named in the five RIRs' CA certificates for the M8 plan, 2026-11-16. It is the only one of the 109 that answered.
+- **Resolution:** maintainer decision (2026-11-17, D-042): a session_id of another UUID version warns; RRDP is used (#199).
+- **Talk note:** a version 5 UUID is name-based, so it isn't random; the RFC wants randomness, but RPs pair the session with the notification URI anyway (§3.4.1), so nothing depends on it.
 
 ## Process notes
 
