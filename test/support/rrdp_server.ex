@@ -13,7 +13,9 @@ defmodule Lumina.Test.RRDPServer do
       RRDPServer.requested(server)   # paths requested since serve/2
 
   `server.opts` connect `localhost:8443`, the host in the fixtures' URIs,
-  to the server, trust its certificate, and fix `:now`.
+  to the server, trust its certificate, fix `:now`, and turn off the
+  once-a-minute polling limit (`min_interval: 0`), since tests sync the
+  same repository several times at one `:now`.
   """
 
   alias Lumina.RRDP.{Snapshot, Store}
@@ -39,7 +41,12 @@ defmodule Lumina.Test.RRDPServer do
     %{
       agent: agent,
       port: port,
-      opts: [cacerts: pki.cacerts, remap: %{"localhost:8443" => "localhost:#{port}"}, now: now]
+      opts: [
+        cacerts: pki.cacerts,
+        remap: %{"localhost:8443" => "localhost:#{port}"},
+        now: now,
+        min_interval: 0
+      ]
     }
   end
 

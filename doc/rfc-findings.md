@@ -62,6 +62,7 @@ Where a live repository departs from the RFCs, or its servers from what everyone
 | [F-039](#f-039-rfc-8182-cites-no-xml-specification) | 8182 §3.5, §7 | missing reference | none found (not reported) | XML 1.0 (Fifth Edition) for the subset RRDP needs (D-041, #198) |
 | [F-040](#f-040-rfc-8182-cites-obsoleted-http-rfcs) | 8182 §3.4.1, §3.4.4, §7 | obsolete reference | none found (not reported) | RFC 9110 §13.1.3 and RFC 9112 for the HTTP side (#200) |
 | [F-041](#f-041-rfc-8182-doesnt-say-a-snapshot-publishes-each-uri-once) | 8182 §3.5.2.3 | ambiguity | none found (not reported) | A URI published twice rejects the snapshot (`duplicate_publish`, #203) |
+| [F-042](#f-042-rfc-9697-asks-for-a-snapshot-that-rfc-8182-may-reject) | 9697 §4, §5; 8182 §3.4.3 | ambiguity | none found (not reported) | At an unchanged serial a desync is warned and the store kept (#205) |
 
 ## Entries
 
@@ -641,6 +642,15 @@ Where a live repository departs from the RFCs, or its servers from what everyone
 - **The problem:** a snapshot with two `publish` elements for one URI gives that object two contents. An RP that keeps the last one and an RP that keeps the first see different repositories from the same file, and a streaming RP can't tell which the publisher meant.
 - **Resolution:** Lumina rejects such a snapshot (`snapshot_rejected` with rule `duplicate_publish`; the store is kept) (#203). A state with two values for one object isn't "a complete current state". Maintainer decision (2026-11-17, D-046): keep this strict reading, and check during live testing (#209) whether any live snapshot publishes a URI twice.
 - **Talk note:** "complete current state" implies a set, but neither the rules nor the schema enforces it.
+
+### F-042: RFC 9697 asks for a snapshot that RFC 8182 may reject
+
+- **Where:** RFC 9697 §4: after a desynchronization "RP implementations SHOULD issue a warning and SHOULD download the latest Snapshot File and process it as described in Section 3.4.3 of [RFC8182]". §5 adds the same to RFC 8182 §3.4.1. RFC 8182 §3.4.3: "The Relying Party MUST verify that the serial number of this Snapshot File is greater than the last processed serial number for this session_id. If this fails, the file MUST be rejected."
+- **Kind:** ambiguity.
+- **Official errata:** none found for RFC 9697; RFC 8182 has 7239 (verified, §3.2) and 6919 (held, §3.4.2) (checked 2026-11-17). **Not reported.**
+- **The problem:** a desync can show up while the notification's serial is still the one last processed: the server changed a delta's hash without publishing a new serial. Processing the snapshot "as described in Section 3.4.3" then means rejecting it, since its serial isn't greater. RFC 9697 §3.1's example has the serial move on, so it doesn't meet this case.
+- **Resolution:** Lumina warns (`rrdp_desync`) and keeps the store at that serial, reporting `:unchanged`; the new hashes are recorded, and the next serial is processed as usual. When the serial has moved on, the snapshot is processed (#205). The store already holds the repository at that serial, from a snapshot or from deltas whose hashes matched when they were applied.
+- **Talk note:** an update that defers to the RFC it updates for the recovery step, when that step's own check can refuse the recovery.
 
 ## TA deviations
 

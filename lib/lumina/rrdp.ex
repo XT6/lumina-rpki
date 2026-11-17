@@ -21,7 +21,8 @@ defmodule Lumina.RRDP do
           required(:rfc) => String.t(),
           required(:message) => String.t(),
           optional(:clause) => String.t(),
-          optional(:offset) => non_neg_integer()
+          optional(:offset) => non_neg_integer(),
+          optional(:serials) => [pos_integer()]
         }
 
   @doc "Syncs one repository: `Lumina.RRDP.Sync.run/3`."
