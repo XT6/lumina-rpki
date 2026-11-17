@@ -7,6 +7,7 @@ defmodule Lumina.CLI do
       lumina <command> [flags] [arguments]
       lumina print [--brief] FILE...
       lumina sync [--cache DIR] [--tal FILE]... [--timeout SECONDS] [--max-depth N]
+                  [--no-rrdp] [--rrdp-max-size SIZE] [--rrdp-idle-timeout SECONDS]
       lumina validate [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT]
                       [--progress | --quiet]
       lumina vrps [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT]
@@ -60,12 +61,17 @@ defmodule Lumina.CLI do
 
   @sync_usage """
   Usage: lumina sync [--cache DIR] [--tal FILE]... [--timeout SECONDS] [--max-depth N]
-                     [--per-host N] [--rsync PATH] [--progress | --quiet]
+                     [--per-host N] [--rsync PATH] [--no-rrdp]
+                     [--rrdp-max-size SIZE] [--rrdp-idle-timeout SECONDS]
+                     [--progress | --quiet]
 
   For each TAL, fetch its trust anchor certificate (HTTPS first, then
   rsync) and validate it, then walk the repository from it and mirror
-  every publication point into the cache with rsync, following only CA
-  certificates that are on their issuer's current manifest and validate.
+  every publication point into the cache, following only CA certificates
+  that are on their issuer's current manifest and validate. A CA that
+  names an RRDP repository (an HTTPS rpkiNotify) is synced over RRDP
+  (RFC 8182), and its publication point fetched with rsync instead if
+  that fails; other CAs are fetched with rsync.
   A publication point whose manifest check fails (RFC 9286 section 6) is
   listed with its reasons; its last valid copy, kept from an earlier
   sync, is used while its manifest is current, and otherwise nothing
@@ -80,7 +86,7 @@ defmodule Lumina.CLI do
     --tal FILE         sync only this TAL; repeat to pick several
                        (default: every .tal file in ./tals/)
     --timeout SECONDS  rsync I/O timeout, and the time allowed for each
-                       HTTPS fetch (default: 300)
+                       trust anchor fetched over HTTPS (default: 300)
     --max-depth N      the deepest CA certificate followed below the trust
                        anchor (default: 32)
     --per-host N       rsync runs at once to any one host (default: 8);
@@ -88,12 +94,26 @@ defmodule Lumina.CLI do
                        the repository server
     --rsync PATH       the rsync binary to use, 3.1.0 or later (default: the
                        first rsync on PATH)
+    --no-rrdp          fetch every publication point with rsync, never
+                       over RRDP (trust anchors are still fetched over
+                       HTTPS first)
+    --rrdp-max-size SIZE
+                       the largest RRDP snapshot or delta file downloaded,
+                       in bytes or with K, M or G (default: 2G); a larger
+                       one fails the repository's RRDP sync
+    --rrdp-idle-timeout SECONDS
+                       how long an RRDP download may go without data
+                       before it fails (default: 300); there is no limit
+                       on its total time
     --progress         report progress on stderr (the default): a status
                        line on a terminal, timestamped lines otherwise
     --quiet            no progress report
 
-  Prints one summary per TAL: the TA URI used, the publication points
-  and rsync fetches, every failure with its reason, and the CA
+  Prints one summary per TAL: the TA URI used, the publication points,
+  the rsync fetches and the RRDP repositories by outcome (snapshot,
+  deltas, unchanged, recent: synced less than a minute ago, or failed
+  and fetched with rsync), every failure and warning with its reason,
+  and the CA
   certificates that don't validate. A CA certificate holding resources
   outside its issuer's is listed with them, and counted as an overclaim.
   A fetch whose connection dropped or timed out is tried once more after
@@ -154,7 +174,9 @@ defmodule Lumina.CLI do
                      [--max-invalid PERCENT] [--format csv|json]
                      [--output FILE] [--wide] [--progress | --quiet]
                      [--sync [--max-age DURATION] [--timeout SECONDS]
-                      [--max-depth N] [--per-host N] [--rsync PATH]]
+                      [--max-depth N] [--per-host N] [--rsync PATH]
+                      [--no-rrdp] [--rrdp-max-size SIZE]
+                      [--rrdp-idle-timeout SECONDS]]
 
   Validate the cache as lumina validate does, offline, and write the
   Validated ROA Payloads (VRPs) of the valid ROAs: one per distinct AS,
@@ -193,7 +215,8 @@ defmodule Lumina.CLI do
     --max-age DURATION
                   with --sync: how old a TAL's last sync may be, such as
                   90s, 30m, 2h or 1d, or seconds (default: 1h)
-    --timeout SECONDS, --max-depth N, --per-host N, --rsync PATH
+    --timeout SECONDS, --max-depth N, --per-host N, --rsync PATH,
+    --no-rrdp, --rrdp-max-size SIZE, --rrdp-idle-timeout SECONDS
                   with --sync: as for lumina sync
 
   A short summary goes to standard error: why each TAL was synced and
@@ -338,6 +361,9 @@ defmodule Lumina.CLI do
     max_depth: :integer,
     per_host: :integer,
     rsync: :string,
+    rrdp: :boolean,
+    rrdp_max_size: :string,
+    rrdp_idle_timeout: :integer,
     progress: :boolean,
     quiet: :boolean,
     help: :boolean
@@ -360,7 +386,7 @@ defmodule Lumina.CLI do
                 sync(
                   tals,
                   opts[:cache] || default_cache(),
-                  limits ++ progress ++ internal,
+                  sync_opts(limits, progress, internal),
                   out,
                   err,
                   "lumina sync",
@@ -437,6 +463,9 @@ defmodule Lumina.CLI do
     max_depth: :integer,
     per_host: :integer,
     rsync: :string,
+    rrdp: :boolean,
+    rrdp_max_size: :string,
+    rrdp_idle_timeout: :integer,
     help: :boolean
   ]
 
@@ -525,13 +554,24 @@ defmodule Lumina.CLI do
     end
   end
 
-  @sync_only [:max_age, :timeout, :max_depth, :per_host, :rsync]
+  @sync_only [
+    :max_age,
+    :timeout,
+    :max_depth,
+    :per_host,
+    :rsync,
+    :rrdp,
+    :rrdp_max_size,
+    :rrdp_idle_timeout
+  ]
 
   # --max-age DURATION in seconds; it and the other sync flags need --sync.
   defp max_age_flag(opts) do
     case {opts[:sync], Enum.find(@sync_only, &Keyword.has_key?(opts, &1))} do
       {sync, flag} when sync != true and flag != nil ->
-        {:error, "--#{String.replace(to_string(flag), "_", "-")} needs --sync"}
+        name = String.replace(to_string(flag), "_", "-")
+        name = if flag == :rrdp and opts[:rrdp] == false, do: "no-rrdp", else: name
+        {:error, "--#{name} needs --sync"}
 
       _ ->
         case duration(Keyword.get(opts, :max_age, "1h")) do
@@ -586,7 +626,7 @@ defmodule Lumina.CLI do
           sync(
             stale,
             cache,
-            limits ++ progress ++ internal,
+            sync_opts(limits, progress, internal),
             err,
             err,
             "lumina vrps",
@@ -760,9 +800,48 @@ defmodule Lumina.CLI do
       opts[:per_host] != nil and opts[:per_host] < 1 ->
         {:error, "--per-host must be at least 1"}
 
+      opts[:rrdp_idle_timeout] != nil and opts[:rrdp_idle_timeout] < 1 ->
+        {:error, "--rrdp-idle-timeout must be at least 1"}
+
+      opts[:rrdp_max_size] != nil and size(opts[:rrdp_max_size]) == :error ->
+        {:error, "--rrdp-max-size must be a size such as 500M, 2G or a number of bytes"}
+
       true ->
-        {:ok, Keyword.take(opts, [:timeout, :max_depth, :per_host])}
+        # The D-043 limits of every RRDP download (#208): the snapshot and
+        # delta files, and the seconds without data on any fetch.
+        rrdp_opts =
+          Enum.flat_map(opts, fn
+            {:rrdp_max_size, text} -> [max_file: elem(size(text), 1)]
+            {:rrdp_idle_timeout, seconds} -> [idle_timeout: seconds]
+            _ -> []
+          end)
+
+        {:ok,
+         Keyword.take(opts, [:timeout, :max_depth, :per_host, :rrdp]) ++
+           if(rrdp_opts != [], do: [rrdp_opts: rrdp_opts], else: [])}
     end
+  end
+
+  @size_units %{"" => 1, "K" => 1024, "M" => 1024 ** 2, "G" => 1024 ** 3}
+
+  # A size in bytes, or with a binary K, M or G suffix.
+  defp size(text) do
+    case Integer.parse(text) do
+      {n, unit} when n > 0 and is_map_key(@size_units, unit) -> {:ok, n * @size_units[unit]}
+      _ -> :error
+    end
+  end
+
+  # The options of a sync: the flags' limits first, so they win over the
+  # internal ones, and the RRDP limits merged into internal :rrdp_opts
+  # (tests pass certificates there).
+  defp sync_opts(limits, progress, internal) do
+    rrdp_opts = Keyword.merge(internal[:rrdp_opts] || [], limits[:rrdp_opts] || [])
+
+    Keyword.delete(limits, :rrdp_opts) ++
+      progress ++
+      if(rrdp_opts != [], do: [rrdp_opts: rrdp_opts], else: []) ++
+      Keyword.delete(internal, :rrdp_opts)
   end
 
   # Repositories need rsync 3.1.0 or later. Checked before anything is

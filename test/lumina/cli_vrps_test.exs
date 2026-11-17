@@ -373,6 +373,40 @@ defmodule Lumina.CLIVRPsTest do
       assert err =~ "  rsync fetches: 1, 0 failed\n"
     end
 
+    @tag rfc: "8182#3.4.5",
+         doc: """
+         m1-roa-prefixes served over RRDP (Lumina.Test.RRDPServer, the TA
+         certificate too) and rsync, with RRDP on as outside tests. With
+         --no-rrdp the sync asks the HTTPS server only for the TA
+         certificate; without it, for the notification. The VRPs are the
+         same.
+         """
+    test "--sync --no-rrdp syncs the repository with rsync only", %{tmp_dir: tmp} do
+      fixture = Fixture.load!("m1-roa-prefixes")
+      server = Lumina.Test.RRDPServer.start!(Lumina.Test.RRDPServer.routes(fixture))
+      daemon = RsyncDaemon.start!(Path.join(tmp, "daemon"), fixture.modules)
+
+      internal = [
+        rrdp: true,
+        rrdp_opts: [cacerts: server.opts[:cacerts], min_interval: 0],
+        remap: Map.put(server.opts[:remap], "localhost:8873", "127.0.0.1:#{daemon.port}"),
+        https: [cacerts: server.opts[:cacerts], remap: server.opts[:remap]]
+      ]
+
+      tals = ["--tal", fixture.tal_path]
+
+      assert {0, @csv, err} =
+               run(vrps_args(tals, Path.join(tmp, "a"), ["--sync", "--no-rrdp"]), internal)
+
+      assert Lumina.Test.RRDPServer.requested(server) == ["/rrdp/ta.cer"]
+      refute err =~ "rrdp:"
+
+      Lumina.Test.RRDPServer.serve(server, Lumina.Test.RRDPServer.routes(fixture))
+      assert {0, @csv, err} = run(vrps_args(tals, Path.join(tmp, "b"), ["--sync"]), internal)
+      assert "/rrdp/notification.xml" in Lumina.Test.RRDPServer.requested(server)
+      assert err =~ "  rrdp: 1 repository: 1 snapshot\n"
+    end
+
     @tag doc: """
          Synced 10 minutes before, within the default --max-age of 1h: no
          sync, shown by the repository host now pointing at a closed port,
@@ -476,13 +510,23 @@ defmodule Lumina.CLIVRPsTest do
     end
 
     @tag :tmp_dir
-    test "sync flags without --sync, and a bad --max-age, are usage errors", %{tmp_dir: tmp} do
+    test "sync flags without --sync, and a bad --max-age or RRDP limit, are usage errors", %{
+      tmp_dir: tmp
+    } do
       base = vrps_args(["--tal", "tals/lacnic.tal"], Path.join(tmp, "cache"))
 
       assert {2, "", err} = run(base ++ ["--max-age", "2h"])
       assert err =~ "lumina vrps: --max-age needs --sync\n"
       assert {2, "", err} = run(base ++ ["--per-host", "2"])
       assert err =~ "lumina vrps: --per-host needs --sync\n"
+      assert {2, "", err} = run(base ++ ["--no-rrdp"])
+      assert err =~ "lumina vrps: --no-rrdp needs --sync\n"
+      assert {2, "", err} = run(base ++ ["--rrdp-max-size", "1G"])
+      assert err =~ "lumina vrps: --rrdp-max-size needs --sync\n"
+      assert {2, "", err} = run(base ++ ["--rrdp-idle-timeout", "60"])
+      assert err =~ "lumina vrps: --rrdp-idle-timeout needs --sync\n"
+      assert {2, "", err} = run(base ++ ["--sync", "--rrdp-max-size", "big"])
+      assert err =~ "--rrdp-max-size must be a size such as 500M, 2G or a number of bytes"
 
       for bad <- ["0", "2w", "-1h", "h", "1.5h"] do
         assert {2, "", err} = run(base ++ ["--sync", "--max-age", bad])

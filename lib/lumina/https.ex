@@ -130,7 +130,8 @@ defmodule Lumina.HTTPS do
   fetching a snapshot or delta, to that URI's; RFC 9674 §3.2: others fail
   as `:cross_origin_redirect` and are logged), `:on_data` (a function
   called with the bytes received so far after each piece of the body is
-  written, for progress), and `:cacerts`, `:address` and `:remap` as for
+  written, for progress; a two-argument function also gets the length
+  the response announced, or `nil` without a Content-Length), and `:cacerts`, `:address` and `:remap` as for
   `fetch/2`.
   """
   @spec fetch_to_file(URI.t(), Path.t(), keyword()) ::
@@ -450,6 +451,8 @@ defmodule Lumina.HTTPS do
   # fetch_to_file/3, renamed into place only once the body is complete.
   defp body(socket, headers, rest, target, max, timer) do
     with {:ok, sink} <- open_sink(target, max) do
+      sink = Map.put(sink, :total, content_length(headers))
+
       result =
         try do
           read_body(socket, headers, rest, sink, timer)
@@ -502,11 +505,26 @@ defmodule Lumina.HTTPS do
     case :file.write(sink.out, data) do
       :ok ->
         size = sink.size + byte_size(data)
-        if sink.on_data, do: sink.on_data.(size)
+        progress(sink.on_data, size, sink.total)
         {:ok, %{sink | hash: :crypto.hash_update(sink.hash, data), size: size}}
 
       {:error, reason} ->
         {:error, :file_error, reason}
+    end
+  end
+
+  defp progress(nil, _size, _total), do: :ok
+  defp progress(fun, size, total) when is_function(fun, 2), do: _ = fun.(size, total)
+  defp progress(fun, size, _total), do: _ = fun.(size)
+
+  # The body's announced length, for progress only (read_body/5 checks it).
+  defp content_length(headers) do
+    with value when is_binary(value) <-
+           headers |> List.keyfind("content-length", 0) |> header_value(),
+         {n, ""} when n >= 0 <- Integer.parse(value) do
+      n
+    else
+      _ -> nil
     end
   end
 

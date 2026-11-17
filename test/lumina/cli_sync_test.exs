@@ -10,11 +10,17 @@ defmodule Lumina.CLISyncTest do
   `rsync://localhost:8873`. Each test writes a copy of the TAL whose rsync
   URI points at its own daemon, and remaps `localhost:8873` in the
   repository's certificates to it (`:remap`, see `Lumina.Walk`).
+
+  RRDP (#208): `--no-rrdp`, the RRDP limits and the summary's `rrdp:`
+  line, against `Lumina.Test.RRDPServer`, which serves the fixture's
+  `rrdp/` files (the TA certificate too) at `https://localhost:8443`.
+  RRDP is off by default in tests (`test/test_helper.exs`), so these
+  runs turn it on through the internal options, as the real default.
   """
   use ExUnit.Case, async: true
 
   alias Lumina.CLI
-  alias Lumina.Test.{Fixture, RsyncDaemon}
+  alias Lumina.Test.{Fixture, RRDPServer, RsyncDaemon}
 
   @moduletag :tmp_dir
   @now ~U[2026-11-13 12:00:00Z]
@@ -55,6 +61,26 @@ defmodule Lumina.CLISyncTest do
     File.write!(path, text)
     {path, %{"localhost:8873" => authority}}
   end
+
+  # Serves `fixture` over RRDP (its notification of `serial`, by default
+  # the last) and from an rsync daemon. Returns the server and the
+  # internal options of a sync that uses RRDP, as lumina does by default.
+  defp rrdp_served(tmp, fixture, serial \\ nil) do
+    server = RRDPServer.start!(RRDPServer.routes(fixture, serial))
+    daemon = RsyncDaemon.start!(Path.join(tmp, "daemon"), fixture.modules)
+
+    internal = [
+      rrdp: true,
+      rrdp_opts: [cacerts: server.opts[:cacerts], min_interval: 0],
+      remap: Map.put(server.opts[:remap], "localhost:8873", "127.0.0.1:#{daemon.port}"),
+      https: [cacerts: server.opts[:cacerts], remap: server.opts[:remap]]
+    ]
+
+    {server, internal}
+  end
+
+  defp rrdp_sync(fixture, cache, internal, flags \\ []),
+    do: run(["sync", "--cache", cache, "--tal", fixture.tal_path] ++ flags, internal)
 
   # A TAL with the key of fixture `id` whose only URI can't be reached.
   defp dead_tal(id, dir) do
@@ -527,6 +553,193 @@ defmodule Lumina.CLISyncTest do
     end
   end
 
+  describe "RRDP" do
+    @describetag :rsync
+
+    @tag rfc: "8182#3.4.5",
+         doc: """
+         m0-minimal-valid is served over RRDP and rsync. With --no-rrdp the
+         only HTTPS request is the TA certificate's (the TAL's HTTPS URI
+         comes first, RFC 8630 section 3); the repository comes from rsync
+         and the summary has no rrdp line. The same sync without the flag
+         reads the notification.
+         """
+    test "--no-rrdp fetches nothing over HTTPS but the TA certificate", %{tmp_dir: tmp} do
+      fixture = Fixture.load!("m0-minimal-valid")
+      {server, internal} = rrdp_served(tmp, fixture)
+      cache = Path.join(tmp, "cache")
+
+      assert {0, out, ""} = rrdp_sync(fixture, cache, internal, ["--no-rrdp"])
+      assert RRDPServer.requested(server) == ["/rrdp/ta.cer"]
+      assert out =~ "  rsync fetches: 1, 0 failed\n"
+      refute out =~ "rrdp:"
+
+      RRDPServer.serve(server, RRDPServer.routes(fixture))
+      assert {0, out, ""} = rrdp_sync(fixture, Path.join(tmp, "other"), internal)
+      assert "/rrdp/notification.xml" in RRDPServer.requested(server)
+      assert out =~ "  rsync fetches: 0, 0 failed\n  rrdp: 1 repository: 1 snapshot\n"
+    end
+
+    @tag rfc: ["8182#3.4.1", "8182#3.4.5"],
+         doc: """
+         m8-rrdp-three synced four times into one cache: at serial 2 (the
+         snapshot), at serial 3 (one delta), again (unchanged), and with the
+         notification gone (failed; the point fetched with rsync, D-040).
+         Each summary counts its repository under the right outcome, and the
+         failure is listed with its reason, as is the rsync fallback.
+         """
+    test "the summary counts RRDP repositories by outcome, and lists a failure with its reason",
+         %{tmp_dir: tmp} do
+      fixture = Fixture.load!("m8-rrdp-three")
+      {server, internal} = rrdp_served(tmp, fixture, 2)
+      cache = Path.join(tmp, "cache")
+      notify = "https://localhost:8443/rrdp/notification.xml"
+
+      assert {0, out, ""} = rrdp_sync(fixture, cache, internal)
+      assert out =~ "  rrdp: 1 repository: 1 snapshot\n"
+
+      RRDPServer.serve(server, RRDPServer.routes(fixture))
+      assert {0, out, ""} = rrdp_sync(fixture, cache, internal)
+      assert out =~ "  rrdp: 1 repository: 1 deltas\n"
+
+      assert {0, out, ""} = rrdp_sync(fixture, cache, internal)
+      assert out =~ "  rrdp: 1 repository: 1 unchanged\n"
+
+      RRDPServer.serve(server, Map.delete(RRDPServer.routes(fixture), "/rrdp/notification.xml"))
+      assert {0, out, ""} = rrdp_sync(fixture, cache, internal)
+
+      assert out =~
+               "  rsync fetches: 1, 0 failed\n  rrdp: 1 repository: 1 failed (rsync fallback)\n"
+
+      assert out =~ "    rrdp_failed: #{notify} (notification_failed: http_status: 404)\n"
+
+      assert out =~
+               "    rrdp_fallback: rsync://localhost:8873/rpki (RRDP #{notify} failed; fetched over rsync (D-040))\n"
+    end
+
+    @tag rfc: "8182#3.4.5",
+         doc: """
+         --rrdp-max-size 1K is smaller than m0-minimal-valid's snapshot: the
+         RRDP sync fails as too large and the point comes from rsync.
+         """
+    test "--rrdp-max-size limits the snapshot downloaded", %{tmp_dir: tmp} do
+      fixture = Fixture.load!("m0-minimal-valid")
+      {_server, internal} = rrdp_served(tmp, fixture)
+
+      assert {0, out, ""} =
+               rrdp_sync(fixture, Path.join(tmp, "cache"), internal, ["--rrdp-max-size", "1K"])
+
+      assert out =~ "  rrdp: 1 repository: 1 failed (rsync fallback)\n"
+      assert out =~ "(snapshot_failed: too_large: 1024)\n"
+    end
+
+    @tag doc: """
+         The notification is sent only after 2 s of silence; with
+         --rrdp-idle-timeout 1 the RRDP sync gives up and rsync is used.
+         """
+    test "--rrdp-idle-timeout limits how long an RRDP download may go without data",
+         %{tmp_dir: tmp} do
+      fixture = Fixture.load!("m0-minimal-valid")
+      {server, internal} = rrdp_served(tmp, fixture)
+      notification = File.read!(Path.join(fixture.rrdp_root, "notification.xml"))
+
+      silent =
+        {:script,
+         [
+           {:sleep, 2_000},
+           "HTTP/1.1 200 OK\r\nContent-Length: #{byte_size(notification)}\r\n\r\n",
+           notification
+         ]}
+
+      RRDPServer.serve(
+        server,
+        Map.put(RRDPServer.routes(fixture), "/rrdp/notification.xml", silent)
+      )
+
+      assert {0, out, ""} =
+               rrdp_sync(fixture, Path.join(tmp, "cache"), internal, ["--rrdp-idle-timeout", "1"])
+
+      assert out =~ "  rrdp: 1 repository: 1 failed (rsync fallback)\n"
+      assert out =~ "(notification_failed: timeout"
+    end
+
+    @tag rfc: ["8182#3.5.1.3", "9697#4"],
+         doc: """
+         Lumina.Sync.summary/1 on one walk that synced five repositories, one
+         per outcome: the rrdp line counts each, in a fixed order, and each
+         warning and failure is listed with its reason (D-042's session,
+         RFC 9697's desync, a rejected delta, a cross-origin redirect).
+         """
+    test "the summary's rrdp line counts every outcome, and names each warning" do
+      sync = fn outcome, host ->
+        {:ok, notify} = Lumina.URI.parse("https://#{host}/n.xml")
+        %{notify: notify, outcome: outcome, warnings: [], fallback: nil}
+      end
+
+      walk = %{
+        fetches: [],
+        points: [],
+        rrdp: [
+          sync.(:snapshot, "r0.example"),
+          sync.({:deltas, 3}, "r1.example"),
+          sync.(:unchanged, "r2.example"),
+          sync.(:recent, "r3.example"),
+          sync.({:failed, :cross_origin}, "r4.example")
+        ],
+        issues: [
+          %{
+            kind: :rrdp_warning,
+            uri: "https://a.example/n.xml",
+            detail: %{
+              warnings: [
+                %{rule: :session_not_v4, rfc: "8182#3.5.1.3", message: "not v4 (D-042)"},
+                %{rule: :rrdp_desync, rfc: "9697#4", message: "delta 2 changed", serials: [2]}
+              ],
+              fallback: %{
+                reason: :delta_rejected,
+                error: %{rule: :withdraw_not_held, rfc: "8182#3.4.2", message: "no such object"}
+              }
+            }
+          },
+          %{
+            kind: :rrdp_failed,
+            uri: "https://b.example/n.xml",
+            detail: %{
+              reason: :cross_origin,
+              error: %{
+                reason: :cross_origin_redirect,
+                uri: "https://b.example/s.xml",
+                detail: "https://c.example/s.xml"
+              }
+            }
+          }
+        ]
+      }
+
+      summary =
+        Lumina.Sync.summary([
+          %{
+            tal: "x.tal",
+            ta: {:ok, %{uri: "https://t.example/ta.cer", attempts: []}},
+            walk: walk,
+            failed?: false
+          }
+        ])
+
+      assert summary =~
+               "  rrdp: 5 repositories: 1 snapshot, 1 deltas, 1 unchanged, 1 recent, 1 failed (rsync fallback)\n"
+
+      assert summary =~
+               "    rrdp_warning: https://a.example/n.xml (session_not_v4: not v4 (D-042); " <>
+                 "rrdp_desync: delta 2 changed; delta_rejected: withdraw_not_held: no such object; snapshot used)\n"
+
+      assert summary =~
+               "    rrdp_failed: https://b.example/n.xml (cross_origin: cross_origin_redirect: https://c.example/s.xml)\n"
+
+      assert summary =~ "5 RRDP repositories"
+    end
+  end
+
   describe "usage" do
     test "--tal on a missing file is a usage error", %{tmp_dir: tmp} do
       missing = Path.join(tmp, "nope.tal")
@@ -557,6 +770,21 @@ defmodule Lumina.CLISyncTest do
       assert err =~ "--timeout must be at least 1"
     end
 
+    test "a bad --rrdp-max-size or --rrdp-idle-timeout is a usage error", %{tmp_dir: tmp} do
+      cache = Path.join(tmp, "cache")
+
+      for bad <- ["0", "-1", "2T", "1.5G", "lots", "M"] do
+        assert {2, "", err} = run(["sync", "--cache", cache, "--rrdp-max-size", bad])
+        assert err =~ "--rrdp-max-size must be a size such as 500M, 2G or a number of bytes", bad
+      end
+
+      assert {2, "", err} = run(["sync", "--cache", cache, "--rrdp-idle-timeout", "0"])
+      assert err =~ "--rrdp-idle-timeout must be at least 1"
+      assert {2, "", err} = run(["sync", "--cache", cache, "--rrdp-idle-timeout", "soon"])
+      assert err =~ "unknown or invalid flag --rrdp-idle-timeout"
+      refute File.exists?(cache)
+    end
+
     test "an empty TAL folder without --tal is a usage error", %{tmp_dir: tmp} do
       assert {2, "", err} =
                run(["sync", "--cache", Path.join(tmp, "cache")], tal_dir: Path.join(tmp, "none"))
@@ -574,7 +802,10 @@ defmodule Lumina.CLISyncTest do
             "--timeout SECONDS",
             "--max-depth N",
             "--per-host N",
-            "--rsync PATH"
+            "--rsync PATH",
+            "--no-rrdp",
+            "--rrdp-max-size SIZE",
+            "--rrdp-idle-timeout SECONDS"
           ],
           do: assert(out =~ flag)
 
