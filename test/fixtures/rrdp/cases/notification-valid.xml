@@ -1,0 +1,6 @@
+<notification xmlns="http://www.ripe.net/rpki/rrdp" version="1" session_id="9df4b597-af9e-4dca-bdda-719cce2c4e28" serial="3">
+  <snapshot uri="https://rrdp.example.net/9df4b597-af9e-4dca-bdda-719cce2c4e28/3/snapshot.xml" hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"/>
+  <!-- deltas out of order, as RFC 8182 section 3.5.1.3 allows -->
+  <delta serial="3" uri="https://rrdp.example.net/9df4b597-af9e-4dca-bdda-719cce2c4e28/3/delta.xml" hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"/>
+  <delta serial="2" uri="https://rrdp.example.net/9df4b597-af9e-4dca-bdda-719cce2c4e28/2/delta.xml" hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"/>
+</notification>

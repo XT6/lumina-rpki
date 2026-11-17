@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 92 Barry fixtures: 23 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 879 unit tests in 71 modules.
+- 889 unit tests in 72 modules.
 
 ## Barry fixtures
 
@@ -3204,6 +3204,42 @@ IPv4-mapped prefix). The `m7-roa-*` fixtures cover the rest end to end.
   certificate; roa2.roa, in the same publication point, is fine.
 - *lumina validate:* a ROA breaking only a SHOULD is valid, with a warning (RFC [9582 §4.3.2.2](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.2)))
   m7-roa-max-length-superfluous: a SHOULD, so a warning on a valid ROA (D-030).
+
+### `Lumina.RRDP.FilesTest`
+
+[test/lumina/rrdp/files_test.exs](../../test/lumina/rrdp/files_test.exs)
+
+Tests the decoding of the three RRDP files (#199):
+`Lumina.RRDP.Notification` (RFC 8182 §3.5.1.3, RFC 9674 §3.2),
+`Lumina.RRDP.Snapshot` (§3.5.2.3) and `Lumina.RRDP.Delta` (§3.5.3.3),
+against the §3.5.4 schema, with D-042 for the session_id.
+
+Each rule a server can break has a hand-written file in
+`test/fixtures/rrdp/cases/`, with its expected outcome in `cases.exs`.
+A decoder that let one through would hand the RRDP layer a file the RFC
+says MUST be rejected: a snapshot from another session, a delta out of
+sequence, a reference to another server (RFC 9674), or an object under
+a URI that escapes the cache. Barry's RRDP output is decoded too, to
+show the snapshot carries the same objects as the rsync tree.
+
+- *the cases:* every case has metadata, a file and valid RFC references
+- *the cases:* every case gives the outcome its metadata states (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)), [8182 §3.5.2.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.2.3)), [8182 §3.5.3.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.3.3)), [8182 §3.5.4](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.4)), [9674 §3.2](../rfc/rfc9674.txt) ([html](https://www.rfc-editor.org/rfc/rfc9674.html#section-3.2)))
+  Driven by cases.exs: each file is accepted, warned about or rejected for its stated rule.
+- *notification:* a notification decodes to its session, serial, snapshot and deltas sorted by serial (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)))
+- *notification:* a cross-origin reference is logged (RFC [9674 §3.2](../rfc/rfc9674.txt) ([html](https://www.rfc-editor.org/rfc/rfc9674.html#section-3.2)))
+  RFC 9674 §3.2: implementations SHOULD log a message when cross-origin referrals are detected.
+- *notification:* the same notification is cross-origin when fetched from another host (RFC [9674 §3.2](../rfc/rfc9674.txt) ([html](https://www.rfc-editor.org/rfc/rfc9674.html#section-3.2)))
+  The origin is the notification URI's: the same file fetched from another host is cross-origin.
+- *snapshot and delta:* a snapshot's objects come out with their rsync URIs and decoded bytes (RFC [8182 §3.5.2.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.2.3)))
+- *snapshot and delta:* a delta's elements come out as new, replaced and withdrawn objects (RFC [8182 §3.5.3.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.3.3)))
+- *snapshot and delta:* an object over 20 MiB is rejected, and one of exactly 20 MiB isn't (RFC [8182 §3.5.4](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.4)))
+  D-043: each published object at most 20 MiB, as for rsync.
+- *snapshot and delta:* a snapshot streams from a file as it parses from memory, and the callback can stop it
+- *Barry's RRDP output:* a fixture's notification and snapshot decode once the session is a UUID, and carry its rsync objects (RFC [8182 §3.5.1.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.1.3)), [8182 §3.5.2.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.5.2.3)), [8182 §4.1](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-4.1)))
+  Barry writes session_id="1" (F-038), which D-042 rejects. With a
+  UUID in its place, the notification and snapshot decode, and the
+  snapshot publishes exactly the fixture's rsync tree below the TA,
+  byte for byte.
 
 ### `Lumina.RRDP.XMLTest`
 
