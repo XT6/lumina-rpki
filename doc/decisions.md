@@ -47,6 +47,10 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-037](#d-037-lumina-vrps---sync-syncs-only-what-needs-it) | `lumina vrps --sync` syncs only the TALs that need it | 2026-11-16 | #185 |
 | [D-038](#d-038-rpkinotify-in-an-ee-certificates-sia-only-warns) | rpkiNotify in an EE certificate's SIA only warns | 2026-11-16 | #190 |
 | [D-039](#d-039-a-module-fetch-is-retried-once-after-a-transient-failure) | A module fetch is retried once after a transient failure | 2026-11-16 | #193 |
+| [D-040](#d-040-rrdp-failure-falls-back-to-rsync-in-the-same-run) | RRDP failure falls back to rsync in the same run | 2026-11-17 | M8 plan, #206 |
+| [D-041](#d-041-rrdp-xml-is-parsed-by-luminas-own-strict-streaming-parser) | RRDP XML is parsed by Lumina's own strict streaming parser | 2026-11-17 | M8 plan, #198 |
+| [D-042](#d-042-a-session_id-that-isnt-a-version-4-uuid-only-warns) | A session_id that isn't a version 4 UUID only warns | 2026-11-17 | M8 plan, #199 |
+| [D-043](#d-043-rrdp-limits-2-gib-files-300-s-idle) | RRDP limits: 2 GiB files, 300 s idle | 2026-11-17 | M8 plan, #200 |
 
 ## D-001: CLI model
 
@@ -503,3 +507,40 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
   - The retry runs into the same staging directory, so rsync fetches only what the first run didn't bring; if it fails too, the staging directory is dropped and the last good copy kept, as for any failed fetch.
   - Reported: the first run is a fetch with outcome `:retried` (the fetch count is the number of rsync runs), a `retried` walk issue with the first error, `retried` in the `lumina sync` summary's fetch line, and the progress event `{:fetch_retrying, uri, host, error}`.
   - Once per sync: a module retried by one TAL's walk isn't fetched again by the next (#102). The mid-update refetch isn't retried.
+
+## D-040: RRDP failure falls back to rsync in the same run
+
+- **Date:** 2026-11-17
+- **Decision:** a CA whose certificate names an HTTPS `rpkiNotify` is synced over RRDP. When RRDP fails for its repository, Lumina fetches the CA's rsync module in the same run. The failures that count: notification file unreachable or rejected, snapshot unreachable or rejected, or the repository otherwise left unsynced. Rejected deltas fall back to the snapshot first (RFC 8182 §3.4.2). The repository's last good RRDP store is kept either way. The CA's publication point is read from rsync for this run, and RRDP is tried again on the next run.
+- **Why:** RFC 8182 §3.4.5 lets RPs use the other access methods in the SIA when RRDP fails. A man in the middle who breaks RRDP only gets the RP onto rsync, which has no channel security anyway; RPKI object security doesn't depend on the transport (§5). Falling back keeps the data current; the last good RRDP copy alone could go stale.
+- **Where:** M8 plan (maintainer, 2026-11-17: "rsync fallback, same run"); #206.
+
+## D-041: RRDP XML is parsed by Lumina's own strict streaming parser
+
+- **Date:** 2026-11-17
+- **Decision:** RRDP files are parsed by a parser written for Lumina, streaming from the downloaded file with bounded memory. It accepts what RRDP needs: an optional XML declaration (encoding US-ASCII if given), elements, attributes in any order, character references and the five predefined entities, base64 text and whitespace. It rejects a DOCTYPE, processing instructions other than the declaration, CDATA sections, any other entity, and bytes outside US-ASCII. The RFC 8182 §3.5.4 schema is checked as the file is read.
+- **Why:** Lumina has no runtime dependencies. Snapshots reach 760 MB (ARIN, 2026-11-16), so the whole file can't be held in memory. OTP's `xmerl_sax_parser` handles full XML, including the DTDs and entities RRDP never needs and that entity-expansion attacks use, and builds charlists. In a survey of 109 live notification files (2026-11-16), none used comments, DOCTYPEs or prefixes.
+- **Where:** M8 plan (maintainer, 2026-11-17: "Own strict streaming parser"); #198.
+- **Consequences:** comments are rejected too; XML allows them, but no server sends them. If one does, it is an RFC finding and the parser can accept them.
+
+## D-042: A session_id that isn't a version 4 UUID only warns
+
+- **Date:** 2026-11-17
+- **Decision:** a notification, snapshot or delta whose `session_id` is a UUID of another version (or variant) gives a warning, and RRDP is used. One that isn't a UUID at all (the schema allows `[-0-9a-fA-F]+`, RFC 8182 §3.5.4) is rejected.
+- **Why:** RFC 8182 §3.5.1.3 says the session_id MUST be a random version 4 UUID, but RPs never use it alone: §3.4.1 pairs it with the notification URI, so the version nibble has no security bearing. prefixlogic's repository serves a version 5 UUID (2026-11-16, TD-003); rejecting it would push that repository to rsync for no gain. Like D-038, the deviation stays visible.
+- **Where:** M8 plan (maintainer, 2026-11-17: "Warn, keep using RRDP"); #199.
+
+## D-043: RRDP limits: 2 GiB files, 300 s idle
+
+- **Date:** 2026-11-17
+- **Decision:** defaults, all configurable, extending D-008:
+
+  | Limit | Default |
+  | --- | --- |
+  | Notification file size | 20 MiB |
+  | Snapshot or delta file size | 2 GiB |
+  | Download time | no total limit; abort after 300 s without data |
+  | Each published object | 20 MiB, as for rsync (D-008) |
+
+- **Why:** ARIN's snapshot was 760 MB on 2026-11-16 and RIPE's 284 MB; 2 GiB leaves room to grow. A total time limit would cut off a large snapshot on a slow link; an idle limit still stops a server that stalls. Objects keep the rsync limit, so the transport doesn't change what is accepted.
+- **Where:** M8 plan (maintainer, 2026-11-17: "2 GiB files, 300 s idle"); #200.
