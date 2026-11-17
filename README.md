@@ -15,7 +15,7 @@ scripts/install-deps.sh --check   # only reports; exits 1 if something is missin
 
 Erlang and Elixir come from mise or asdf when either is installed (both read `.tool-versions`), otherwise from Homebrew on macOS; rsync from Homebrew on macOS, or apt-get/dnf on Linux. If a good rsync is installed but not first on `PATH`, either fix `PATH` or give it to `lumina sync --rsync PATH`.
 
-Releases are on [GitHub](https://github.com/XT6/lumina-rpki/releases): source archives and the `lumina` escript, which needs Erlang/OTP (version in `.tool-versions`) on the host. Versions are `0.<last milestone completed>.<patch>` ([releasing](doc/releasing.md)).
+Releases are on [GitHub](https://github.com/XT6/lumina-rpki/releases): source archives and the `lumina` escript, which needs Erlang/OTP (version in `.tool-versions`) on the host. Versions are `0.<last milestone completed>.<patch>` ([releasing](doc/releasing.md)). `lumina version` prints the version, and every run starts with a banner on stderr naming it (`--quiet` leaves it out).
 
 ## `lumina sync`
 

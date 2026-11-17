@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 92 Barry fixtures: 23 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 847 unit tests in 70 modules.
+- 852 unit tests in 70 modules.
 
 ## Barry fixtures
 
@@ -1723,6 +1723,13 @@ decode, 2 usage error. Output goes to StringIO devices.
 - *help and usage:* help <command> prints that command's usage
 - *help and usage:* no arguments, an unknown command, or the old --print flag exit 2 with usage
   The first version used a --print flag (PR #53); under D-001 it's a usage error.
+- *version and banner (D-045, #213):* version and --version print the mix.exs version on stdout, and nothing else
+- *version and banner (D-045, #213):* version with an argument is a usage error
+- *version and banner (D-045, #213):* with the banner on, every command starts stderr with it, and stdout is unchanged
+  main/1 passes banner: true. The banner is the first stderr line
+  and stdout is unchanged, so lumina vrps' CSV stays clean.
+- *version and banner (D-045, #213):* the banner names the version, the runtimes and the start time
+- *version and banner (D-045, #213):* --quiet and lumina version leave the banner out
 
 ### `Lumina.CLIValidateTest`
 
