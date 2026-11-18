@@ -12,6 +12,7 @@ defmodule Lumina.CLI do
                       [--progress | --quiet]
       lumina vrps [--cache DIR] [--tal FILE]... [--now TIME] [--max-invalid PERCENT]
                   [--format csv|json] [--output FILE] [--wide] [--progress | --quiet]
+      lumina clean [--cache DIR] [--tal FILE]... [--force] [--quiet]
       lumina version
       lumina help [command]
 
@@ -24,7 +25,7 @@ defmodule Lumina.CLI do
   (including an unknown command or flag).
   """
 
-  alias Lumina.{Object, Print, Progress, Rsync, Sync, TAL, Validate, VRP}
+  alias Lumina.{Clean, Object, Print, Progress, Rsync, Sync, TAL, Validate, VRP}
 
   @usage """
   Usage: lumina <command> [flags] [arguments]
@@ -34,6 +35,7 @@ defmodule Lumina.CLI do
     sync      fetch the trust anchors and repositories into the local cache
     validate  validate the certificates and signed objects in the local cache, offline
     vrps      validate the local cache, offline, and write the VRPs
+    clean     empty the local cache, or remove what some TALs use from it
     version   print lumina's version
     help      show help for lumina or a command
 
@@ -231,6 +233,40 @@ defmodule Lumina.CLI do
   warnings), or FILE can't be written, 2 usage error.
   """
 
+  @clean_usage """
+  Usage: lumina clean [--cache DIR] [--tal FILE]... [--force] [--quiet]
+
+  Remove what lumina sync put in the cache. Without --tal, the whole
+  cache is emptied, including what no TAL uses any more (the directory
+  itself stays). With --tal, only what each TAL's tree used at its last
+  sync goes: its trust anchor, its rsync modules and RRDP repositories,
+  and the records kept for its publication points; anything the tree of
+  another TAL synced into the cache also uses stays. The next sync
+  fetches everything removed again.
+
+  It lists what it will remove and asks before removing anything.
+
+  Flags:
+    --cache DIR   the cache directory (default: as for lumina sync)
+    --tal FILE    clean only what this TAL's tree uses; repeat to pick
+                  several (default: the whole cache)
+    --force       don't ask; for scripts and cron jobs. Without it, a run
+                  whose standard input isn't a terminal removes nothing
+    --quiet       no banner
+
+  A TAL never synced into the cache has nothing to remove: a warning,
+  and the rest goes ahead. A TAL synced by lumina before 0.8.1 has no
+  record of its repositories, so only its trust anchor and sync record
+  are removed; clean without --tal, or sync it again first.
+
+  Prints what was removed: files and bytes, and for --tal what each TAL
+  lost and kept.
+
+  Exit codes: 0 removed, or nothing to remove, 1 the cache is in use by a
+  sync, the removal wasn't confirmed, or a file couldn't be removed,
+  2 usage error.
+  """
+
   @version_usage """
   Usage: lumina version
 
@@ -251,6 +287,7 @@ defmodule Lumina.CLI do
     "sync" => @sync_usage,
     "validate" => @validate_usage,
     "vrps" => @vrps_usage,
+    "clean" => @clean_usage,
     "version" => @version_usage
   }
 
@@ -313,6 +350,9 @@ defmodule Lumina.CLI do
 
       ["vrps" | rest] ->
         vrps_command(rest, out, err, internal)
+
+      ["clean" | rest] ->
+        clean_command(rest, out, err, internal)
 
       _ ->
         written(err, @usage, 2)
@@ -446,6 +486,188 @@ defmodule Lumina.CLI do
         written(err, "lumina validate: unexpected argument #{arg}\n\n" <> @validate_usage, 2)
     end
   end
+
+  @clean_flags [cache: :string, tal: :keep, force: :boolean, quiet: :boolean, help: :boolean]
+
+  # lumina clean (#226, D-047). `internal`: `:input`, the device the answer
+  # is read from (default :stdio), and `:interactive`, whether it is a
+  # terminal (default: whether standard input is one).
+  defp clean_command(args, out, err, internal) do
+    case OptionParser.parse(args, strict: @clean_flags, aliases: [h: :help]) do
+      {[help: true], [], []} ->
+        written(out, @clean_usage, 0)
+
+      {opts, [], []} ->
+        selected =
+          case Keyword.get_values(opts, :tal) do
+            [] -> {:ok, :all}
+            paths -> read_tals(paths)
+          end
+
+        case selected do
+          {:ok, what} -> clean(opts[:cache] || default_cache(), what, opts, out, err, internal)
+          {:error, message} -> written(err, "lumina clean: #{message}\n", 2)
+        end
+
+      {_opts, _args, [{flag, _} | _]} ->
+        written(err, "lumina clean: unknown or invalid flag #{flag}\n\n" <> @clean_usage, 2)
+
+      {_opts, [arg | _], []} ->
+        written(err, "lumina clean: unexpected argument #{arg}\n\n" <> @clean_usage, 2)
+    end
+  end
+
+  defp clean(cache, what, opts, out, err, internal) do
+    if File.dir?(cache) do
+      result =
+        Sync.with_lock(cache, fn ->
+          {:ok, _} = Lumina.Cache.recover(cache)
+          plan = Clean.plan(cache, what)
+          clean_warnings(plan, cache, err)
+
+          cond do
+            plan.paths == [] ->
+              written(out, "#{cache}: nothing to remove\n", 0)
+
+            confirmed?(plan, cache, opts, err, internal) ->
+              case Clean.remove(cache, plan) do
+                :ok ->
+                  written(out, clean_summary(plan, cache, "removed"), 0)
+
+                {:error, path, reason} ->
+                  written(
+                    err,
+                    "lumina clean: #{path}: #{:file.format_error(reason)}\n",
+                    1
+                  )
+              end
+
+            true ->
+              1
+          end
+        end)
+
+      case result do
+        {:error, {:locked, pid}} ->
+          written(err, "lumina clean: #{cache} is in use by a sync (process #{pid})\n", 1)
+
+        {:error, reason} ->
+          written(err, "lumina clean: #{cache}: #{:file.format_error(reason)}\n", 1)
+
+        code ->
+          code
+      end
+    else
+      written(out, "#{cache}: nothing to remove\n", 0)
+    end
+  end
+
+  defp clean_warnings(%{tals: :all}, _cache, _err), do: :ok
+
+  defp clean_warnings(plan, cache, err) do
+    for tal <- plan.tals do
+      cond do
+        tal.never_synced ->
+          IO.write(
+            err,
+            "lumina clean: warning: #{tal.path} was never synced into #{cache}; nothing to remove for it\n"
+          )
+
+        tal.tree_unknown ->
+          IO.write(
+            err,
+            "lumina clean: warning: #{tal.path} was synced by lumina before 0.8.1, which didn't record its repositories; " <>
+              "only its trust anchor and sync record are removed (clean without --tal, or sync it again first)\n"
+          )
+
+        true ->
+          :ok
+      end
+    end
+
+    if plan.others_unknown,
+      do:
+        IO.write(
+          err,
+          "lumina clean: warning: another TAL in #{cache} was synced by lumina before 0.8.1, so what it uses isn't known; " <>
+            "every repository is kept (clean without --tal, or sync the TALs again first)\n"
+        )
+
+    :ok
+  end
+
+  # D-047: ask, unless --force; without a terminal to ask on, remove nothing.
+  defp confirmed?(plan, cache, opts, err, internal) do
+    interactive =
+      Keyword.get_lazy(internal, :interactive, fn ->
+        try do
+          :prim_tty.isatty(:stdin) == true
+        rescue
+          _ -> false
+        end
+      end)
+
+    cond do
+      opts[:force] ->
+        true
+
+      not interactive ->
+        IO.write(
+          err,
+          clean_summary(plan, cache, "would remove") <>
+            "lumina clean: standard input isn't a terminal, so nothing was removed; give --force to remove without asking\n"
+        )
+
+        false
+
+      true ->
+        IO.write(err, clean_summary(plan, cache, "will remove") <> "Remove? [y/N] ")
+
+        case IO.gets(Keyword.get(internal, :input, :stdio), "") do
+          answer when is_binary(answer) and answer != "" ->
+            if String.downcase(String.trim(answer)) in ["y", "yes"],
+              do: true,
+              else: written(err, "nothing removed\n", false)
+
+          _ ->
+            written(err, "\nnothing removed\n", false)
+        end
+    end
+  end
+
+  defp clean_summary(%{tals: :all} = plan, cache, verb),
+    do: "#{cache}: #{verb} everything: #{files(plan)}\n"
+
+  defp clean_summary(plan, cache, verb) do
+    lines =
+      for tal <- plan.tals, not tal.never_synced do
+        parts =
+          for {n, one, many} <- [
+                {if(tal.ta, do: 1, else: 0), "trust anchor", "trust anchors"},
+                {tal.modules, "rsync module", "rsync modules"},
+                {tal.notifications, "RRDP repository", "RRDP repositories"},
+                {tal.points, "publication point record", "publication point records"}
+              ],
+              n > 0,
+              do: "#{n} #{if n == 1, do: one, else: many}"
+
+        parts = if parts == [], do: ["its sync record"], else: parts
+
+        kept =
+          if tal.shared > 0,
+            do:
+              "; kept #{tal.shared} repositor#{if tal.shared == 1, do: "y", else: "ies"} another TAL uses",
+            else: ""
+
+        "  #{tal.path}: #{Enum.join(parts, ", ")}#{kept}\n"
+      end
+
+    "#{cache}: #{verb} #{files(plan)}\n" <> Enum.join(lines)
+  end
+
+  defp files(plan),
+    do:
+      "#{plan.files} file#{if plan.files == 1, do: "", else: "s"}, #{Progress.bytes(plan.bytes)}"
 
   @vrps_flags [
     cache: :string,

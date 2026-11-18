@@ -43,6 +43,20 @@ A module fetch whose connection drops or times out is tried once more after 10 t
 
 Exit codes: `0` everything fetched, `1` a fetch failed (the cache is still usable), the cache is in use, or rsync is missing or too old, `2` usage error.
 
+## `lumina clean`
+
+Removes what `lumina sync` put in the cache. The next sync fetches it again.
+
+```sh
+./lumina clean                         # empty the whole cache, after asking
+./lumina clean --tal tals/arin.tal     # only what ARIN's tree uses; repositories another TAL's tree uses stay
+./lumina clean --force                 # don't ask (cron jobs, scripts)
+```
+
+It lists what it will remove and asks `Remove? [y/N]`; without `--force` and with standard input not a terminal, it removes nothing ([D-047](doc/decisions.md#d-047-lumina-clean-empties-the-cache-after-confirmation)). A TAL never synced into the cache only warns. A TAL synced by Lumina before 0.8.1 has no record of its repositories, so `--tal` removes only its trust anchor and sync record.
+
+Exit codes: `0` removed, or nothing to remove, `1` the cache is in use by a sync, the removal wasn't confirmed, or a file couldn't be removed, `2` usage error.
+
 ## `lumina print`
 
 Prints RPKI objects in human-readable form, one `field: value` per line. It's useful for inspecting a repository, writing fixtures and debugging.

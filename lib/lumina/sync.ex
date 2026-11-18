@@ -24,13 +24,17 @@ defmodule Lumina.Sync do
   When a TAL's walk has run, the time is recorded in
   `<cache>/.state/syncs/<TA SKI hex>.json`, keyed like the stored TA, and
   `last_synced/2` reads it back: `lumina vrps --sync` syncs a TAL whose
-  last sync is older than `--max-age` (#185, D-037). A walk that ran
+  last sync is older than `--max-age` (#185, D-037). The record also
+  lists what the tree used (`tree/2`, #226): the TAL's URIs, the rsync
+  modules and RRDP notification URIs its points were read from or its
+  walk fetched, and its points' manifest URIs, so `lumina clean --tal`
+  can remove one tree and keep what another shares. A walk that ran
   counts even if some fetches failed (a delegated host that is always
   down would otherwise force a sync every time); a TAL whose TA couldn't
   be retrieved, with no earlier TA to walk from, doesn't.
   """
 
-  alias Lumina.{Cache, Progress, TA, TAL, Walk}
+  alias Lumina.{Cache, Progress, TA, TAL, URI, Walk}
 
   @type report :: %{
           tal: Path.t(),
@@ -51,34 +55,50 @@ defmodule Lumina.Sync do
   @spec run([{Path.t(), TAL.t()}], Path.t(), keyword()) ::
           {:ok, [report()]} | {:error, {:locked, String.t()} | File.posix()}
   def run(tals, root, opts \\ []) do
+    with_lock(root, fn ->
+      {:ok, _} = Cache.recover(root)
+      total = length(tals)
+
+      # What each walk fetched goes to the next (#102), so a module
+      # shared by several trees is fetched once.
+      {reports, _modules} =
+        tals
+        |> Enum.with_index(1)
+        |> Enum.map_reduce([], fn {{path, tal}, index}, modules ->
+          Progress.emit(opts, {:tal_started, path, index, total})
+          report = sync_tal(path, tal, root, modules ++ opts)
+
+          # When the walk ran (#185): lumina vrps --sync measures age from it.
+          _ =
+            if report.walk,
+              do:
+                record(root, tal, report.walk, Keyword.get_lazy(opts, :now, &DateTime.utc_now/0))
+
+          {report,
+           if(report.walk,
+             do: Map.to_list(Map.take(report.walk, [:fetched, :refetched])),
+             else: modules
+           )}
+        end)
+
+      {:ok, reports}
+    end)
+  end
+
+  @doc """
+  Runs `fun` holding the cache's lock, `<root>/.lock` (created with the
+  directory if needed): `{:error, {:locked, pid}}` while another live
+  process holds it, else `fun`'s result. A lock left by a process that
+  no longer exists is taken over.
+  """
+  @spec with_lock(Path.t(), (-> result)) ::
+          result | {:error, {:locked, String.t()} | File.posix()}
+        when result: term()
+  def with_lock(root, fun) do
     with :ok <- File.mkdir_p(root),
          :ok <- lock(root) do
       try do
-        {:ok, _} = Cache.recover(root)
-        total = length(tals)
-
-        # What each walk fetched goes to the next (#102), so a module
-        # shared by several trees is fetched once.
-        {reports, _modules} =
-          tals
-          |> Enum.with_index(1)
-          |> Enum.map_reduce([], fn {{path, tal}, index}, modules ->
-            Progress.emit(opts, {:tal_started, path, index, total})
-            report = sync_tal(path, tal, root, modules ++ opts)
-
-            # When the walk ran (#185): lumina vrps --sync measures age from it.
-            _ =
-              if report.walk,
-                do: record(root, tal, Keyword.get_lazy(opts, :now, &DateTime.utc_now/0))
-
-            {report,
-             if(report.walk,
-               do: Map.to_list(Map.take(report.walk, [:fetched, :refetched])),
-               else: modules
-             )}
-          end)
-
-        {:ok, reports}
+        fun.()
       after
         unlock(root)
       end
@@ -110,13 +130,82 @@ defmodule Lumina.Sync do
     end
   end
 
-  defp record(root, tal, time) do
+  @doc """
+  What `tal`'s tree used at its last sync into the cache at `root`
+  (#226): `%{tal_uris, modules, notifications, manifests}`, lists of URI
+  strings; `nil` if it was never synced, or synced by a Lumina before
+  0.8.1, which didn't record it.
+  """
+  @spec tree(Path.t(), TAL.t()) :: %{atom() => [String.t()]} | nil
+  def tree(root, %TAL{} = tal), do: read_tree(state_file(root, tal))
+
+  @doc """
+  The trees of every TAL synced into `root` (`tree/2`), by sync record
+  file, `nil` for one that recorded none.
+  """
+  @spec trees(Path.t()) :: %{Path.t() => %{atom() => [String.t()]} | nil}
+  def trees(root) do
+    for file <- Path.wildcard(Path.join([root, ".state", "syncs", "*.json"])),
+        into: %{},
+        do: {file, read_tree(file)}
+  end
+
+  @doc "The file recording `tal`'s last sync."
+  @spec record_file(Path.t(), TAL.t()) :: Path.t()
+  def record_file(root, %TAL{} = tal), do: state_file(root, tal)
+
+  defp read_tree(file) do
+    with {:ok, text} <- File.read(file),
+         {:ok, %{"tree" => tree}} <- JSON.decode(text) do
+      for key <- ~w(tal_uris modules notifications manifests),
+          into: %{},
+          do: {String.to_atom(key), List.wrap(tree[key])}
+    else
+      _ -> nil
+    end
+  end
+
+  defp record(root, tal, walk, time) do
     file = state_file(root, tal)
     temp = file <> ".tmp"
+    json = %{"synced_at" => DateTime.to_iso8601(time), "tree" => walk_tree(tal, walk)}
 
     with :ok <- File.mkdir_p(Path.dirname(file)),
-         :ok <- File.write(temp, JSON.encode!(%{"synced_at" => DateTime.to_iso8601(time)})),
+         :ok <- File.write(temp, JSON.encode!(json)),
          do: File.rename(temp, file)
+  end
+
+  # The fetch units a walk's points were read from (a module shared with
+  # an earlier walk included, #102), the module each point's manifest is
+  # in, what the walk itself fetched or synced, and the points' keys.
+  defp walk_tree(tal, walk) do
+    units =
+      Enum.flat_map(walk.points, fn point ->
+        source = with {_transport, %URI{} = uri} <- point[:source], do: to_string(uri)
+        [source, manifest_module(point.manifest)]
+      end) ++
+        Enum.map(walk.fetches, & &1.uri) ++ Enum.map(walk.rrdp, &to_string(&1.notify))
+
+    {notifications, modules} =
+      units
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+      |> Enum.sort()
+      |> Enum.split_with(&String.starts_with?(&1, "https://"))
+
+    %{
+      "tal_uris" => tal.uris,
+      "modules" => modules,
+      "notifications" => notifications,
+      "manifests" => walk.points |> Enum.map(& &1.manifest) |> Enum.uniq() |> Enum.sort()
+    }
+  end
+
+  defp manifest_module(manifest) do
+    with {:ok, uri} <- URI.parse(manifest),
+         {:ok, module} <- URI.module(uri),
+         do: to_string(module),
+         else: (_ -> nil)
   end
 
   defp state_file(root, tal) do
