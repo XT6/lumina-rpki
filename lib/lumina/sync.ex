@@ -295,8 +295,56 @@ defmodule Lumina.Sync do
           do: "#{n} #{label}"
 
     n = length(syncs)
-    "  rrdp: #{n} repositor#{if n == 1, do: "y", else: "ies"}: #{Enum.join(outcomes, ", ")}\n"
+
+    [
+      "  rrdp: #{n} repositor#{if n == 1, do: "y", else: "ies"}: #{Enum.join(outcomes, ", ")}\n"
+      | for(sync <- Enum.sort_by(syncs, &to_string(&1.notify)), do: "    #{repository(sync)}\n")
+    ]
   end
+
+  # One RRDP repository's line (#233, D-048): its session_id, the serial
+  # before and after, what was downloaded and how many bytes.
+  defp repository(sync) do
+    parts =
+      case {sync.outcome, sync.previous} do
+        {{:deltas, n}, %{serial: from}} ->
+          [session(sync), "serial #{from} → #{sync.serial}", "#{n} delta#{plural(n)}"]
+
+        {:snapshot, nil} ->
+          [session(sync), "serial #{sync.serial}", "snapshot (first sync)"]
+
+        {:snapshot, %{session_id: id}} when id != sync.session_id ->
+          [session(sync) <> " (new session)", "serial #{sync.serial}", "snapshot"]
+
+        {:snapshot, %{serial: from}} ->
+          [session(sync), "serial #{from} → #{sync.serial}", "snapshot (#{snapshot_why(sync)})"]
+
+        {{:failed, reason}, _} ->
+          held = if sync.serial, do: [session(sync), "serial #{sync.serial} kept"], else: []
+          held ++ ["failed (#{reason})"]
+
+        {outcome, _} ->
+          [session(sync), "serial #{sync.serial}", to_string(outcome)]
+      end
+
+    bytes = if sync.bytes > 0, do: [Lumina.Progress.bytes(sync.bytes)], else: []
+    "#{sync.notify}: " <> Enum.join(parts ++ bytes, ", ")
+  end
+
+  defp session(sync), do: "session #{sync.session_id}"
+
+  # Why the snapshot of a session already held was used (RFC 8182
+  # §3.4.1, §3.4.2; RFC 9697 §4).
+  defp snapshot_why(%{fallback: %{reason: reason}}), do: "#{reason}, deltas not used"
+
+  defp snapshot_why(sync) do
+    if Enum.any?(sync.warnings, &match?(%{rule: :rrdp_desync}, &1)),
+      do: "RFC 9697 desync",
+      else: "deltas not listed"
+  end
+
+  defp plural(1), do: ""
+  defp plural(_), do: "s"
 
   # A short reason for a failure's detail. For rsync failures Lumina can't
   # classify further, rsync's own first line says what went wrong.

@@ -118,6 +118,40 @@ defmodule Lumina.RRDP.SyncDeltasTest do
     assert store(root, fixture) == RRDPServer.snapshot_files(fixture)
   end
 
+  @tag rfc: "8182#3.4.2",
+       doc: """
+       For the sync summary (#233): `previous` is the store's session_id
+       and serial before the run (none on a first sync), and `bytes` the
+       size of every file received, here the notification and the
+       snapshot, then the notification and deltas 2 and 3. A sync that
+       downloads nothing counts no bytes.
+       """
+  test "the result gives the store's serial before the sync and the bytes received",
+       %{tmp_dir: dir} do
+    fixture = three()
+    size = &byte_size(read(fixture, &1))
+    server = RRDPServer.start!(RRDPServer.routes(fixture, 1))
+    root = Path.join(dir, "cache")
+
+    first = sync(server, root, fixture)
+    assert {first.outcome, first.previous} == {:snapshot, nil}
+    assert first.bytes == size.("notification-1.xml") + size.("snapshot-1.xml")
+
+    RRDPServer.serve(server, RRDPServer.routes(fixture))
+    second = sync(server, root, fixture)
+    assert second.outcome == {:deltas, 2}
+    assert second.previous == %{session_id: fixture.session_id, serial: 1}
+    assert {second.session_id, second.serial} == {fixture.session_id, 3}
+
+    assert second.bytes ==
+             size.("notification.xml") + size.("delta-2.xml") + size.("delta-3.xml")
+
+    recent = Sync.run(fixture.notification_uri, root, Keyword.delete(server.opts, :min_interval))
+    assert recent.outcome == :recent
+    assert recent.previous == %{session_id: fixture.session_id, serial: 3}
+    assert recent.bytes == 0
+  end
+
   @tag rfc: "8182#3.4.2"
   test "m8-rrdp-delta's serial 1 store reaches serial 2 by its delta", %{tmp_dir: dir} do
     fixture = Fixture.load!("m8-rrdp-delta")
