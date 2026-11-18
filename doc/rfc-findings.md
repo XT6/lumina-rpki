@@ -63,6 +63,7 @@ Where a live repository departs from the RFCs, or its servers from what everyone
 | [F-040](#f-040-rfc-8182-cites-obsoleted-http-rfcs) | 8182 §3.4.1, §3.4.4, §7 | obsolete reference | none found (not reported) | RFC 9110 §13.1.3 and RFC 9112 for the HTTP side (#200) |
 | [F-041](#f-041-rfc-8182-doesnt-say-a-snapshot-publishes-each-uri-once) | 8182 §3.5.2.3 | ambiguity | none found (not reported) | A URI published twice rejects the snapshot (`duplicate_publish`, #203) |
 | [F-042](#f-042-rfc-9697-asks-for-a-snapshot-that-rfc-8182-may-reject) | 9697 §4, §5; 8182 §3.4.3 | ambiguity | none found (not reported) | At an unchanged serial a desync is warned and the store kept (#205) |
+| [F-043](#f-043-barrys-uri-override-moves-an-object-in-rrdp-but-not-in-rsync) | 8182 §3.5.2.3 (Barry) | tooling | n/a | `m4-chain-crl-missing` left out of the M8 transport comparison (#209) |
 
 ## Entries
 
@@ -651,6 +652,14 @@ Where a live repository departs from the RFCs, or its servers from what everyone
 - **The problem:** a desync can show up while the notification's serial is still the one last processed: the server changed a delta's hash without publishing a new serial. Processing the snapshot "as described in Section 3.4.3" then means rejecting it, since its serial isn't greater. RFC 9697 §3.1's example has the serial move on, so it doesn't meet this case.
 - **Resolution:** Lumina warns (`rrdp_desync`) and keeps the store at that serial, reporting `:unchanged`; the new hashes are recorded, and the next serial is processed as usual. When the serial has moved on, the snapshot is processed (#205). The store already holds the repository at that serial, from a snapshot or from deltas whose hashes matched when they were applied.
 - **Talk note:** an update that defers to the RFC it updates for the recovery step, when that step's own check can refuse the recovery.
+
+### F-043: Barry's uri override moves an object in RRDP but not in rsync
+
+- **Where:** RFC 8182 §3.5.2.3: a snapshot's publish elements carry each object's rsync URI, so an RRDP repository and its rsync mirror hold the same objects at the same URIs. Barry (pinned `478ee89`) honours a node's `uri =` override in the RRDP files but not in its rsync output: `m4-chain-crl-missing` sets the TA's CRL to `uri = rsync://localhost:8873/rpki/ta/missing.crl` so that its children's CRLDP names a file that isn't there. The rsync tree has the CRL at `ta/ta.crl`, but the snapshot publishes it as `ta/missing.crl`.
+- **Kind:** tooling incompatibility.
+- **Official errata:** none needed; the RFC is clear.
+- **The problem:** over RRDP the CRL the CRLDP names *is* published, and `ta/ta.crl`, which the manifest lists, isn't. So the fixture's two transports describe different repositories and validate differently: the rsync tree gives the outcome the fixture states, and the RRDP copy gives other reasons. Every other fixture's snapshot publishes exactly its rsync tree (checked in #209).
+- **Resolution:** the M8 done test (#209) leaves `m4-chain-crl-missing` out of its RRDP-against-rsync comparison and says why. Its RRDP files are as Barry wrote them. Suggestion for Barry: write an object whose `uri` is overridden to the same place in both outputs, or have a way to name a CRLDP without moving the CRL.
 
 ## TA deviations
 

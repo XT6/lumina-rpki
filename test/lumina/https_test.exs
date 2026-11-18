@@ -110,6 +110,33 @@ defmodule Lumina.HTTPSTest do
     end
 
     @tag rfc: "8630#4",
+         doc: """
+         The server sends its root's certificate cross-signed by a root the
+         client doesn't trust, which the client holds self-signed (as
+         rrdp.apnic.net and Let's Encrypt chains do, #229). The chain as
+         sent ends at an unknown CA; the path through the trusted
+         self-signed certificate validates, so the fetch succeeds and
+         nothing is logged as a failure. Trusting neither still fails.
+         """
+    test "a cross-signed chain validates through the root the client trusts" do
+      pki = HTTPSServer.cross_signed_pki()
+      port = HTTPSServer.start!(pki, %{"/ta.cer" => {200, [], @body}})
+      uri = uri!("https://localhost:#{port}/ta.cer")
+
+      log =
+        capture_log(fn ->
+          assert {:ok, %{body: @body}} = HTTPS.fetch(uri, cacerts: pki.cacerts)
+        end)
+
+      refute log =~ "TLS validation failed"
+
+      capture_log(fn ->
+        assert {:error, %{reason: :tls_untrusted, detail: :unknown_ca}} =
+                 HTTPS.fetch(uri, cacerts: HTTPSServer.pki().cacerts)
+      end)
+    end
+
+    @tag rfc: "8630#4",
          doc: "Without :cacerts the system CA store is used, and it doesn't trust a test CA."
     test "by default only the system CA store is trusted" do
       {base, _pki} = serve(%{"/ta.cer" => {200, [], @body}})
