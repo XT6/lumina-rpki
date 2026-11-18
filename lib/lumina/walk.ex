@@ -130,6 +130,7 @@ defmodule Lumina.Walk do
   @type issue :: %{kind: atom(), uri: String.t(), detail: term()}
   @type point :: %{
           uri: String.t(),
+          manifest: String.t(),
           depth: non_neg_integer(),
           path: Path.t(),
           covered_by: String.t(),
@@ -747,6 +748,7 @@ defmodule Lumina.Walk do
 
       point = %{
         uri: key,
+        manifest: point_key(cert, pp),
         depth: depth,
         path: path,
         covered_by: covered_by,
@@ -757,14 +759,14 @@ defmodule Lumina.Walk do
 
       state = %{state | points: [point | state.points]}
       first = Map.get(validated, point_id(key, cert, resources))
-      ancestors = [point_key(cert, pp) | ancestors]
+      ancestors = [point.manifest | ancestors]
 
       {children, state} =
         children({cert, resources}, path, key, depth, ancestors, {unit, outcome, first}, state)
 
       # Where the point was read from, for offline validation (#207),
       # which then sees the copy this walk saw (or its last valid copy).
-      _ = Source.save(state.root, point_key(cert, pp), source, state.now)
+      _ = Source.save(state.root, point.manifest, source, state.now)
 
       {children, state}
     else

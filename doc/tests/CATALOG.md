@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 94 Barry fixtures: 25 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 1012 unit tests in 82 modules.
+- 1022 unit tests in 83 modules.
 
 ## Barry fixtures
 
@@ -1651,6 +1651,51 @@ Fixtures validate at 2030-01-01.
 - *CRL results:* a stale CRL's warning is passed on to its children (RFC [5280 §5.1.2.5](../rfc/rfc5280.txt) ([html](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.1.2.5)))
   D-016: the child is valid and keeps the stale_crl warning.
 - *CRL results:* crl_uri/1 gives the rsync URI of the CRLDP, and nil for a TA (RFC [6487 §4.8.6](../rfc/rfc6487.txt) ([html](https://www.rfc-editor.org/rfc/rfc6487.html#section-4.8.6)))
+
+### `Lumina.CLICleanTest`
+
+[test/lumina/cli_clean_test.exs](../../test/lumina/cli_clean_test.exs)
+
+Tests `lumina clean` (#226, D-047) through `Lumina.CLI.run/4`, on caches
+filled by real syncs of Barry fixtures (rsync daemons, and
+`Lumina.Test.RRDPServer` for RRDP): without `--tal` the whole cache is
+emptied; with `--tal` only what that TAL's tree used goes, and what
+another TAL's tree also uses stays; a TAL never synced only warns; it
+asks before removing anything, `--force` doesn't, and without a
+terminal to ask on nothing is removed; a locked cache is left alone.
+
+The answer is read from the `:input` device and whether it is a
+terminal comes from `:interactive`, both internal options, so the
+question can be tested without one.
+
+- without --tal, --force empties the whole cache, files no TAL uses included
+  m0-minimal-valid synced, plus a directory no TAL uses (as a TAL
+  removed from ./tals/ leaves). clean --force empties the cache
+  directory but keeps it, and validate then finds no TA.
+- --tal removes the TAL's trust anchor, RRDP repository and point records (RFC [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)))
+  m8-rrdp-three synced over RRDP alone. clean --tal removes its TA,
+  sync record, RRDP store and state, and its points' source, last
+  valid and manifest records: nothing is left.
+- --tal keeps what another TAL's tree uses, and that TAL still validates the same
+  m3-walk-siblings (modules rpki and s1 to s8) synced with rsync, then
+  m8-rrdp-three over RRDP into the same cache. Both trees have
+  points in the module rpki, and its TA's manifest is at the same
+  URI. clean --tal m3-walk-siblings removes its TA and s1 to s8,
+  keeps rpki, the shared point's records and m8-rrdp-three's RRDP
+  repository, and m8-rrdp-three still validates the same.
+- a TAL never synced warns and exits 0, and the others are cleaned
+- a TAL synced before 0.8.1 loses only its trust anchor and sync record, with a warning
+  A sync record without a tree, as Lumina before 0.8.1 wrote: only
+  the TA and the record go, with a warning.
+- without --force it asks, and removes only on yes; with no terminal it removes nothing
+  D-047: without --force, the plan is listed and the question asked;
+  "n" (or no answer) removes nothing and exits 1, "y" removes. With
+  standard input not a terminal, nothing is removed, exit 1, and the
+  message names --force.
+- a cache locked by a running sync exits 1 and is left untouched
+- a cache that doesn't exist has nothing to remove
+- usage errors exit 2
+- lumina help clean describes the flags and exit codes
 
 ### `Lumina.CLISyncTest`
 

@@ -593,6 +593,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
   - **Confirmation:** it lists what it will remove and asks `Remove? [y/N]`; any answer but `y` or `yes` removes nothing and exits 1. `--force` skips the question, for cron jobs. Without `--force` and with stdin not a terminal, nothing is removed and it exits 1, naming `--force`. There is no `--dry-run`.
 - **Why:** files of a TAL no longer in `./tals/` would otherwise stay with no command to remove them. A TAL path that has nothing to clean is not an error, but a typo shouldn't pass silently. Removing a cache costs a full resync (about 15 minutes for the five RIRs), so it asks first; a script that forgets `--force` fails without removing anything instead of waiting for an answer.
 - **Where:** maintainer, 2026-11-18, answering the open questions in #226 ("clean everything", "exit 0 printing a warning", "ask for confirmation, but add a --force flag for cron jobs"); the rule for stdin not a terminal was proposed with them.
+- **As implemented (#226):** `Lumina.Clean`. Without `--tal`, no TAL is read, so an empty or missing `./tals/` isn't an error. With `--tal`, what a tree used comes from its sync record, which every sync since 0.8.1 extends with the TAL's URIs, rsync modules, RRDP notification URIs and points' manifest URIs (`Lumina.Sync.tree/2`). A TAL synced before 0.8.1 loses only its trust anchor and sync record, and while another TAL's record has no tree, every repository is kept; both warn.
 
 ## D-048: The sync summary gives every RRDP repository a line
 
