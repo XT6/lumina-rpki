@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 94 Barry fixtures: 25 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 1010 unit tests in 82 modules.
+- 1012 unit tests in 82 modules.
 
 ## Barry fixtures
 
@@ -1740,7 +1740,8 @@ runs turn it on through the internal options, as the real default.
   m8-rrdp-three synced four times into one cache: at serial 2 (the
   snapshot), at serial 3 (one delta), again (unchanged), and with the
   notification gone (failed; the point fetched with rsync, D-040).
-  Each summary counts its repository under the right outcome, and the
+  Each summary counts its repository under the right outcome and
+  gives its line (#233: session, serials, download, bytes), and the
   failure is listed with its reason, as is the rsync fallback.
 - *RRDP:* --rrdp-max-size limits the snapshot downloaded (RFC [8182 §3.4.5](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.5)))
   --rrdp-max-size 1K is smaller than m0-minimal-valid's snapshot: the
@@ -1753,6 +1754,14 @@ runs turn it on through the internal options, as the real default.
   per outcome: the rrdp line counts each, in a fixed order, and each
   warning and failure is listed with its reason (D-042's session,
   RFC 9697's desync, a rejected delta, a cross-origin redirect).
+- *RRDP:* the summary has a line per RRDP repository with its session, serials and download (RFC [8182 §3.4.1](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.1)), [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)), [8182 §3.4.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.3)), [9697 §4](../rfc/rfc9697.txt) ([html](https://www.rfc-editor.org/rfc/rfc9697.html#section-4)))
+  Lumina.Sync.summary/1 on one walk that synced a repository per case
+  (#233, D-048): each gets a line, sorted by notification URI, with
+  its session_id, the serial before and after, the deltas applied or
+  the snapshot and why it was used (first sync, a new session, deltas
+  not listed, an RFC 9697 desync, a rejected delta), and the bytes
+  received; unchanged and recent ones too, and a failed one with the
+  serial its store keeps, if any.
 - *usage:* --tal on a missing file is a usage error
 - *usage:* --tal on a file that isn't a TAL is a usage error (RFC [8630 §2.2](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-2.2)))
 - *usage:* an unknown flag, a stray argument or a bad number is a usage error
@@ -1916,8 +1925,8 @@ sync`, then runs `lumina vrps` at 2030-01-01 (`--now`), through
   m1-roa-prefixes served over RRDP (Lumina.Test.RRDPServer, the TA
   certificate too) and rsync, with RRDP on as outside tests. With
   --no-rrdp the sync asks the HTTPS server only for the TA
-  certificate; without it, for the notification. The VRPs are the
-  same.
+  certificate; without it, for the notification, and the summary on
+  stderr has the repository's line (#233). The VRPs are the same.
 - *--sync (#185):* a TAL synced within --max-age isn't synced again
   Synced 10 minutes before, within the default --max-age of 1h: no
   sync, shown by the repository host now pointing at a closed port,
@@ -3554,6 +3563,12 @@ published under the same rsync URIs (§3.4.2).
 
 - from serial 1, serial 3 is reached by deltas 2 and 3 alone, and equals its snapshot (RFC [8182 §3.4.1](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.1)), [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)))
 - from serial 2, only delta 3 is fetched (RFC [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)))
+- the result gives the store's serial before the sync and the bytes received (RFC [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)))
+  For the sync summary (#233): `previous` is the store's session_id
+  and serial before the run (none on a first sync), and `bytes` the
+  size of every file received, here the notification and the
+  snapshot, then the notification and deltas 2 and 3. A sync that
+  downloads nothing counts no bytes.
 - m8-rrdp-delta's serial 1 store reaches serial 2 by its delta (RFC [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)))
 - a delta whose hash isn't the notification's falls back to the snapshot (RFC [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)))
   Delta 2's file served where delta 3 is announced.

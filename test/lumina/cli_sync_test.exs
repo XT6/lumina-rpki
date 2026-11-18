@@ -585,7 +585,8 @@ defmodule Lumina.CLISyncTest do
          m8-rrdp-three synced four times into one cache: at serial 2 (the
          snapshot), at serial 3 (one delta), again (unchanged), and with the
          notification gone (failed; the point fetched with rsync, D-040).
-         Each summary counts its repository under the right outcome, and the
+         Each summary counts its repository under the right outcome and
+         gives its line (#233: session, serials, download, bytes), and the
          failure is listed with its reason, as is the rsync fallback.
          """
     test "the summary counts RRDP repositories by outcome, and lists a failure with its reason",
@@ -597,13 +598,17 @@ defmodule Lumina.CLISyncTest do
 
       assert {0, out, ""} = rrdp_sync(fixture, cache, internal)
       assert out =~ "  rrdp: 1 repository: 1 snapshot\n"
+      line = "    #{notify}: session #{fixture.session_id}, serial"
+      assert out =~ ~r/#{Regex.escape(line)} 2, snapshot \(first sync\), \d+(\.\d)? KiB\n/
 
       RRDPServer.serve(server, RRDPServer.routes(fixture))
       assert {0, out, ""} = rrdp_sync(fixture, cache, internal)
       assert out =~ "  rrdp: 1 repository: 1 deltas\n"
+      assert out =~ ~r/#{Regex.escape(line)} 2 → 3, 1 delta, \d+ (B|KiB)\n/
 
       assert {0, out, ""} = rrdp_sync(fixture, cache, internal)
       assert out =~ "  rrdp: 1 repository: 1 unchanged\n"
+      assert out =~ ~r/#{Regex.escape(line)} 3, unchanged, \d+ (B|KiB)\n/
 
       RRDPServer.serve(server, Map.delete(RRDPServer.routes(fixture), "/rrdp/notification.xml"))
       assert {0, out, ""} = rrdp_sync(fixture, cache, internal)
@@ -612,6 +617,7 @@ defmodule Lumina.CLISyncTest do
                "  rsync fetches: 1, 0 failed\n  rrdp: 1 repository: 1 failed (rsync fallback)\n"
 
       assert out =~ "    rrdp_failed: #{notify} (notification_failed: http_status: 404)\n"
+      assert out =~ "#{line} 3 kept, failed (notification_failed)\n"
 
       assert out =~
                "    rrdp_fallback: rsync://localhost:8873/rpki (RRDP #{notify} failed; fetched over rsync (D-040))\n"
@@ -673,7 +679,17 @@ defmodule Lumina.CLISyncTest do
     test "the summary's rrdp line counts every outcome, and names each warning" do
       sync = fn outcome, host ->
         {:ok, notify} = Lumina.URI.parse("https://#{host}/n.xml")
-        %{notify: notify, outcome: outcome, warnings: [], fallback: nil}
+
+        %{
+          notify: notify,
+          outcome: outcome,
+          session_id: "s",
+          serial: 2,
+          previous: %{session_id: "s", serial: 1},
+          bytes: 0,
+          warnings: [],
+          fallback: nil
+        }
       end
 
       walk = %{
@@ -737,6 +753,86 @@ defmodule Lumina.CLISyncTest do
                "    rrdp_failed: https://b.example/n.xml (cross_origin: cross_origin_redirect: https://c.example/s.xml)\n"
 
       assert summary =~ "5 RRDP repositories"
+    end
+
+    @tag rfc: ["8182#3.4.1", "8182#3.4.2", "8182#3.4.3", "9697#4"],
+         doc: """
+         Lumina.Sync.summary/1 on one walk that synced a repository per case
+         (#233, D-048): each gets a line, sorted by notification URI, with
+         its session_id, the serial before and after, the deltas applied or
+         the snapshot and why it was used (first sync, a new session, deltas
+         not listed, an RFC 9697 desync, a rejected delta), and the bytes
+         received; unchanged and recent ones too, and a failed one with the
+         serial its store keeps, if any.
+         """
+    test "the summary has a line per RRDP repository with its session, serials and download" do
+      a = "5d8a3f0e-6b1c-4e2a-9f7d-2c4b8e1a0d93"
+      b = "0b7e2c91-4f3a-4d6b-8e15-9a2f6c3d7e48"
+
+      sync = fn host, outcome, previous, serial, more ->
+        {:ok, notify} = Lumina.URI.parse("https://#{host}/n.xml")
+
+        Map.merge(
+          %{
+            notify: notify,
+            outcome: outcome,
+            session_id: a,
+            serial: serial,
+            previous: previous && %{session_id: a, serial: previous},
+            bytes: 0,
+            warnings: [],
+            fallback: nil
+          },
+          more
+        )
+      end
+
+      desync = %{rule: :rrdp_desync, rfc: "9697#4", message: "delta 2 changed", serials: [2]}
+      rejected = %{reason: :delta_hash_mismatch, error: %{rule: :delta_hash_mismatch}}
+
+      rrdp = [
+        sync.("r9.example", {:failed, :notification_failed}, nil, nil, %{}),
+        sync.("r0.example", :snapshot, nil, 812, %{bytes: 37_119_590}),
+        sync.("r1.example", {:deltas, 6}, 41_230, 41_236, %{bytes: 1_258_291}),
+        sync.("r2.example", {:deltas, 1}, 7, 8, %{bytes: 900}),
+        sync.("r3.example", :snapshot, 5, 1, %{
+          session_id: b,
+          previous: %{session_id: a, serial: 5},
+          bytes: 4096
+        }),
+        sync.("r4.example", :snapshot, 10, 20, %{bytes: 2048}),
+        sync.("r5.example", :snapshot, 10, 11, %{bytes: 2048, warnings: [desync]}),
+        sync.("r6.example", :snapshot, 10, 11, %{bytes: 2048, fallback: rejected}),
+        sync.("r7.example", :unchanged, 77, 77, %{bytes: 512}),
+        sync.("r8.example", :recent, 77, 77, %{}),
+        sync.("r8b.example", {:failed, :serial_not_greater}, 9, 9, %{bytes: 300})
+      ]
+
+      summary =
+        Lumina.Sync.summary([
+          %{
+            tal: "x.tal",
+            ta: {:ok, %{uri: "https://t.example/ta.cer", attempts: []}},
+            walk: %{fetches: [], points: [], rrdp: rrdp, issues: []},
+            failed?: false
+          }
+        ])
+
+      assert summary =~
+               """
+                 rrdp: 11 repositories: 5 snapshot, 2 deltas, 1 unchanged, 1 recent, 2 failed (rsync fallback)
+                   https://r0.example/n.xml: session #{a}, serial 812, snapshot (first sync), 35.4 MiB
+                   https://r1.example/n.xml: session #{a}, serial 41230 → 41236, 6 deltas, 1.2 MiB
+                   https://r2.example/n.xml: session #{a}, serial 7 → 8, 1 delta, 900 B
+                   https://r3.example/n.xml: session #{b} (new session), serial 1, snapshot, 4 KiB
+                   https://r4.example/n.xml: session #{a}, serial 10 → 20, snapshot (deltas not listed), 2 KiB
+                   https://r5.example/n.xml: session #{a}, serial 10 → 11, snapshot (RFC 9697 desync), 2 KiB
+                   https://r6.example/n.xml: session #{a}, serial 10 → 11, snapshot (delta_hash_mismatch, deltas not used), 2 KiB
+                   https://r7.example/n.xml: session #{a}, serial 77, unchanged, 512 B
+                   https://r8.example/n.xml: session #{a}, serial 77, recent
+                   https://r8b.example/n.xml: session #{a}, serial 9 kept, failed (serial_not_greater), 300 B
+                   https://r9.example/n.xml: failed (notification_failed)
+               """
     end
   end
 

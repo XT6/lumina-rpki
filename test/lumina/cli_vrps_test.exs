@@ -378,8 +378,8 @@ defmodule Lumina.CLIVRPsTest do
          m1-roa-prefixes served over RRDP (Lumina.Test.RRDPServer, the TA
          certificate too) and rsync, with RRDP on as outside tests. With
          --no-rrdp the sync asks the HTTPS server only for the TA
-         certificate; without it, for the notification. The VRPs are the
-         same.
+         certificate; without it, for the notification, and the summary on
+         stderr has the repository's line (#233). The VRPs are the same.
          """
     test "--sync --no-rrdp syncs the repository with rsync only", %{tmp_dir: tmp} do
       fixture = Fixture.load!("m1-roa-prefixes")
@@ -405,6 +405,9 @@ defmodule Lumina.CLIVRPsTest do
       assert {0, @csv, err} = run(vrps_args(tals, Path.join(tmp, "b"), ["--sync"]), internal)
       assert "/rrdp/notification.xml" in Lumina.Test.RRDPServer.requested(server)
       assert err =~ "  rrdp: 1 repository: 1 snapshot\n"
+
+      assert err =~
+               "    #{fixture.notification_uri}: session #{fixture.session_id}, serial 1, snapshot (first sync), "
     end
 
     @tag doc: """

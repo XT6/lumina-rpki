@@ -116,6 +116,8 @@ defmodule Lumina.RRDP.Sync do
             :snapshot | {:deltas, pos_integer()} | :unchanged | :recent | {:failed, reason()},
           session_id: String.t() | nil,
           serial: pos_integer() | nil,
+          previous: %{session_id: String.t(), serial: pos_integer()} | nil,
+          bytes: non_neg_integer(),
           objects: non_neg_integer() | nil,
           error: HTTPS.error() | RRDP.problem() | term() | nil,
           fallback: %{reason: delta_reason(), error: term()} | nil,
@@ -125,8 +127,11 @@ defmodule Lumina.RRDP.Sync do
   @doc """
   Syncs the repository whose notification URI is `notify` into the cache
   at `root`. Returns the outcome; `session_id` and `serial` are the
-  store's after the run (`nil` if it has never been synced); the outcome
-  `{:deltas, n}` gives the deltas applied. `objects` counts the objects
+  store's after the run (`nil` if it has never been synced), `previous`
+  the store's `session_id` and `serial` before it (`nil` if there was no
+  store), and `bytes` the bytes of the notification, snapshot and delta
+  files received (#233); the outcome `{:deltas, n}` gives the deltas
+  applied. `objects` counts the objects
   written from a snapshot or the delta elements applied, `error` is the
   failure's detail (a `Lumina.HTTPS` error, an RRDP problem or a file
   error), `fallback` why deltas gave way to the snapshot (or `nil`), and
@@ -146,6 +151,8 @@ defmodule Lumina.RRDP.Sync do
     state = State.load(root, notify)
     known = known(state, root, notify)
     Progress.emit(opts, {:rrdp_started, notify})
+    received = :counters.new(1, [])
+    opts = Keyword.put(opts, :received, received)
 
     result =
       if recent?(known, now, Keyword.get(opts, :min_interval, @min_interval)) do
@@ -167,6 +174,7 @@ defmodule Lumina.RRDP.Sync do
         finish(step, notify, root, state, now)
       end
 
+    result = Map.merge(result, %{previous: previous(known), bytes: :counters.get(received, 1)})
     Progress.emit(opts, {:rrdp_finished, notify, result.outcome})
     result
   end
@@ -179,12 +187,17 @@ defmodule Lumina.RRDP.Sync do
 
   defp recent?(_known, _now, _interval), do: false
 
+  defp previous(nil), do: nil
+  defp previous(known), do: %{session_id: known.session_id, serial: known.serial}
+
   defp recent(notify, known) do
     %{
       notify: notify,
       outcome: :recent,
       session_id: known.session_id,
       serial: known.serial,
+      previous: nil,
+      bytes: 0,
       objects: nil,
       error: nil,
       fallback: nil,
@@ -270,6 +283,7 @@ defmodule Lumina.RRDP.Sync do
         {:ok, :not_modified, []}
 
       {:ok, fetched} ->
+        received(opts, fetched)
         Progress.emit(opts, {:rrdp_downloaded, notify, :notification, fetched.size})
 
         with {:ok, xml} <- read(path, :notification_failed),
@@ -335,10 +349,13 @@ defmodule Lumina.RRDP.Sync do
 
     case HTTPS.fetch_to_file(ref.uri, path, fetch_opts) do
       {:ok, %{sha256: hash} = fetched} when hash == ref.hash ->
+        received(opts, fetched)
         Progress.emit(opts, {:rrdp_downloaded, notify, kind, fetched.size})
         {:ok, fetched}
 
       {:ok, fetched} ->
+        received(opts, fetched)
+
         {:failed, mismatch,
          %{
            rule: mismatch,
@@ -577,6 +594,8 @@ defmodule Lumina.RRDP.Sync do
       outcome: outcome,
       session_id: saved[:session_id],
       serial: saved[:serial],
+      previous: nil,
+      bytes: 0,
       objects: objects,
       error: error,
       fallback: nil,
@@ -596,6 +615,9 @@ defmodule Lumina.RRDP.Sync do
   defp describe(reason, %{message: message}), do: "#{reason}: #{message}"
   defp describe(reason, %{reason: why, uri: uri}), do: "#{reason}: #{why} (#{uri})"
   defp describe(reason, detail), do: "#{reason}: #{inspect(detail)}"
+
+  # Counts a file received (#233), whether its hash then matches or not.
+  defp received(opts, fetched), do: :counters.add(opts[:received], 1, fetched.size)
 
   defp https(opts), do: Keyword.take(opts, @https_opts)
 
