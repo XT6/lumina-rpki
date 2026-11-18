@@ -65,7 +65,7 @@ defmodule Lumina.Test.HTTPSServer do
   end
 
   @doc """
-  A cross-signed chain, as rrdp.apnic.net served in November 2026 (#209):
+  A cross-signed chain, as rrdp.apnic.net served in November 2026 (#229):
   the server sends its certificate and its root's certificate as issued
   by another, older root (same subject and key, a different issuer). The
   client is to trust only the root's self-signed certificate (`cacerts`),

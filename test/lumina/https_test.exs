@@ -113,7 +113,7 @@ defmodule Lumina.HTTPSTest do
          doc: """
          The server sends its root's certificate cross-signed by a root the
          client doesn't trust, which the client holds self-signed (as
-         rrdp.apnic.net and Let's Encrypt chains do, #209). The chain as
+         rrdp.apnic.net and Let's Encrypt chains do, #229). The chain as
          sent ends at an unknown CA; the path through the trusted
          self-signed certificate validates, so the fetch succeeds and
          nothing is logged as a failure. Trusting neither still fails.
