@@ -116,7 +116,7 @@ defmodule Lumina.MixProject do
   def project do
     [
       app: :lumina,
-      version: "0.7.0",
+      version: "0.8.0",
       elixir: "~> 1.20",
       elixirc_paths: elixirc_paths(Mix.env()),
       # Erlang generated from asn1/build/ by Mix.Tasks.Compile.LuminaAsn1 (above).
