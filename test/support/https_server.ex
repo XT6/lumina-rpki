@@ -65,6 +65,49 @@ defmodule Lumina.Test.HTTPSServer do
   end
 
   @doc """
+  A cross-signed chain, as rrdp.apnic.net served in November 2026 (#209):
+  the server sends its certificate and its root's certificate as issued
+  by another, older root (same subject and key, a different issuer). The
+  client is to trust only the root's self-signed certificate (`cacerts`),
+  so the chain the server sends ends at a root it doesn't know, and only
+  the other path, through the self-signed one, validates. `old_root` is
+  the older root's certificate.
+  """
+  @spec cross_signed_pki() :: %{
+          cert: [binary()],
+          key: term(),
+          cacerts: [binary()],
+          old_root: binary()
+        }
+  def cross_signed_pki do
+    pki = pki()
+
+    # The root that issued the server's certificate, among the CA
+    # certificates OTP's test data gives (a client root is there too).
+    tbs = fn der -> der |> :public_key.pkix_decode_cert(:otp) |> elem(1) end
+    issuer = elem(tbs.(pki.cert), 4)
+    root = Enum.find(pki.cacerts, &(elem(tbs.(&1), 6) == issuer))
+    # secp256r1, by OID as pkix_test_root_cert/2's spec asks.
+    key = [key: {:namedCurve, {1, 2, 840, 10_045, 3, 1, 7}}, digest: :sha256]
+    old = :public_key.pkix_test_root_cert(~c"Old Root", key)
+
+    root_tbs = tbs.(root)
+    old_tbs = tbs.(old.cert)
+
+    # The root's name and key, issued by the old root: the issuer and
+    # serial change, and the key identifier extensions go, so the only
+    # link is the name.
+    cross_tbs =
+      root_tbs
+      |> put_elem(2, 4_242)
+      |> put_elem(4, elem(old_tbs, 6))
+      |> put_elem(10, elem(root_tbs, 10) |> Enum.reject(&(elem(&1, 1) == {2, 5, 29, 35})))
+
+    cross = :public_key.pkix_sign(cross_tbs, old.key)
+    %{cert: [pki.cert, cross], key: pki.key, cacerts: [root], old_root: old.cert}
+  end
+
+  @doc """
   Routes serving every file under `dir` at `prefix` plus its relative
   path, such as a fixture's `rrdp/` at `"/rrdp/"` (#202). Fixture URIs
   name `localhost:8443`; fetch them with

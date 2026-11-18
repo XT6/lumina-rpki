@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 94 Barry fixtures: 25 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 1005 unit tests in 81 modules.
+- 1010 unit tests in 82 modules.
 
 ## Barry fixtures
 
@@ -2322,6 +2322,13 @@ frames the body (Content-Length, chunked, or until it closes, F-026).
 - *certificate validation:* a certificate that isn't valid yet is rejected and logged (RFC [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)))
 - *certificate validation:* a URI with an IP address is rejected when the certificate only names a host (RFC [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)))
   A host given as an IP address must match the certificate too; a dNSName doesn't.
+- *certificate validation:* a cross-signed chain validates through the root the client trusts (RFC [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)))
+  The server sends its root's certificate cross-signed by a root the
+  client doesn't trust, which the client holds self-signed (as
+  rrdp.apnic.net and Let's Encrypt chains do, #209). The chain as
+  sent ends at an unknown CA; the path through the trusted
+  self-signed certificate validates, so the fetch succeeds and
+  nothing is logged as a failure. Trusting neither still fails.
 - *certificate validation:* by default only the system CA store is trusted (RFC [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)))
   Without :cacerts the system CA store is used, and it doesn't trust a test CA.
 - *wildcard certificates (D-010):* a certificate that matches only by wildcard is accepted, logged and reported (RFC [8630 §4](../rfc/rfc8630.txt) ([html](https://www.rfc-editor.org/rfc/rfc8630.html#section-4)))
@@ -2687,6 +2694,71 @@ the data at once, and against the live repositories.
   differences. Both commands exit 0: each trust anchor and its own
   publication point synced (D-037), and no trust anchor above
   --max-invalid (D-022). Each of the five has VRPs on both sides.
+
+### `Lumina.M8DoneTest`
+
+[test/lumina/m8_done_test.exs](../../test/lumina/m8_done_test.exs)
+
+The end-to-end check that closes M8, RRDP (#209): "results match rsync
+on the same repository, and desync fixtures pass". It checks the
+decisions D-040 (rsync fallback in the same run), D-041 (the strict
+streaming parser), D-042 (a session that isn't a version 4 UUID only
+warns), D-043 (download limits) and D-046 (a snapshot publishing a URI
+twice is rejected) together.
+
+  * Every Barry fixture is synced twice with `lumina sync`: over RRDP
+    only (`Lumina.Test.RRDPServer`, every rsync host unreachable) and
+    over rsync only (`--no-rrdp`, rsync daemons). `lumina validate` and
+    `lumina vrps` give the same output and exit code for both caches,
+    apart from the transport counts.
+  * The RRDP sync cases in `test/fixtures/rrdp/sync/` (the RFC 9697
+    desync, a new session, a serial gap, each snapshot and delta
+    rejection, the cross-origin cases of RFC 9674) each give the
+    outcome their metadata states.
+  * RFC 8182 §3.4 and §3.5, RFC 9674 §3 and RFC 9697 §3 to §5 are
+    covered by tests other than this one.
+  * Tagged `:network`, run by hand only (`mix test --only network`): the
+    five RIR TALs synced over RRDP and with `--no-rrdp`, their VRPs
+    compared per trust anchor and with Routinator's live CSV (D-035),
+    and a second RRDP sync right after the first, which should download
+    little.
+
+The pieces are tested in detail elsewhere (`Lumina.RRDP.SyncTest`,
+`SyncDeltasTest`, `SyncPollingTest`, `WalkRRDPTest`,
+`ValidateSourceTest`, `CLISyncTest`). This module checks that they hold
+together, over all the data at once, and against the live repositories.
+
+- every fixture validates the same over RRDP and over rsync (RFC [8182 §3.4.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.3)), [8182 §3.4.5](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.5)), [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  Driven by the fixture metadata, at 2030-01-01: every fixture synced
+  with lumina sync into two caches, over RRDP only (each rsync host it
+  names at a closed port) and over rsync only (--no-rrdp; a daemon per
+  host). lumina validate and lumina vrps give the same exit codes and
+  output for both, but for the line counting points by transport:
+  every point of the first cache read from RRDP, of the second from
+  rsync. m4-chain-crl-missing is left out: Barry publishes its CRL at
+  another URI over RRDP than in rsync (F-043).
+- every RRDP sync case gives the outcome its metadata states (RFC [8182 §3.4.1](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.1)), [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)), [8182 §3.4.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.3)), [9674 §3.2](../rfc/rfc9674.txt) ([html](https://www.rfc-editor.org/rfc/rfc9674.html#section-3.2)), [9697 §4](../rfc/rfc9697.txt) ([html](https://www.rfc-editor.org/rfc/rfc9697.html#section-4)))
+  Driven by test/fixtures/rrdp/sync/cases.exs: for each case, the store
+  is synced to its `from` serial of m8-rrdp-three from the fixture's
+  own files, then the case's files are served and synced. The outcome,
+  the reason a delta gave way to the snapshot, the rule of the error
+  behind a failure, the warning, and the store afterwards (the final
+  snapshot's files, or as it was) are those the metadata states.
+- RFC 8182 §3.4 and §3.5, RFC 9674 §3 and RFC 9697 §3 to §5 are covered by other tests
+  The coverage mix lumina.rfc_coverage reports, computed the same way,
+  ignoring this module's own tags. A section counts as covered by a
+  test of it or of one of its subsections.
+- *the five RIRs:* the five RIRs over RRDP agree with rsync and with Routinator, and resync cheaply (RFC [8182 §3.4.1](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.1)), [8182 §3.4.5](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.5)), [6481 §5](../rfc/rfc6481.txt) ([html](https://www.rfc-editor.org/rfc/rfc6481.html#section-5)))
+  Run by hand: mix test --only network. Needs the Internet; takes
+  many minutes. Syncs every TAL in tals/ into an empty cache over
+  RRDP, as lumina does by default, and into another with --no-rrdp;
+  writes both caches' VRPs; and compares them per trust anchor, and
+  the RRDP ones with Routinator's live CSV, each within D-035's 1%.
+  Then syncs the RRDP cache again right away: most repositories must
+  need no snapshot (deltas, unchanged, or recent). Prints the run
+  times, the RRDP repositories by outcome, the fallbacks, and any
+  snapshot rejected for publishing a URI twice (D-046, F-041), which
+  the maintainer wants to hear of.
 
 ### `Lumina.ManifestCheckTest`
 

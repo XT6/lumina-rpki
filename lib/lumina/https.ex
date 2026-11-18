@@ -264,11 +264,14 @@ defmodule Lumina.HTTPS do
     ref = make_ref()
 
     # Called by :ssl for each certificate in the chain; it reports why the
-    # chain was rejected, so the error can say so precisely.
+    # chain was rejected, so the error can say so precisely. It fails with
+    # the whole {:bad_cert, reason}, as :ssl's own does: only then does
+    # :ssl try the other paths of a cross-signed chain (a root the store
+    # holds under another issuer), so one rejected path isn't the verdict.
     verify = fn
-      _cert, {:bad_cert, reason}, _state ->
+      _cert, {:bad_cert, reason} = bad, _state ->
         send(caller, {ref, reason})
-        {:fail, reason}
+        {:fail, bad}
 
       _cert, {:extension, _}, state ->
         {:unknown, state}
@@ -299,13 +302,19 @@ defmodule Lumina.HTTPS do
     {host, port} = remap(uri, host, opts[:remap])
     result = :ssl.connect(host, port, options, timeout)
 
+    # A path rejected on the way doesn't matter when another validated;
+    # when none did, the last rejection says why.
+    case {result, last_reason(ref, nil)} do
+      {{:error, _}, reason} when reason != nil -> {:error, tls_reason(reason), reason}
+      _ -> connect_result(result)
+    end
+  end
+
+  defp last_reason(ref, last) do
     receive do
-      {^ref, reason} ->
-        _ = if match?({:ok, _}, result), do: :ssl.close(elem(result, 1))
-        flush(ref)
-        {:error, tls_reason(reason), reason}
+      {^ref, reason} -> last_reason(ref, reason)
     after
-      0 -> connect_result(result)
+      0 -> last
     end
   end
 
@@ -355,14 +364,6 @@ defmodule Lumina.HTTPS do
   # "[::1]" is an IPv6 address literal; :ssl takes it without brackets.
   defp connect_host("[" <> rest), do: rest |> String.trim_trailing("]") |> String.to_charlist()
   defp connect_host(host), do: String.to_charlist(host)
-
-  defp flush(ref) do
-    receive do
-      {^ref, _} -> flush(ref)
-    after
-      0 -> :ok
-    end
-  end
 
   defp tls_reason(:cert_expired), do: :tls_expired
   defp tls_reason({:bad_cert, reason}), do: tls_reason(reason)
