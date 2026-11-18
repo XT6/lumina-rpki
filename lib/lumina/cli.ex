@@ -270,7 +270,7 @@ defmodule Lumina.CLI do
   @version_usage """
   Usage: lumina version
 
-  Print lumina's version, such as "lumina 0.8.0", on standard output.
+  Print lumina's version, such as "lumina 0.8.1", on standard output.
   lumina --version does the same.
 
   Every other run starts with a banner on standard error: the version,
