@@ -54,6 +54,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-044](#d-044-releases-are-0milestonepatch-tagged-and-published-on-github) | Releases are 0.<milestone>.<patch>, tagged and published on GitHub | 2026-11-17 | #211 |
 | [D-045](#d-045-lumina-version-and-a-startup-banner-on-stderr) | `lumina version`, and a startup banner on stderr | 2026-11-17 | #213 |
 | [D-046](#d-046-a-snapshot-that-publishes-a-uri-twice-is-rejected) | A snapshot that publishes a URI twice is rejected | 2026-11-17 | #203, F-041 |
+| [D-047](#d-047-lumina-clean-empties-the-cache-after-confirmation) | `lumina clean` empties the cache, after confirmation | 2026-11-18 | #226 |
 
 ## D-001: CLI model
 
@@ -579,3 +580,15 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Why:** a snapshot "represents a complete current state of the repository", and a state can't give one object two contents. Keeping the first or the last copy would be a guess about what the publisher meant.
 - **Revisit:** during live testing (the M8 done test's `:network` run, #209), check whether any live repository's snapshot publishes a URI twice. If one does, bring it back to the maintainer.
 - **Where:** maintainer, 2026-11-17 ("keep the strict reading of F-041, but keep in mind when we do live testing"); #203.
+- **Revisited (#209, 2026-11-18):** the live run synced 107 RRDP repositories of the five RIRs, and no snapshot published a URI twice.
+
+## D-047: `lumina clean` empties the cache, after confirmation
+
+- **Date:** 2026-11-18
+- **Decision:**
+  - **Without `--tal`:** `lumina clean` empties the whole cache directory, including files no TAL claims (for example those of a TAL removed from `./tals/`). The directory itself stays.
+  - **With `--tal FILE`:** only what that TAL's tree uses is removed; anything another TAL's tree also uses stays.
+  - **A TAL never synced:** nothing to remove for it; a warning on stderr, exit 0.
+  - **Confirmation:** it lists what it will remove and asks `Remove? [y/N]`; any answer but `y` or `yes` removes nothing and exits 1. `--force` skips the question, for cron jobs. Without `--force` and with stdin not a terminal, nothing is removed and it exits 1, naming `--force`. There is no `--dry-run`.
+- **Why:** files of a TAL no longer in `./tals/` would otherwise stay with no command to remove them. A TAL path that has nothing to clean is not an error, but a typo shouldn't pass silently. Removing a cache costs a full resync (about 15 minutes for the five RIRs), so it asks first; a script that forgets `--force` fails without removing anything instead of waiting for an answer.
+- **Where:** maintainer, 2026-11-18, answering the open questions in #226 ("clean everything", "exit 0 printing a warning", "ask for confirmation, but add a --force flag for cron jobs"); the rule for stdin not a terminal was proposed with them.
