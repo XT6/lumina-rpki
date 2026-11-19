@@ -1,3 +1,5 @@
+<p align="center"><img src="doc/images/lumina.png" alt="Lumina" width="160"></p>
+
 # lumina-rpki
 
 [![CI](https://github.com/XT6/lumina-rpki/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/XT6/lumina-rpki/actions/workflows/ci.yml)
@@ -60,12 +62,12 @@ Fetches the trust anchors and repositories into the local cache. It validates as
                                        #   --rrdp-max-size, --rrdp-idle-timeout, --progress, --quiet
 ```
 
-A CA that names an RRDP repository (an HTTPS `rpkiNotify`, RFC 8182) is synced over RRDP, and fetched with rsync in the same run if that fails ([D-040](doc/decisions.md)); other CAs are fetched with rsync. `--no-rrdp` uses rsync for every publication point (trust anchors are still fetched over HTTPS first). An RRDP snapshot or delta file may be at most `--rrdp-max-size` (default `2G`), and a download may go `--rrdp-idle-timeout` seconds (default 300) without data; there is no limit on its total time (D-043). The summary counts each TAL's RRDP repositories by outcome, such as `rrdp: 12 repositories: 3 snapshot, 7 deltas, 1 unchanged, 1 failed (rsync fallback)`, then gives each repository a line with its session ID, the serial before and after, the deltas applied or the snapshot and why it was used, and the bytes received ([D-048](doc/decisions.md)), and lists each failure and warning with its reason:
+A CA that names an RRDP repository (an HTTPS `rpkiNotify`, RFC 8182) is synced over RRDP, and fetched with rsync in the same run if that fails ([D-040](doc/decisions.md)); other CAs are fetched with rsync. `--no-rrdp` uses rsync for every publication point (trust anchors are still fetched over HTTPS first). An RRDP snapshot or delta file may be at most `--rrdp-max-size` (default `2G`), and a download may go `--rrdp-idle-timeout` seconds (default 300) without data; there is no limit on its total time (D-043). The summary counts each TAL's RRDP repositories by outcome, such as `rrdp: 12 repositories: 3 snapshot, 7 deltas, 1 unchanged, 1 failed (rsync fallback)`, then gives each repository a line with its session ID (abbreviated), the serial before and after, the deltas applied or the snapshot and why it was used, and the bytes received ([D-048](doc/decisions.md)), and lists each failure and warning with its reason:
 
 ```
   rrdp: 2 repositories: 1 snapshot, 1 deltas
-    https://rrdp.example.net/rrdp/notification.xml: session 5d8a3f0e-6b1c-4e2a-9f7d-2c4b8e1a0d93, serial 41230 → 41236, 6 deltas, 1.2 MiB
-    https://rpki.example.org/notification.xml: session 0b7e2c91-4f3a-4d6b-8e15-9a2f6c3d7e48 (new session), serial 812, snapshot, 35.4 MiB
+    https://rrdp.example.net/rrdp/notification.xml: session 5d8a3f0e…0d93, serial 41230 → 41236, 6 deltas, 1.2 MiB
+    https://rpki.example.org/notification.xml: session 0b7e2c91…7e48 (new session), serial 812, snapshot, 35.4 MiB
 ```
 
 On a terminal, a status line on stderr shows progress: the TAL, the walk level, publication points, rsync runs (done, running, failed), RRDP repositories (done, running, failed, bytes received), files mirrored, and the slowest fetch in progress (for an RRDP download, the file and how much of it has arrived). `--progress` writes timestamped lines instead when stderr isn't a terminal (logs, CI), plus a line for each RRDP repository that took more than 10 s; `--quiet` turns progress off. The summary on stdout is the same either way.

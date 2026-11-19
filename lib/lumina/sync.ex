@@ -391,7 +391,8 @@ defmodule Lumina.Sync do
     ]
   end
 
-  # One RRDP repository's line (#233, D-048): its session_id, the serial
+  # One RRDP repository's line (#233, D-048): its session_id (abbreviated,
+  # #242), the serial
   # before and after, what was downloaded and how many bytes.
   defp repository(sync) do
     parts =
@@ -420,7 +421,7 @@ defmodule Lumina.Sync do
     "#{sync.notify}: " <> Enum.join(parts ++ bytes, ", ")
   end
 
-  defp session(sync), do: "session #{sync.session_id}"
+  defp session(sync), do: "session #{Lumina.RRDP.short_session(sync.session_id)}"
 
   # Why the snapshot of a session already held was used (RFC 8182
   # §3.4.1, §3.4.2; RFC 9697 §4).

@@ -1802,7 +1802,8 @@ runs turn it on through the internal options, as the real default.
 - *RRDP:* the summary has a line per RRDP repository with its session, serials and download (RFC [8182 §3.4.1](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.1)), [8182 §3.4.2](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.2)), [8182 §3.4.3](../rfc/rfc8182.txt) ([html](https://www.rfc-editor.org/rfc/rfc8182.html#section-3.4.3)), [9697 §4](../rfc/rfc9697.txt) ([html](https://www.rfc-editor.org/rfc/rfc9697.html#section-4)))
   Lumina.Sync.summary/1 on one walk that synced a repository per case
   (#233, D-048): each gets a line, sorted by notification URI, with
-  its session_id, the serial before and after, the deltas applied or
+  its session_id abbreviated (#242: first 8 and last 4 characters,
+  however it changed), the serial before and after, the deltas applied or
   the snapshot and why it was used (first sync, a new session, deltas
   not listed, an RFC 9697 desync, a rejected delta), and the bytes
   received; unchanged and recent ones too, and a failed one with the
