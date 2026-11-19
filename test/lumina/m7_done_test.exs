@@ -214,9 +214,10 @@ defmodule Lumina.M7DoneTest do
       File.write!(Path.join(tmp, "sync.txt"), sync_out)
       assert code == 0, sync_out
 
-      {code, _out, vrps_err} = run(["vrps", "--cache", cache, "--output", csv], [])
+      # With --output, the summary is on stdout (D-049).
+      {code, vrps_out, vrps_err} = run(["vrps", "--cache", cache, "--output", csv], [])
       finished = System.monotonic_time(:second)
-      assert code == 0, vrps_err
+      assert code == 0, vrps_out <> vrps_err
 
       {:ok, ours} = VRPCompare.parse(File.read!(csv))
       assert ours.malformed == []
@@ -235,7 +236,7 @@ defmodule Lumina.M7DoneTest do
 
       sync: #{synced - started} s, vrps: #{finished - synced} s
       #{sync_out |> String.split("\n") |> Enum.reject(&String.starts_with?(&1, "    ")) |> Enum.join("\n")}
-      #{vrps_err}
+      #{vrps_out}
       #{report(results)}\
       """)
 

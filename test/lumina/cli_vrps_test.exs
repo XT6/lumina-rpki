@@ -413,15 +413,74 @@ defmodule Lumina.CLIVRPsTest do
     @tag doc: """
          Synced 10 minutes before, within the default --max-age of 1h: no
          sync, shown by the repository host now pointing at a closed port,
-         which would fail one.
+         which would fail one, and a line says why (#239), with the last
+         sync's time, its age and the --max-age in force.
          """
-    test "a TAL synced within --max-age isn't synced again", %{tmp_dir: tmp} do
+    test "a TAL synced within --max-age isn't synced again, and a line says why", %{
+      tmp_dir: tmp
+    } do
       {tals, cache, internal} = served!(tmp)
       sync_at!(tals, cache, internal, -10)
       closed = [remap: %{"localhost:8873" => "127.0.0.1:#{RsyncDaemon.closed_port()}"}]
 
       assert {0, @csv, err} = run(vrps_args(tals, cache, ["--sync"]), at(closed, 0))
-      refute err =~ "syncing"
+
+      assert err =~
+               "lumina vrps: not syncing #{List.last(tals)}: last synced 2030-01-01T11:50:00Z, " <>
+                 "10 minutes ago (--max-age 1h)\n"
+
+      refute err =~ "lumina vrps: syncing"
+    end
+
+    @tag doc: """
+         Lumina.Sync.summary/1's lines, the not-syncing line and the VRP
+         counts go to stdout when the VRPs go to --output FILE, for CSV and
+         JSON alike; stderr then has none of them (#239, D-049). Without
+         --output, stdout is exactly the VRPs and the summary is on stderr.
+         Over RRDP, so the summary has the repository's line (#233).
+         """
+    test "with --output, the summary goes to stdout; without it, to stderr", %{tmp_dir: tmp} do
+      fixture = Fixture.load!("m1-roa-prefixes")
+      server = Lumina.Test.RRDPServer.start!(Lumina.Test.RRDPServer.routes(fixture))
+      daemon = RsyncDaemon.start!(Path.join(tmp, "daemon"), fixture.modules)
+
+      internal = [
+        rrdp: true,
+        rrdp_opts: [cacerts: server.opts[:cacerts], min_interval: 0],
+        remap: Map.put(server.opts[:remap], "localhost:8873", "127.0.0.1:#{daemon.port}"),
+        https: [cacerts: server.opts[:cacerts], remap: server.opts[:remap]],
+        now: @clock
+      ]
+
+      tals = ["--tal", fixture.tal_path]
+      cache = Path.join(tmp, "cache")
+      csv = Path.join(tmp, "vrps.csv")
+      session = Lumina.RRDP.short_session(fixture.session_id)
+      repository = "    #{fixture.notification_uri}: session #{session}, serial 1, snapshot"
+
+      assert {0, out, ""} = run(vrps_args(tals, cache, ["--sync", "--output", csv]), internal)
+      assert File.read!(csv) == @csv
+      assert out =~ "lumina vrps: syncing #{fixture.tal_path}: no trust anchor in the cache\n"
+      assert out =~ "  rrdp: 1 repository: 1 snapshot\n" <> repository
+      assert out =~ "\ncase: 3 VRPs\n"
+
+      json = Path.join(tmp, "vrps.json")
+      args = vrps_args(tals, cache, ["--sync", "--format", "json", "--output", json])
+      assert {0, out, ""} = run(args, internal)
+      assert {:ok, %{"roas" => [_, _, _]}} = JSON.decode(File.read!(json))
+
+      assert out ==
+               "lumina vrps: not syncing #{fixture.tal_path}: last synced 2030-01-01T12:00:00Z, " <>
+                 "0 seconds ago (--max-age 1h)\ncase: 3 VRPs\n"
+
+      assert {0, @csv, err} = run(vrps_args(tals, cache, ["--sync"]), internal)
+      assert err =~ "lumina vrps: not syncing #{fixture.tal_path}: "
+      assert err =~ "case: 3 VRPs\n"
+
+      args = vrps_args(tals, cache, ["--sync", "--format", "json"])
+      assert {0, out, err} = run(args, internal)
+      assert {:ok, %{"roas" => [_, _, _]}} = JSON.decode(out)
+      assert err =~ "case: 3 VRPs\n"
     end
 
     test "a TAL last synced longer ago than --max-age is synced", %{tmp_dir: tmp} do
@@ -439,7 +498,11 @@ defmodule Lumina.CLIVRPsTest do
       assert {0, @csv, err} =
                run(vrps_args(tals, cache, ["--sync", "--max-age", "3h"]), at(internal, 100))
 
-      refute err =~ "syncing"
+      assert err =~
+               "lumina vrps: not syncing #{List.last(tals)}: last synced 2030-01-01T12:00:00Z, " <>
+                 "1 hour ago (--max-age 3h)\n"
+
+      refute err =~ "lumina vrps: syncing"
     end
 
     @tag doc: """
@@ -468,7 +531,8 @@ defmodule Lumina.CLIVRPsTest do
       assert {1, @csv, err} = run(args, at(internal, 0))
 
       assert err =~ "lumina vrps: syncing #{dead}: no trust anchor in the cache\n"
-      refute err =~ "syncing #{List.last(tals)}"
+      assert err =~ "lumina vrps: not syncing #{List.last(tals)}: "
+      refute err =~ "lumina vrps: syncing #{List.last(tals)}"
 
       assert err =~
                "lumina vrps: warning: the sync had failures (above); the VRPs are written from what the cache holds\n"
@@ -542,7 +606,7 @@ defmodule Lumina.CLIVRPsTest do
     @describetag :rsync
     @describetag :tmp_dir
 
-    test "writes the same bytes as standard output, and nothing to standard output", %{
+    test "writes the same bytes as standard output, and only the summary to standard output", %{
       tmp_dir: tmp
     } do
       {tals, cache, internal} = synced!(tmp, "m1-roa-prefixes")
@@ -550,7 +614,7 @@ defmodule Lumina.CLIVRPsTest do
       file = Path.join(tmp, "vrps.csv")
       File.write!(file, "old contents")
 
-      assert {0, "", _err} = run(vrps_args(tals, cache, ["--output", file]), internal)
+      assert {0, "case: 3 VRPs\n", ""} = run(vrps_args(tals, cache, ["--output", file]), internal)
       assert File.read!(file) == expected
       assert File.ls!(tmp) |> Enum.filter(&String.ends_with?(&1, ".tmp")) == []
     end
@@ -561,7 +625,9 @@ defmodule Lumina.CLIVRPsTest do
       {tals, cache, internal} = synced!(tmp, "m1-roa-prefixes")
       file = Path.join([tmp, "missing", "vrps.csv"])
 
-      assert {1, "", err} = run(vrps_args(tals, cache, ["--output", file]), internal)
+      assert {1, "case: 3 VRPs\n", err} =
+               run(vrps_args(tals, cache, ["--output", file]), internal)
+
       assert err =~ "lumina vrps: can't write #{file}: no such file or directory\n"
       refute File.exists?(Path.dirname(file))
     end
