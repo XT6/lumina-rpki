@@ -598,7 +598,7 @@ defmodule Lumina.CLISyncTest do
 
       assert {0, out, ""} = rrdp_sync(fixture, cache, internal)
       assert out =~ "  rrdp: 1 repository: 1 snapshot\n"
-      line = "    #{notify}: session #{fixture.session_id}, serial"
+      line = "    #{notify}: session #{Lumina.RRDP.short_session(fixture.session_id)}, serial"
       assert out =~ ~r/#{Regex.escape(line)} 2, snapshot \(first sync\), \d+(\.\d)? KiB\n/
 
       RRDPServer.serve(server, RRDPServer.routes(fixture))
@@ -759,7 +759,8 @@ defmodule Lumina.CLISyncTest do
          doc: """
          Lumina.Sync.summary/1 on one walk that synced a repository per case
          (#233, D-048): each gets a line, sorted by notification URI, with
-         its session_id, the serial before and after, the deltas applied or
+         its session_id abbreviated (#242: first 8 and last 4 characters,
+         however it changed), the serial before and after, the deltas applied or
          the snapshot and why it was used (first sync, a new session, deltas
          not listed, an RFC 9697 desync, a rejected delta), and the bytes
          received; unchanged and recent ones too, and a failed one with the
@@ -821,16 +822,16 @@ defmodule Lumina.CLISyncTest do
       assert summary =~
                """
                  rrdp: 11 repositories: 5 snapshot, 2 deltas, 1 unchanged, 1 recent, 2 failed (rsync fallback)
-                   https://r0.example/n.xml: session #{a}, serial 812, snapshot (first sync), 35.4 MiB
-                   https://r1.example/n.xml: session #{a}, serial 41230 → 41236, 6 deltas, 1.2 MiB
-                   https://r2.example/n.xml: session #{a}, serial 7 → 8, 1 delta, 900 B
-                   https://r3.example/n.xml: session #{b} (new session), serial 1, snapshot, 4 KiB
-                   https://r4.example/n.xml: session #{a}, serial 10 → 20, snapshot (deltas not listed), 2 KiB
-                   https://r5.example/n.xml: session #{a}, serial 10 → 11, snapshot (RFC 9697 desync), 2 KiB
-                   https://r6.example/n.xml: session #{a}, serial 10 → 11, snapshot (delta_hash_mismatch, deltas not used), 2 KiB
-                   https://r7.example/n.xml: session #{a}, serial 77, unchanged, 512 B
-                   https://r8.example/n.xml: session #{a}, serial 77, recent
-                   https://r8b.example/n.xml: session #{a}, serial 9 kept, failed (serial_not_greater), 300 B
+                   https://r0.example/n.xml: session 5d8a3f0e…0d93, serial 812, snapshot (first sync), 35.4 MiB
+                   https://r1.example/n.xml: session 5d8a3f0e…0d93, serial 41230 → 41236, 6 deltas, 1.2 MiB
+                   https://r2.example/n.xml: session 5d8a3f0e…0d93, serial 7 → 8, 1 delta, 900 B
+                   https://r3.example/n.xml: session 0b7e2c91…7e48 (new session), serial 1, snapshot, 4 KiB
+                   https://r4.example/n.xml: session 5d8a3f0e…0d93, serial 10 → 20, snapshot (deltas not listed), 2 KiB
+                   https://r5.example/n.xml: session 5d8a3f0e…0d93, serial 10 → 11, snapshot (RFC 9697 desync), 2 KiB
+                   https://r6.example/n.xml: session 5d8a3f0e…0d93, serial 10 → 11, snapshot (delta_hash_mismatch, deltas not used), 2 KiB
+                   https://r7.example/n.xml: session 5d8a3f0e…0d93, serial 77, unchanged, 512 B
+                   https://r8.example/n.xml: session 5d8a3f0e…0d93, serial 77, recent
+                   https://r8b.example/n.xml: session 5d8a3f0e…0d93, serial 9 kept, failed (serial_not_greater), 300 B
                    https://r9.example/n.xml: failed (notification_failed)
                """
     end

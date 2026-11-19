@@ -601,7 +601,8 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Decision:** under each TAL's `rrdp:` line, `lumina sync` and `lumina vrps --sync` print one line per RRDP repository synced, always (no flag), whatever its outcome. Each line shows the session ID (with "(new session)" when it changed), the serial before and after, the deltas applied or the snapshot and why it was used, and the bytes received:
 
   ```
-    https://rrdp.example.net/rrdp/notification.xml: session 5d8a3f0e-6b1c-4e2a-9f7d-2c4b8e1a0d93, serial 41230 → 41236, 6 deltas, 1.2 MiB
+    https://rrdp.example.net/rrdp/notification.xml: session 5d8a3f0e…0d93, serial 41230 → 41236, 6 deltas, 1.2 MiB
   ```
 - **Why:** the counts per outcome don't say what a sync did to a repository: from which serial to which, and how much it downloaded. The maintainer asked for that after a LACNIC sync. About 117 repositories for the five RIRs make the summary longer, but stdout is the summary, and it is complete.
 - **Where:** maintainer, 2026-11-18 ("report last serial, current serial, if snapshot was downloaded or how many deltas"; then "always", "show the sessionid"); #233.
+- **As amended (#242, 2026-11-19):** the line shows the session ID abbreviated to its first 8 and last 4 characters around an ellipsis (`5d8a3f0e…0d93`; one of 12 characters or fewer whole), for readability, at the maintainer's suggestion ("first 8 chars ..... last 4 chars"). "(new session)" still marks a change. The full ID stays in the RRDP state file and in warnings and logs.

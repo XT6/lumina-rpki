@@ -407,7 +407,7 @@ defmodule Lumina.CLIVRPsTest do
       assert err =~ "  rrdp: 1 repository: 1 snapshot\n"
 
       assert err =~
-               "    #{fixture.notification_uri}: session #{fixture.session_id}, serial 1, snapshot (first sync), "
+               "    #{fixture.notification_uri}: session #{Lumina.RRDP.short_session(fixture.session_id)}, serial 1, snapshot (first sync), "
     end
 
     @tag doc: """

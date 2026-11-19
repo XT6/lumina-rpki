@@ -129,6 +129,24 @@ defmodule Lumina.RRDP do
   end
 
   @doc """
+  A session_id as the sync summary shows it (#242): the first 8 and the
+  last 4 characters, around an ellipsis. One of 12 characters or fewer
+  is shown whole.
+
+      iex> Lumina.RRDP.short_session("66b09eea-03c7-435f-bb29-5bee810bd657")
+      "66b09eea…d657"
+      iex> Lumina.RRDP.short_session("s1")
+      "s1"
+
+  """
+  @spec short_session(String.t()) :: String.t()
+  def short_session(id) do
+    if String.length(id) <= 12,
+      do: id,
+      else: String.slice(id, 0, 8) <> "…" <> String.slice(id, -4, 4)
+  end
+
+  @doc """
   Parses a serial: "an unbounded, unsigned positive integer in decimal
   format" (RFC 8182 §3.5.1.3).
 
