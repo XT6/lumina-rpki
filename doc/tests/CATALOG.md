@@ -6,7 +6,7 @@ Every test, what it checks and why it exists. See [testing.md](../testing.md) fo
 
 - 94 Barry fixtures: 25 valid, 69 invalid.
 - 29 test TALs: 8 valid, 1 with warnings, 20 invalid.
-- 1022 unit tests in 83 modules.
+- 1023 unit tests in 83 modules.
 
 ## Barry fixtures
 
@@ -1973,10 +1973,17 @@ sync`, then runs `lumina vrps` at 2030-01-01 (`--now`), through
   --no-rrdp the sync asks the HTTPS server only for the TA
   certificate; without it, for the notification, and the summary on
   stderr has the repository's line (#233). The VRPs are the same.
-- *--sync (#185):* a TAL synced within --max-age isn't synced again
+- *--sync (#185):* a TAL synced within --max-age isn't synced again, and a line says why
   Synced 10 minutes before, within the default --max-age of 1h: no
   sync, shown by the repository host now pointing at a closed port,
-  which would fail one.
+  which would fail one, and a line says why (#239), with the last
+  sync's time, its age and the --max-age in force.
+- *--sync (#185):* with --output, the summary goes to stdout; without it, to stderr
+  Lumina.Sync.summary/1's lines, the not-syncing line and the VRP
+  counts go to stdout when the VRPs go to --output FILE, for CSV and
+  JSON alike; stderr then has none of them (#239, D-049). Without
+  --output, stdout is exactly the VRPs and the summary is on stderr.
+  Over RRDP, so the summary has the repository's line (#233).
 - *--sync (#185):* a TAL last synced longer ago than --max-age is synced
 - *--sync (#185):* only the TALs that need it are synced, and a failed sync still writes the VRPs
   Two TALs: case.tal, synced a minute ago, and dead.tal, with
@@ -1991,7 +1998,7 @@ sync`, then runs `lumina vrps` at 2030-01-01 (`--now`), through
 - *--sync (#185):* a TAL counts as synced only if its TA and the TA's own publication point were fetched
   Reports as Lumina.Sync.run/3 gives them, reduced to what matters.
 - *--sync (#185):* sync flags without --sync, and a bad --max-age or RRDP limit, are usage errors
-- *--output:* writes the same bytes as standard output, and nothing to standard output
+- *--output:* writes the same bytes as standard output, and only the summary to standard output
 - *--output:* a file that can't be written fails with exit 1 and leaves nothing behind
 - *failures:* above --max-invalid the VRPs are still written, with a warning, and exit 1 (RFC [9582 §5](../rfc/rfc9582.txt) ([html](https://www.rfc-editor.org/rfc/rfc9582.html#section-5)))
   m7-roa-prefix-outside-ee: one invalid ROA of five objects, 20%,

@@ -554,8 +554,8 @@ defmodule Lumina.M8DoneTest do
   end
 
   defp vrps!(cache, csv) do
-    {code, _out, err} = run(["vrps", "--cache", cache, "--output", csv], [])
-    assert code == 0, err
+    {code, out, err} = run(["vrps", "--cache", cache, "--output", csv], [])
+    assert code == 0, out <> err
     {:ok, vrps} = VRPCompare.parse(File.read!(csv))
     assert vrps.malformed == []
     vrps

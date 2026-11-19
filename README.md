@@ -111,8 +111,8 @@ AS64496,2001:db8::/32,48,lacnic
 ```
 
 - **Formats:** CSV in Routinator's columns, or Lumina's JSON; both are described in [doc/output.md](doc/output.md).
-- **`--sync`:** first syncs, as `lumina sync` does, each TAL with no trust anchor in the cache or last synced more than `--max-age` (default `1h`) ago; the others are validated from the cache as they are ([D-037](doc/decisions.md)). It takes `lumina sync`'s flags (`--timeout`, `--max-depth`, `--per-host`, `--rsync`, `--no-rrdp`, `--rrdp-max-size`, `--rrdp-idle-timeout`).
-- **Output:** the VRPs go to stdout or `--output FILE`. A short summary goes to stderr: why each TAL was synced and the sync's summary, the VRPs of each TAL, and warnings.
+- **`--sync`:** first syncs, as `lumina sync` does, each TAL with no trust anchor in the cache or last synced more than `--max-age` (default `1h`) ago; the others are validated from the cache as they are ([D-037](doc/decisions.md)), and a line says why each wasn't synced: `lumina vrps: not syncing tals/lacnic.tal: last synced 2026-11-19T10:02:11Z, 12 minutes ago (--max-age 1h)`. It takes `lumina sync`'s flags (`--timeout`, `--max-depth`, `--per-host`, `--rsync`, `--no-rrdp`, `--rrdp-max-size`, `--rrdp-idle-timeout`).
+- **Output:** the VRPs go to stdout or `--output FILE`. A short summary says why each TAL was synced or not and gives the sync's summary, the VRPs of each TAL, and warnings. With `--output` it goes to stdout, as `lumina sync`'s does; without it, stdout holds the VRPs, so the summary goes to stderr ([D-049](doc/decisions.md)).
 - **Exit codes:** `0` written; `1` as for `lumina validate`, a sync that couldn't fetch a trust anchor or its own publication point, or `FILE` can't be written (the VRPs of the TALs that validated are still written); `2` usage error.
 
 ## `lumina clean`

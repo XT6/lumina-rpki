@@ -221,9 +221,11 @@ defmodule Lumina.CLI do
     --no-rrdp, --rrdp-max-size SIZE, --rrdp-idle-timeout SECONDS
                   with --sync: as for lumina sync
 
-  A short summary goes to standard error: why each TAL was synced and
-  the sync's summary, the VRPs of each TAL, and warnings; so does the
-  progress report.
+  A short summary says why each TAL was synced or not and gives the
+  sync's summary, the VRPs of each TAL, and warnings. It goes to
+  standard output with --output, as the VRPs are in FILE, and to
+  standard error without it. The progress report goes to standard
+  error.
 
   Exit codes: 0 written, 1 a TAL with no trust anchor in the cache, an
   invalid one, or more than PERCENT invalid objects (the VRPs of the
@@ -704,8 +706,14 @@ defmodule Lumina.CLI do
              {:ok, format} <- format_flag(Keyword.get(opts, :format, "csv")),
              {:ok, max_age} <- max_age_flag(opts),
              {:ok, limits} <- limits(opts) do
+          # The summary goes to stdout when the VRPs go to a file, else to
+          # stderr (#239, D-049).
+          report = if opts[:output], do: out, else: err
+
           synced =
-            if opts[:sync], do: sync_needed(tals, opts, max_age, limits, err, internal), else: 0
+            if opts[:sync],
+              do: sync_needed(tals, opts, max_age, limits, report, err, internal),
+              else: 0
 
           reports = validate_all(tals, opts, now, err)
 
@@ -714,7 +722,7 @@ defmodule Lumina.CLI do
           failed =
             Enum.filter(reports, fn {_path, report} -> Validate.failed?(report, max_invalid) end)
 
-          IO.write(err, vrps_summary(reports, failed, max_invalid))
+          IO.write(report, vrps_summary(reports, failed, max_invalid))
 
           wide = [wide: opts[:wide] == true]
 
@@ -814,21 +822,24 @@ defmodule Lumina.CLI do
 
   # --sync (#185, D-037): syncs the TALs that have no trust anchor in the
   # cache or whose last sync is older than `max_age` seconds, in one
-  # Sync.run/3 so they share modules (#102). Ages are measured on the
-  # clock, not at --now. Returns the exit code the sync contributes: 1 if
-  # it failed or couldn't run; the VRPs are written from the cache anyway.
-  defp sync_needed(tals, opts, max_age, limits, err, internal) do
+  # Sync.run/3 so they share modules (#102), and says why each TAL is
+  # synced or not (#239). Ages are measured on the clock, not at --now.
+  # The summary goes to `report`, errors to `err`. Returns the exit code
+  # the sync contributes: 1 if it failed or couldn't run; the VRPs are
+  # written from the cache anyway.
+  defp sync_needed(tals, opts, max_age, limits, report, err, internal) do
     cache = opts[:cache] || default_cache()
     clock = Keyword.get_lazy(internal, :now, &DateTime.utc_now/0)
 
     stale =
       Enum.filter(tals, fn {path, tal} ->
         case sync_reason(cache, tal, clock, max_age, Keyword.get(opts, :max_age, "1h")) do
-          nil ->
+          {:skip, why} ->
+            IO.write(report, "lumina vrps: not syncing #{path}: #{why}\n")
             false
 
-          reason ->
-            IO.write(err, "lumina vrps: syncing #{path}: #{reason}\n")
+          {:sync, why} ->
+            IO.write(report, "lumina vrps: syncing #{path}: #{why}\n")
             true
         end
       end)
@@ -841,7 +852,7 @@ defmodule Lumina.CLI do
 
       (check = rsync_check(internal)) != :ok ->
         {:error, message} = check
-        written(err, "lumina vrps: warning: can't sync: #{message}\n", 1)
+        written(report, "lumina vrps: warning: can't sync: #{message}\n", 1)
 
       true ->
         with_progress(opts, err, fn progress ->
@@ -849,7 +860,7 @@ defmodule Lumina.CLI do
             stale,
             cache,
             sync_opts(limits, progress, internal),
-            err,
+            report,
             err,
             "lumina vrps",
             &synced(&1, &2, "lumina vrps")
@@ -889,18 +900,28 @@ defmodule Lumina.CLI do
 
     cond do
       Lumina.TA.stored(cache, tal) == nil ->
-        "no trust anchor in the cache"
+        {:sync, "no trust anchor in the cache"}
 
       last == nil ->
-        "no record of an earlier sync"
+        {:sync, "no record of an earlier sync"}
 
       DateTime.diff(clock, last) > max_age ->
-        "last synced #{DateTime.to_iso8601(last)}, more than #{max_age_text} ago"
+        {:sync, "last synced #{DateTime.to_iso8601(last)}, more than #{max_age_text} ago"}
 
       true ->
-        nil
+        age = ago(max(DateTime.diff(clock, last), 0))
+
+        {:skip,
+         "last synced #{DateTime.to_iso8601(last)}, #{age} ago (--max-age #{max_age_text})"}
     end
   end
+
+  defp ago(seconds) when seconds < 60, do: count(seconds, "second")
+  defp ago(seconds) when seconds < 3600, do: count(div(seconds, 60), "minute")
+  defp ago(seconds) when seconds < 86_400, do: count(div(seconds, 3600), "hour")
+  defp ago(seconds), do: count(div(seconds, 86_400), "day")
+
+  defp count(n, unit), do: "#{n} #{unit}#{if n == 1, do: "", else: "s"}"
 
   defp format_flag("csv"), do: {:ok, :csv}
   defp format_flag("json"), do: {:ok, :json}

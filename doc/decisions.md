@@ -56,6 +56,7 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 | [D-046](#d-046-a-snapshot-that-publishes-a-uri-twice-is-rejected) | A snapshot that publishes a URI twice is rejected | 2026-11-17 | #203, F-041 |
 | [D-047](#d-047-lumina-clean-empties-the-cache-after-confirmation) | `lumina clean` empties the cache, after confirmation | 2026-11-18 | #226 |
 | [D-048](#d-048-the-sync-summary-gives-every-rrdp-repository-a-line) | The sync summary gives every RRDP repository a line | 2026-11-18 | #233 |
+| [D-049](#d-049-lumina-vrps-prints-its-summary-on-stdout-with---output) | `lumina vrps` prints its summary on stdout with `--output` | 2026-11-19 | #239 |
 
 ## D-001: CLI model
 
@@ -606,3 +607,14 @@ Milestone-scoped decisions (such as which ASN.1 compiler to use, or how to treat
 - **Why:** the counts per outcome don't say what a sync did to a repository: from which serial to which, and how much it downloaded. The maintainer asked for that after a LACNIC sync. About 117 repositories for the five RIRs make the summary longer, but stdout is the summary, and it is complete.
 - **Where:** maintainer, 2026-11-18 ("report last serial, current serial, if snapshot was downloaded or how many deltas"; then "always", "show the sessionid"); #233.
 - **As amended (#242, 2026-11-19):** the line shows the session ID abbreviated to its first 8 and last 4 characters around an ellipsis (`5d8a3f0e…0d93`; one of 12 characters or fewer whole), for readability, at the maintainer's suggestion ("first 8 chars ..... last 4 chars"). "(new session)" still marks a change. The full ID stays in the RRDP state file and in warnings and logs.
+
+## D-049: `lumina vrps` prints its summary on stdout with `--output`
+
+- **Date:** 2026-11-19
+- **Decision:** with `--output FILE`, `lumina vrps` writes its summary to stdout, as `lumina sync` does: with `--sync`, why each TAL was synced or not and the sync's summary (D-048's `rrdp:` lines included), then the VRPs per TAL and the warnings. Without `--output`, stdout carries the VRPs, so the summary stays on stderr. Errors (a locked cache, a file that can't be written, usage), progress and the banner go to stderr in both cases (D-036, D-045). With `--sync`, a TAL not synced because its last sync is within `--max-age` gets a line saying so:
+
+  ```
+  lumina vrps: not syncing tals/lacnic.tal: last synced 2026-11-19T10:02:11Z, 12 minutes ago (--max-age 1h)
+  ```
+- **Why:** the maintainer missed the sync report with `lumina vrps --sync --output`, while `lumina sync` shows it on stdout; with the VRPs in a file, stdout is free. Then nothing said that the sync had been skipped for `--max-age`. A summary on stdout without `--output` would corrupt `lumina vrps > vrps.csv` and pipes.
+- **Where:** maintainer, 2026-11-19 ("they should go to stdout in both cases", refined to the `--output` case; "not seeing the reports", found to be `--max-age`); #239. Refines D-036 for `lumina vrps`.
